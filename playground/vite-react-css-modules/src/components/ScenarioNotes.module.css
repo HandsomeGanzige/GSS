@@ -1,0 +1,76 @@
+.notesPanel {
+  display: grid;
+  grid-column: span 12;
+  gap: 16px;
+  padding: 20px;
+  background: #ffffff;
+  border: 1px solid #d8dee9;
+  border-radius: 8px;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.sectionKicker {
+  margin: 0 0 4px;
+  color: #be123c;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.sectionTitle {
+  margin: 0;
+  color: #111827;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.noteGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.noteCard {
+  display: grid;
+  gap: 10px;
+  min-height: 150px;
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.noteCard[data-tone='success'] {
+  border-color: #99f6e4;
+}
+
+.noteCard[data-tone='warning'] {
+  border-color: #fed7aa;
+}
+
+.noteTitle {
+  margin: 0;
+  color: #111827;
+  font-size: 15px;
+  line-height: 1.3;
+}
+
+.noteDetail {
+  margin: 0;
+  color: #64748b;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+@media (max-width: 760px) {
+  .noteGrid {
+    grid-template-columns: 1fr;
+  }
+}
