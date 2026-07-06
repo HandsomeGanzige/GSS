@@ -1,0 +1,82 @@
+.stateBase {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  color: #334155;
+  background: #ffffff;
+  border: 1px solid #d8dee9;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.stateActive {
+  color: #0f766e;
+  background: #ecfdf5;
+  border-color: #5eead4;
+}
+
+.responsiveStack {
+  display: flex;
+  align-items: center;
+  flex-direction: row;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.orderBox {
+  padding: 14px;
+  color: #111827;
+  background: #ffffff;
+  border: 4px solid #fecaca;
+  border-left-color: #0f766e;
+  border-radius: 8px;
+}
+
+.importantBox {
+  padding: 14px;
+  color: #991b1b !important;
+  color: #111827;
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+.customToken {
+  --case-accent: #0f766e;
+
+  padding: 14px;
+  color: var(--case-accent);
+  background: #ecfdf5;
+  border: 1px solid #99f6e4;
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+.supportsGrid {
+  display: flex;
+  gap: 10px;
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+@supports (display: grid) {
+  .supportsGrid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 600px) {
+  .responsiveStack {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

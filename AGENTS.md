@@ -37,23 +37,27 @@ CSS Modules only + Safe Atomization + Preserve Semantic Class + Unsafe CSS Fallb
 
 ## 当前状态
 
-Phase 1 已经实现为 Vite 原型：
+Phase 3 已经恢复 Vite adapter，并保留 Phase 1/2 的历史记录：
 
-- `@semantic-atomic-css/core` 负责把 `.module.css` 编译为 tokens、atomic CSS、preserved CSS、
-  manifest 数据和 report 数据。
-- `@semantic-atomic-css/vite` 采用 Route B 原型路线：拦截 `.module.css`，生成虚拟 JS 模块，
-  并导入虚拟 CSS。
-- `playground/vite-react-css-modules` 用于验证 React + Vite 流程。
-- `pnpm verify:phase1` 是当前端到端验收命令。
+- `@semantic-atomic-css/core` 只负责把标准 CSS 字符串转换为 atomic CSS、preserved CSS、manifest
+  数据和 report 数据，不感知 CSS Modules、Vite、React 或浏览器运行时。
+- `@semantic-atomic-css/vite` 采用 Route B：拦截 `.module.css`，生成虚拟 JS 模块，并导入 virtual CSS。
+- `playground/vite-css-modules-acceptance` 是自动验收用的精简 React + Vite + CSS Modules fixture。
+- `playground/vite-react-css-modules` 是较大业务场景 playground，只用于人工观察。
+- `pnpm verify:phase3` 是当前静态端到端验收命令。
+- `pnpm verify:phase3:visual` 是当前 Playwright computed style 对照验收命令。
 
 ## 仓库结构
 
 - `packages/core`：与构建工具无关的核心编译逻辑。
 - `packages/vite`：Vite adapter。
-- `playground/vite-react-css-modules`：手动验收和构建验收 playground。
+- `playground/vite-css-modules-acceptance`：自动验收用精简 fixture。
+- `playground/vite-react-css-modules`：人工观察用较大场景 playground。
 - `docs/phase-1-acceptance.md`：Phase 1 验收清单。
 - `docs/phase-1-vite-prototype-tracking.md`：Phase 1 实现记录和风险追踪。
 - `scripts/verify-phase-1.mjs`：自动化构建产物验收脚本。
+- `scripts/verify-phase-3.mjs`：Phase 3 精简 fixture 静态产物验收脚本。
+- `scripts/verify-phase-3-visual.mjs`：Phase 3 semantic/native computed style 对照验收脚本。
 - `semantic-atomic-css-plugin-plan.md`：完整技术和产品方案。
 
 ## 不可妥协的规则
@@ -148,10 +152,11 @@ unsupported-pseudo
 `packages/vite` 负责：
 
 - 解析并加载 `.module.css` 文件。
-- 调用 `core.compileCssModule`。
+- 在 adapter 层生成 CSS Modules scoped class、tokens 和 virtual module。
+- 调用 core 当前公开的 `transformCss` / `createTransformer`。
 - 返回导出 CSS Modules tokens 的 JS 模块。
-- 导入 virtual CSS。
-- 在 build 阶段 emit manifest 和 report asset。
+- dev 阶段导入全局去重 virtual CSS 快照。
+- build 阶段 emit 全局聚合 CSS asset，并在显式开启时 emit manifest/report asset。
 
 当前 Route B 实现有意近似 CSS Modules 行为。增加 `localsConvention`、自定义 scoped name 等
 兼容能力时，需要格外小心，并同步更新测试和文档。
@@ -166,16 +171,25 @@ pnpm test
 pnpm typecheck
 pnpm build
 pnpm verify:phase1
+pnpm verify:phase3
+pnpm verify:phase3:visual
 pnpm dev
+pnpm dev:acceptance
 ```
 
 任何影响 compiler 行为、Vite 集成、生成 CSS、manifest 输出或 report 输出的改动，都需要运行：
 
 ```bash
-pnpm verify:phase1
+pnpm verify:phase3
 ```
 
-playground dev server 地址是：
+浏览器级渲染等价改动还需要运行：
+
+```bash
+pnpm verify:phase3:visual
+```
+
+较大 playground dev server 地址通常是：
 
 ```txt
 http://127.0.0.1:5173/
@@ -194,11 +208,14 @@ compiler 改动需要在 `packages/core/test` 中新增或更新 Vitest 覆盖�
 - manifest 和 report 稳定性。
 - shorthand/longhand 等顺序敏感场景。
 
-集成改动需要运行 `pnpm verify:phase1`。必要时检查生成产物：
+集成改动需要运行 `pnpm verify:phase3`。必要时检查生成产物：
 
-- `playground/vite-react-css-modules/dist/semantic-atomic-report.json`
-- `playground/vite-react-css-modules/dist/semantic-atomic-manifest.json`
-- `playground/vite-react-css-modules/dist/assets/*.css`
+- `playground/vite-css-modules-acceptance/dist/assets/semantic-atomic.css`
+- `playground/vite-css-modules-acceptance/dist/semantic-atomic-report.json`
+- `playground/vite-css-modules-acceptance/dist/semantic-atomic-manifest.json`
+
+渲染等价改动需要运行 `pnpm verify:phase3:visual`。该命令使用 Playwright 驱动本机 Google Chrome，对比
+精简 fixture 在 semantic/native dev 与 build preview 下的 computed style；本阶段不覆盖 HMR 写文件验收。
 
 ## 下一步可能任务
 
@@ -209,7 +226,7 @@ Phase 1 已完成。适合继续推进的任务包括：
 - 增加 gzip 和 brotli size report。
 - 改进 Vite adapter 的 HMR 行为。
 - 改进 source map 或 source location 信息。
-- 构建 Playwright computed-style verifier，用于样式回归验证。
+- 继续扩展 Playwright computed-style verifier 的覆盖面。
 - 在 core 和 Vite 行为稳定后，再增加 Rsbuild/Rspack 支持。
 
 在 safe CSS Modules 路径拥有更强测试前，不要优先启动 Rsbuild、预处理器或 aggressive atomization。

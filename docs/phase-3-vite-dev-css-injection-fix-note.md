@@ -164,6 +164,8 @@ corepack pnpm verify:phase3
 - TypeScript typecheck。
 - core、vite package、playground build。
 - Phase 3 playground build 产物验收。
+- 后续同类 dev/build 渲染等价回归由 `playground/vite-css-modules-acceptance` 和
+  `pnpm verify:phase3:visual` 覆盖；较大 `vite-react-css-modules` playground 仅作为人工观察样例。
 
 ## 注意事项
 

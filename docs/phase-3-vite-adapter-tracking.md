@@ -10,8 +10,10 @@
 - 采用 Route B：Vite adapter 拦截 `.module.css`，返回内部 JS virtual module。
 - core 仍然只接收标准 CSS 字符串和 `ScopeStrategy`，不感知 CSS Modules。
 - adapter 内生成 scoped class、default export tokens、dev virtual CSS、build 全局聚合 CSS asset。
-- playground 已接入 `semanticAtomicCss()`，并扩展为多路由、多组件业务仪表盘场景。
+- 新增 `playground/vite-css-modules-acceptance`，作为自动验收用的精简 React + Vite + CSS Modules fixture。
+- `playground/vite-react-css-modules` 已接入 `semanticAtomicCss()`，并扩展为多路由、多组件业务仪表盘场景。
 - root 新增 `pnpm verify:phase3`。
+- root 新增 `pnpm verify:phase3:visual`，用于 Playwright computed style 对照验收。
 
 ## 已确认实现范围
 
@@ -54,11 +56,25 @@ dev 阶段：
 - virtual CSS id 的 source 使用 base64url 编码，避免 `.module.css` 源路径出现在 CSS id query 中，
   导致 Vite 把已生成的 atomic CSS 二次当作 CSS Modules scoped。
 - 文件更新时清空缓存并触发 full reload。
-- playground dev 分为两个对照模式：
+- 较大场景 playground dev 分为两个对照模式：
   - `pnpm dev:semantic` 或 `pnpm dev`：传入 `GSS_PLAYGROUND_CSS_MODE=semantic`，启用 `semanticAtomicCss()`。
   - `pnpm dev:native`：传入 `GSS_PLAYGROUND_CSS_MODE=native`，关闭 GSS adapter，使用 Vite 原生 CSS Modules。
+- 自动验收 fixture dev 分为两个对照模式：
+  - `pnpm dev:acceptance`：传入 `GSS_ACCEPTANCE_CSS_MODE=semantic`，启用 `semanticAtomicCss()`。
+  - `pnpm dev:acceptance:native`：传入 `GSS_ACCEPTANCE_CSS_MODE=native`，关闭 GSS adapter。
 
-playground 场景：
+自动验收 fixture：
+
+- `vite-css-modules-acceptance` 是测试用例式页面，不承载业务仪表盘职责。
+- 页面使用稳定 `data-gss-case` 锚点，供 visual verifier 采集 computed style。
+- CSS 覆盖重复 atomic declaration、`:hover`、`:focus-visible`、`:disabled`、`@media`、`@supports`、
+  shorthand/longhand 顺序、`!important`、custom property、descendant、compound class、attribute selector 和
+  pseudo-element。
+- `pnpm verify:phase3` 的静态产物验收已改为检查该 fixture 的 build 输出。
+- `pnpm verify:phase3:visual` 使用 Playwright 驱动本机 Google Chrome 启动 semantic/native dev 和 build preview，对比桌面与窄屏
+  computed style。HMR 写文件验收暂不纳入本次范围。
+
+较大 playground 场景：
 
 - `vite-react-css-modules` 已从单卡片 demo 扩展为 `Semantic Ops Console` 多路由业务仪表盘。
 - 路由使用无依赖 hash route，覆盖 `Overview`、`Modules`、`Diagnostics`、`Build` 四个视图。
@@ -66,6 +82,7 @@ playground 场景：
 - CSS 覆盖普通 class、`:hover`、`:focus-visible`、`:disabled`、`@media`、`@supports`。
 - 保留少量 descendant、compound class、attribute selector、pseudo-element，验证 unsafe selector fallback。
 - 页面内保留 tokens debug 面板，方便人工确认 default export 中同时包含 semantic scoped class 与 atomic classes。
+- 该 playground 用于人工观察较大场景，不再作为 Phase 3 自动验收基准。
 
 问题复盘：
 
@@ -85,3 +102,5 @@ playground 场景：
 - `composes`、`:import`、`:export`、named exports、Less/Sass 暂不支持。
 - dev 不是 CSS-only HMR，体验后续可通过 core invalidate/rebuild API 改进。
 - manifest/report 默认关闭；如需要在 CI 中检查，需要显式开启配置。
+- Playwright visual verifier 第一版只覆盖本机 Google Chrome；跨 Firefox/WebKit 差异后续再评估。
+- HMR 写文件 visual 验收暂不实现，避免自动验收脚本修改 tracked source。

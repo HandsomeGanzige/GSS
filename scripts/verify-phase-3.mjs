@@ -2,15 +2,15 @@ import { access, readdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 const root = process.cwd();
-const distDir = path.join(root, 'playground/vite-react-css-modules/dist');
+const distDir = path.join(root, 'playground/vite-css-modules-acceptance/dist');
 const htmlFile = path.join(distDir, 'index.html');
 const cssFile = path.join(distDir, 'assets/semantic-atomic.css');
 const manifestFile = path.join(distDir, 'semantic-atomic-manifest.json');
 const reportFile = path.join(distDir, 'semantic-atomic-report.json');
 
-/** 运行 Phase 3 playground 产物验收。 */
+/** 运行 Phase 3 精简 fixture 产物验收。 */
 async function main() {
-  await assertExists(htmlFile, 'playground build 应输出 index.html');
+  await assertExists(htmlFile, 'acceptance fixture build 应输出 index.html');
   await assertExists(cssFile, 'build 应输出全局聚合 semantic-atomic.css');
 
   const html = await readFile(htmlFile, 'utf8');
@@ -18,14 +18,16 @@ async function main() {
   const js = await readBuiltAssets(path.join(distDir, 'assets'), '.js');
 
   assertIncludes(html, 'assets/semantic-atomic.css', 'index.html 应注入全局聚合 CSS asset');
-  assertIncludes(js, 'Modules', 'playground 应保留多路由 Modules 视图');
-  assertIncludes(js, 'Diagnostics', 'playground 应保留多路由 Diagnostics 视图');
-  assertIncludes(js, 'Build', 'playground 应保留多路由 Build 视图');
-  assertIncludes(js, 'Routes, components and CSS Modules', 'playground 应包含模块矩阵组件');
-  assertIncludes(js, 'Safe atomization vs preserved fallback', 'playground 应包含 selector 覆盖矩阵组件');
-  assertIncludes(css, 'grid-template-columns', '业务仪表盘布局 declaration 应进入全局 CSS asset');
-  assertIncludes(css, 'background', '业务仪表盘背景 declaration 应进入全局 CSS asset');
-  assertIncludes(css, 'font-weight', '业务仪表盘文本 declaration 应进入全局 CSS asset');
+  assertIncludes(js, 'data-gss-case', 'acceptance fixture 应保留稳定验收锚点');
+  assertIncludes(js, 'Vite CSS Modules semantic/native parity cases', 'acceptance fixture 应构建精简对照页面');
+  assertIncludes(css, 'grid-template-columns', '@supports 中的布局 declaration 应进入全局 CSS asset');
+  assertIncludes(css, '@media (max-width: 600px)', 'media query atomic CSS 应进入全局 CSS asset');
+  assertIncludes(css, '@supports (display: grid)', 'supports atomic CSS 应进入全局 CSS asset');
+  assertIncludes(css, 'background', '基础背景 declaration 应进入全局 CSS asset');
+  assertIncludes(css, 'font-weight', '文本 declaration 应进入全局 CSS asset');
+  assertIncludes(css, 'border-left-color', '顺序敏感 longhand declaration 应进入全局 CSS asset');
+  assertIncludes(css, '!important', 'important declaration 应进入 atomic key 和 CSS 输出');
+  assertIncludes(css, '--case-accent', 'custom property declaration 应作为 preserved CSS 保留');
   assertIncludes(css, 'box-shadow', 'unsafe fallback CSS 应保留到全局 CSS asset');
   assertIncludes(css, '._', '全局 CSS asset 应包含 atomic class');
   assertIncludes(css, '[data-tone=', 'attribute selector fallback 应保留到全局 CSS asset');

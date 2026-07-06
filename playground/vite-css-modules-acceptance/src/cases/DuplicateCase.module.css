@@ -1,0 +1,19 @@
+.duplicateBase {
+  padding: 14px;
+  color: #334155;
+  background: #ffffff;
+  border: 1px solid #d8dee9;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+.duplicateAlign {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 14px;
+  background: #ffffff;
+  border: 1px solid #d8dee9;
+  border-radius: 8px;
+}
