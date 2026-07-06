@@ -43,10 +43,22 @@ export function createCssModuleTokens(
   localsConvention: LocalsConvention
 ): Record<string, string> {
   const tokens: Record<string, string> = {};
+  const mappings = Object.values(classes);
 
-  for (const mapping of Object.values(classes)) {
-    const exportName = resolveExportName(mapping.sourceClassName, localsConvention);
-    tokens[exportName] = mapping.suggestedClassName;
+  if (shouldExportOriginalKey(localsConvention)) {
+    for (const mapping of mappings) {
+      tokens[mapping.sourceClassName] = mapping.suggestedClassName;
+    }
+  }
+
+  for (const mapping of mappings) {
+    for (const exportName of resolveAliasExportNames(mapping.sourceClassName, localsConvention)) {
+      if (exportName in tokens) {
+        continue;
+      }
+
+      tokens[exportName] = mapping.suggestedClassName;
+    }
   }
 
   return tokens;
@@ -101,13 +113,24 @@ function createScopedClassName(input: {
   return ensureValidClassName(`${name}_${local}__${hash}`);
 }
 
-/** 把 source class 名转换成 tokens 中的导出 key。 */
-function resolveExportName(sourceClassName: string, localsConvention: LocalsConvention): string {
-  if (localsConvention === 'camelCaseOnly') {
-    return camelCaseClassName(sourceClassName);
+/** 判断当前策略是否保留原始 source class key。 */
+function shouldExportOriginalKey(localsConvention: LocalsConvention): boolean {
+  return localsConvention === 'asIs' || localsConvention === 'camelCase' || localsConvention === 'dashes';
+}
+
+/** 根据 localsConvention 生成额外 alias key，冲突由调用方按稳定规则处理。 */
+function resolveAliasExportNames(sourceClassName: string, localsConvention: LocalsConvention): string[] {
+  if (localsConvention === 'asIs') {
+    return [];
   }
 
-  return sourceClassName;
+  const alias = camelCaseClassName(sourceClassName);
+
+  if (localsConvention === 'camelCaseOnly' || localsConvention === 'dashesOnly') {
+    return [alias];
+  }
+
+  return alias === sourceClassName ? [] : [alias];
 }
 
 /** 把 dashed class 名转换为 camelCase key。 */

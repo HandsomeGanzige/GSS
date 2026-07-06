@@ -1,7 +1,7 @@
 import type { TransformCssOptions } from '@semantic-atomic-css/core';
 
-/** 第一版支持的 CSS Modules tokens key 转换策略。 */
-export type LocalsConvention = 'asIs' | 'camelCaseOnly';
+/** Phase 3 支持的 CSS Modules tokens key 转换策略。 */
+export type LocalsConvention = 'asIs' | 'camelCase' | 'camelCaseOnly' | 'dashes' | 'dashesOnly';
 
 /** 控制 CSS Modules adapter 层的配置。 */
 export type CssModulesOptions = {

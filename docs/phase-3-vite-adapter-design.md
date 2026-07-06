@@ -172,7 +172,7 @@ semanticAtomicCss({
 - `modules.localsConvention` 第一版默认 `asIs`。
 - `modules.namedExports` 第一版默认 `false`。
 - `core.preserveResolvedClass` 默认 `true`。
-- dev 默认 readable atomic class name，build 默认 hash 或继续使用 core 默认值，具体以实现阶段确认。
+- dev 默认 readable atomic class name，build 默认 hash atomic class name，可通过 `core.className` 显式覆盖。
 - `report.enabled` 默认 `false`，显式开启后默认文件名 `semantic-atomic-report.json`。
 - `manifest.enabled` 默认 `false`，显式开启后默认文件名 `semantic-atomic-manifest.json`。
 - `diagnostics.warn` 默认 `true`。
@@ -609,14 +609,15 @@ semanticAtomicCss({
 
 已落地验收覆盖：
 
-- adapter 单元测试：id 解析、include/exclude、tokens 生成、localsConvention、virtual CSS。
-- CSS Modules adapter 测试：scoped name、`ScopeStrategy`、`suggestedClassName` tokens。
+- adapter 单元测试：id 解析、include/exclude、tokens 生成、完整 localsConvention、virtual CSS。
+- CSS Modules adapter 测试：scoped name、`modules.generateScopedName`、`ScopeStrategy`、`suggestedClassName` tokens。
 - Vite 集成测试：React + Vite + CSS Modules build。
 - 精简 acceptance fixture：覆盖重复 atomic declaration、media/supports、顺序敏感 declaration、状态伪类、
   custom property 和 unsafe fallback。
 - Playwright visual verifier：对比 semantic/native dev 与 build preview 的 computed style。
 - manifest/report 验证：显式开启配置后，build 生成 JSON asset，内容含 atomic/classes/diagnostics。
-- dev 验证：virtual CSS id 编码、全局 atomic 去重顺序和 full reload 行为有单元覆盖；HMR 写文件视觉验收暂不覆盖。
+- dev 验证：virtual CSS id 编码、全局 atomic 去重顺序、full reload 和 HMR 写文件缓存失效行为有单元覆盖；
+  HMR 写文件视觉验收暂不覆盖。
 - warning 验证：unsafe selector 输出 warning/report，且 dev 重复请求不会无限刷屏。
 
 已落地命令：
@@ -837,7 +838,7 @@ pnpm verify:phase3:visual
 
 状态：
 
-- 已确认：第一版支持 `asIs` 和 `camelCaseOnly`。
+- 已确认：Phase 3 收尾后支持 `asIs`、`camelCase`、`camelCaseOnly`、`dashes`、`dashesOnly`。
 
 讨论目标：
 
@@ -856,7 +857,7 @@ pnpm verify:phase3:visual
 
 推荐：
 
-- 选择 B。`asIs` 覆盖基础场景，`camelCaseOnly` 覆盖常见 dashed class 习惯。
+- Phase 3 第一版选择 B；收尾阶段扩展为 C，补齐完整 `localsConvention` 测试矩阵。
 
 确认后影响：
 
@@ -1091,7 +1092,7 @@ pnpm verify:phase3:visual
 packages/vite + Route B + .module.css only
 + GSS stable scoped name
 + default export tokens = suggestedClassName
-+ first localsConvention = asIs + camelCaseOnly
++ localsConvention = asIs + camelCase + camelCaseOnly + dashes + dashesOnly
 + named exports deferred
 + dev virtual CSS 注入 atomic + preserved
 + build = global aggregate CSS asset

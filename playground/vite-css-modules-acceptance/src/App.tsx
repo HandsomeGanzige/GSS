@@ -37,6 +37,12 @@ export function App() {
           <span>supports column A</span>
           <span>supports column B</span>
         </div>
+        <div className={cascadeStyles['phase-three-dashed']} data-gss-case="phase-three-dashed">
+          dashed CSS Modules export key
+        </div>
+        <div className={cascadeStyles.phaseThreeCamel} data-gss-case="phase-three-camel">
+          camelCase CSS Modules export key
+        </div>
       </section>
 
       <section className="case-section" aria-label="later module duplicate cases">

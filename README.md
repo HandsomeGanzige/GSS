@@ -71,8 +71,10 @@ pnpm exec tsc -p packages/core/tsconfig.json --noEmit
 - 默认只处理 `.module.css`。
 - 采用 Route B，由 Vite adapter 自己拦截 CSS Modules；core 不感知 CSS Modules、tokens、Vite hook 或 virtual module。
 - tokens 默认返回 `suggestedClassName`，即 resolved scoped class + atomic class list。
-- 第一版支持 `asIs` 和 `camelCaseOnly`，不支持 named exports。
-- dev 使用当前已转换模块的全局 virtual CSS 快照，并允许 full reload。
+- 支持 `asIs`、`camelCase`、`camelCaseOnly`、`dashes`、`dashesOnly`，不支持 named exports。
+- 支持 `modules.generateScopedName` 字符串模板和函数形式；GSS 只承诺自身 scoped class 稳定性。
+- dev 默认 readable atomic class name，build 默认 hash atomic class name，可通过 `core.className` 覆盖。
+- dev 使用当前已转换模块的全局 virtual CSS 快照，并采用 full reload 作为 Phase 3 HMR 策略。
 - build 输出全局聚合 CSS asset：`assets/semantic-atomic.css`。
 - manifest/report 默认不输出，显式开启配置后再 emit。
 - strict mode 和 core invalidate API 暂不实现。

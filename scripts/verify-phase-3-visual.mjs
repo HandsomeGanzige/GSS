@@ -69,6 +69,24 @@ const baseCases = [
     }
   },
   {
+    id: 'phase-three-dashed',
+    properties: ['color', 'backgroundColor', 'borderTopColor', 'fontWeight'],
+    expected: {
+      color: 'rgb(29, 78, 216)',
+      backgroundColor: 'rgb(239, 246, 255)',
+      borderTopColor: 'rgb(191, 219, 254)'
+    }
+  },
+  {
+    id: 'phase-three-camel',
+    properties: ['color', 'backgroundColor', 'borderTopColor', 'fontWeight'],
+    expected: {
+      color: 'rgb(4, 120, 87)',
+      backgroundColor: 'rgb(236, 253, 245)',
+      borderTopColor: 'rgb(153, 246, 228)'
+    }
+  },
+  {
     id: 'fallback-child',
     properties: ['boxShadow', 'backgroundColor', 'borderTopColor'],
     expected: {

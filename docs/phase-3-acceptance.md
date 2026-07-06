@@ -31,20 +31,29 @@ pnpm verify:phase3:visual
 
 ```txt
 pnpm verify:phase3
+pnpm verify:phase3:visual
 ```
 
 覆盖范围：
 
 - core 单元测试通过。
 - Vite adapter 单元测试通过。
+- Vite adapter tokens 测试覆盖 `asIs`、`camelCase`、`camelCaseOnly`、`dashes`、`dashesOnly`。
+- Vite adapter scoped name 测试覆盖 `modules.generateScopedName` 字符串模板和函数形式。
+- Vite adapter build 测试覆盖 dev/build atomic class name 策略约定：dev 默认 readable，build 默认 hash，
+  且可通过 `core.className.strategy/prefix` 覆盖。
+- Vite adapter build 测试覆盖显式开启 manifest/report 后的 source location 反查，包含 atomic source、
+  class manifest id 和 diagnostic source。
 - Vite adapter dev transform 覆盖 virtual CSS id 编码，确保 atomic CSS 不会被 Vite CSS Modules 二次 scoped。
 - Vite adapter dev transform 覆盖全局 atomic CSS 去重顺序，确保后加载模块不会用重复 atomic class 覆盖
   active 状态或 `@media` 覆盖。
+- Vite adapter dev transform 覆盖 CSS Module 写文件后 full reload、dev cache 失效和重新请求后的新 tokens、
+  新 atomic CSS、新 fallback CSS。
 - 根项目 TypeScript typecheck 通过。
 - core、vite package 和精简 acceptance fixture build 通过。
 - 自动验收不再使用 `playground/vite-react-css-modules` 作为基准；该项目保留为较大场景人工观察 playground。
 - `playground/vite-css-modules-acceptance` 覆盖重复 atomic declaration、media/supports、顺序敏感 declaration、
-  custom property、状态伪类和 unsafe fallback。
+  custom property、状态伪类、dashed/camelCase export key 和 unsafe fallback。
 - acceptance fixture build 输出 `dist/assets/semantic-atomic.css`。
 - `dist/index.html` 注入全局聚合 CSS asset。
 - unsafe selector fallback CSS 保留在全局 CSS asset 中。
@@ -83,6 +92,7 @@ playground/vite-css-modules-acceptance/dist/assets/semantic-atomic.css
 
 - Less/Sass。
 - named exports。
+- `composes`、`:import`、`:export`。
 - strict mode fail build。
 - CSS-only HMR。
 - HMR 写文件 visual 验收。

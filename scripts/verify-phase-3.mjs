@@ -20,6 +20,8 @@ async function main() {
   assertIncludes(html, 'assets/semantic-atomic.css', 'index.html 应注入全局聚合 CSS asset');
   assertIncludes(js, 'data-gss-case', 'acceptance fixture 应保留稳定验收锚点');
   assertIncludes(js, 'Vite CSS Modules semantic/native parity cases', 'acceptance fixture 应构建精简对照页面');
+  assertIncludes(js, 'phase-three-dashed', 'acceptance fixture 应覆盖 dashed CSS Modules tokens key');
+  assertIncludes(js, 'phaseThreeCamel', 'acceptance fixture 应覆盖 camelCase CSS Modules tokens key');
   assertIncludes(css, 'grid-template-columns', '@supports 中的布局 declaration 应进入全局 CSS asset');
   assertIncludes(css, '@media (max-width: 600px)', 'media query atomic CSS 应进入全局 CSS asset');
   assertIncludes(css, '@supports (display: grid)', 'supports atomic CSS 应进入全局 CSS asset');

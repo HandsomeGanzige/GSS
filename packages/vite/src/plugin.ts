@@ -108,7 +108,7 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
         return;
       }
 
-      devResults.delete(file);
+      deleteTransformResult(devResults, file);
       context.server.ws.send({ type: 'full-reload' });
       return [];
     },
@@ -167,6 +167,28 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
 
 /** 兼容早期命名的插件工厂别名。 */
 export const semanticAtomicCssPlugin = semanticAtomicCss;
+
+/** 删除指定文件的 transform 结果，并兼容 macOS /var 与 /private/var 路径别名。 */
+function deleteTransformResult(results: Map<string, TransformCssResult>, file: string): void {
+  if (results.delete(file)) {
+    return;
+  }
+
+  const target = normalizeFileIdentity(file);
+
+  for (const key of results.keys()) {
+    if (normalizeFileIdentity(key) === target) {
+      results.delete(key);
+      return;
+    }
+  }
+}
+
+/** 归一化文件身份，避免同一文件因系统路径别名无法命中缓存。 */
+function normalizeFileIdentity(file: string): string {
+  const resolved = normalizeToPosix(path.resolve(file));
+  return process.platform === 'darwin' && resolved.startsWith('/private/') ? resolved.slice('/private'.length) : resolved;
+}
 
 /** 创建内部 CSS Modules JS virtual module id。 */
 function createResolvedModuleId(id: string): string {

@@ -67,6 +67,24 @@
   border-radius: 8px;
 }
 
+.phase-three-dashed {
+  padding: 14px;
+  color: #1d4ed8;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+.phaseThreeCamel {
+  padding: 14px;
+  color: #047857;
+  background: #ecfdf5;
+  border: 1px solid #99f6e4;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
 @supports (display: grid) {
   .supportsGrid {
     display: grid;

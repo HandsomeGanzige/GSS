@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-截至 2026-07-06，Phase 3 Vite adapter 第一版已落地。
+截至 2026-07-06，Phase 3 Vite adapter 第一版已落地，CSS Modules 兼容收尾项已补齐。
 
 已完成：
 
@@ -14,16 +14,22 @@
 - `playground/vite-react-css-modules` 已接入 `semanticAtomicCss()`，并扩展为多路由、多组件业务仪表盘场景。
 - root 新增 `pnpm verify:phase3`。
 - root 新增 `pnpm verify:phase3:visual`，用于 Playwright computed style 对照验收。
+- 补齐 `localsConvention` 全枚举：`asIs`、`camelCase`、`camelCaseOnly`、`dashes`、`dashesOnly`。
+- 补充 `modules.generateScopedName` 字符串模板与函数形式测试，明确 GSS 只承诺自身 scoped name 稳定性。
+- 固定 atomic class name 策略：dev 默认 readable，build 默认 hash，可通过 `core.className` 显式覆盖。
+- 补充 manifest/report source location 验收，确认 `id`、`line`、`column` 可反查原 `.module.css`。
+- 补充 dev HMR 写文件单元验收，确认 full reload 策略下不会继续使用过期 tokens、atomic CSS 或 fallback CSS。
 
 ## 已确认实现范围
 
 - 只处理 `.module.css`。
 - scoped class 由 GSS 稳定生成，并预留 `modules.generateScopedName`。
 - tokens 默认返回 `suggestedClassName`。
-- `localsConvention` 第一版支持 `asIs` 和 `camelCaseOnly`。
+- `localsConvention` 支持 `asIs`、`camelCase`、`camelCaseOnly`、`dashes`、`dashesOnly`。
 - 第一版不支持 named exports。
-- dev/HMR 允许 full reload。
+- dev/HMR 采用 full reload 作为 Phase 3 最终策略，不承诺 CSS-only HMR。
 - build 必须输出全局聚合 CSS asset。
+- dev 默认 readable atomic class name，build 默认 hash atomic class name。
 - manifest/report 默认不输出。
 - strict mode 只保留设计，不实现 fail build。
 - 不修改 core，不实现 `invalidate(id)` 或 rebuild API。
@@ -100,7 +106,17 @@ dev 阶段：
 - build 全局 CSS 注入目前面向 Vite app HTML build；library/SSR 产物还需要后续设计。
 - scoped class name 不保证与 Vite 原生 CSS Modules 完全一致。
 - `composes`、`:import`、`:export`、named exports、Less/Sass 暂不支持。
-- dev 不是 CSS-only HMR，体验后续可通过 core invalidate/rebuild API 改进。
+- dev 不是 CSS-only HMR，体验后续可通过 core invalidate/rebuild API 改进；Phase 3 仅保证 full reload 下缓存失效正确。
 - manifest/report 默认关闭；如需要在 CI 中检查，需要显式开启配置。
 - Playwright visual verifier 第一版只覆盖本机 Google Chrome；跨 Firefox/WebKit 差异后续再评估。
-- HMR 写文件 visual 验收暂不实现，避免自动验收脚本修改 tracked source。
+- HMR 写文件已有 adapter 单元验收；visual 验收暂不实现，避免自动验收脚本修改 tracked source。
+
+## Phase 3 收尾 checklist
+
+- [x] 补齐 `localsConvention` 全枚举和重复导出 key 冲突测试。
+- [x] 补齐 `modules.generateScopedName` 字符串模板与函数形式测试。
+- [x] 明确 dev/build atomic class name 默认策略，并覆盖 readable/hash/prefix。
+- [x] 验收 manifest/report 中的基础 source location。
+- [x] 补充 HMR 写文件单元验收，证明 full reload 策略不会保留过期 CSS 结果。
+- [x] 在 acceptance fixture 中增加 dashed 与 camelCase CSS Modules export key 场景。
+- [x] 明确 named exports、`composes`、`:import`、`:export`、Less/Sass、CSS-only HMR、完整 source map 进入后续阶段。
