@@ -43,8 +43,14 @@ export type SemanticAtomicCssOptions = {
 export type ResolvedSemanticAtomicCssOptions = {
   include: string[];
   exclude: string[];
-  modules: Required<Pick<CssModulesOptions, 'localsConvention' | 'namedExports'>> &
-    Pick<CssModulesOptions, 'generateScopedName'>;
+  modules: {
+    localsConvention?: LocalsConvention;
+    hasLocalsConvention: boolean;
+    generateScopedName?: CssModulesOptions['generateScopedName'];
+    hasGenerateScopedName: boolean;
+    namedExports: boolean;
+    configured: boolean;
+  };
   core: TransformCssOptions;
   manifest: Required<ManifestOptions>;
   report: Required<ReportOptions>;

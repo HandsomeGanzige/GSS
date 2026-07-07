@@ -195,6 +195,11 @@ function processSafeRule(
   currentAtomicByKey: Map<string, AtomicDeclaration>,
   selectorAnalysis: Extract<SelectorAnalysis, { kind: 'safe' }>
 ): void {
+  if (!shouldTransformSafeClass(rule, scope, selectorAnalysis.sourceClassName)) {
+    preserveNonExportedSafeRule(rule, scope, preservedRules, diagnostics, stats, selectorAnalysis);
+    return;
+  }
+
   classMappings.ensure(selectorAnalysis.sourceClassName, rule.selector);
 
   for (const declaration of rule.declarations) {
@@ -230,6 +235,59 @@ function processSafeRule(
 
     preserveDeclaration(rule, scope, preservedRules, diagnostics, stats, declarationAnalysis, selectorAnalysis);
   }
+}
+
+/** 判断 safe class 是否能通过 adapter 导出到真实 DOM class string。 */
+function shouldTransformSafeClass(rule: CssRuleRecord, scope: ScopeStrategy, sourceClassName: string): boolean {
+  return (
+    scope.shouldExportClassName?.(sourceClassName, {
+      id: rule.id,
+      originalSelector: rule.selector,
+      usage: 'safe-rule'
+    }) ?? true
+  );
+}
+
+/** 保留无法导出到 tokens 的 safe rule，避免生成不会命中 DOM 的 atomic CSS。 */
+function preserveNonExportedSafeRule(
+  rule: CssRuleRecord,
+  scope: ScopeStrategy,
+  preservedRules: PreservedRule[],
+  diagnostics: Diagnostic[],
+  stats: { unsafeRules: number; preservedDeclarations: number },
+  selectorAnalysis: Extract<SelectorAnalysis, { kind: 'safe' }>
+): void {
+  const reason: UnsafeSelectorReason = 'non-exported-class';
+  const scopedSelector = scopeSelector(rule.selector, scope, {
+    id: rule.id,
+    originalSelector: rule.selector,
+    usage: 'preserved-rule'
+  });
+
+  stats.unsafeRules += 1;
+  stats.preservedDeclarations += rule.declarations.length;
+  preservedRules.push({
+    id: rule.id,
+    order: rule.order,
+    selector: rule.selector,
+    scopedSelector,
+    declarations: rule.declarations,
+    context: rule.context,
+    reason,
+    source: rule.source
+  });
+  diagnostics.push(
+    createDiagnostic({
+      code: 'unsafe-selector',
+      level: 'warning',
+      message: unsafeSelectorMessage(rule.selector, reason),
+      id: rule.id,
+      selector: rule.selector,
+      sourceClassName: selectorAnalysis.sourceClassName,
+      reason,
+      source: rule.source
+    })
+  );
 }
 
 /** 保留 safe rule 中无法 atomize 的 declaration。 */

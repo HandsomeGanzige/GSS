@@ -4,6 +4,9 @@
 
 截至 2026-07-06，Phase 3 Vite adapter 第一版已落地，CSS Modules 兼容收尾项已补齐。
 
+2026-07-07 Phase 4 已在此基础上完成 Route A 迁移。本文前半部分保留 Phase 3 Route B 历史记录；
+当前实现状态以本节补记和 `docs/phase-4-production-readiness-plan.md` 为准。
+
 已完成：
 
 - 新增 `packages/vite`，包名为 `@semantic-atomic-css/vite`。
@@ -33,6 +36,48 @@
 - manifest/report 默认不输出。
 - strict mode 只保留设计，不实现 fail build。
 - 不修改 core，不实现 `invalidate(id)` 或 rebuild API。
+
+## Phase 4 Route A 迁移补记
+
+已完成：
+
+- Vite adapter 改为通过 Vite 6 公开导出的 `preprocessCSS` 获取原生 CSS Modules scoped CSS 和
+  `modules` tokens。
+- adapter 不再自行生成 scoped class，也不再自行实现 `localsConvention` tokens；GSS 显式
+  `modules.localsConvention` / `modules.generateScopedName` 会覆盖传给 Vite preprocess 的 CSS Modules 配置。
+- core 继续只接收标准 CSS 字符串和 `ScopeStrategy`。Route A 下传给 core 的 CSS 已是 Vite scoped CSS，
+  scope 使用 identity class resolver。
+- default export 以 Vite 原生 tokens 为基础，只对确认是 class token 且在 scoped CSS 中出现的 class
+  追加 atomic class；`@value`、`:export` 等非 class export 保持原值。
+- `composes`、`:import(...)`、`:export`、`@value` 已由 Route A 测试覆盖为可继承路径。
+- `modules.namedExports: true`、`diagnostics.strict: true` 和未显式覆盖的 `css.modules: false` 会显式失败。
+- core 新增 `non-exported-class` preserved reason，用于避免 Route A 下 `:global(...)` 等非 tokens class
+  被误 atomize 后无法命中 DOM。
+- 新增 `@semantic-atomic-css/analyzer`，显式开启 report 时在 JSON 中追加 `analysis` 字段，包含 unsafe
+  reason 分布、preserved CSS 占比、高风险文件、atomic 复用、gzip/brotli 体积估算和 `ready` /
+  `risky` / `blocked` 健康度。
+- root 新增 `pnpm verify:phase4`，该命令继承 `pnpm verify:phase3` 并额外验证 Route A feature fixture
+  和 analyzer report。
+- 2026-07-07 第二批补强：build 测试与 `pnpm verify:phase4` 临时 fixture 显式覆盖 `:import(...)`，
+  并验证 Vite `css.modules: false` 可由 GSS 显式 `modules` 配置重新启用 Route A preprocess 路径；
+  report 断言补充 analyzer `health`、高风险文件和 gzip/brotli 字段。
+- 2026-07-07 第三批补强：未显式配置 GSS `modules` 时，Vite `css.modules.namedExports: true`
+  会显式失败；显式配置 GSS `modules` 时，以 GSS modules 配置覆盖 Vite `css.modules`，避免 named
+  exports 语义漏进只支持 default export 的 Route A 输出。
+- 2026-07-07 第四批补强：build 测试与 `pnpm verify:phase4` 临时 fixture 增加普通 CSS 对照，确认普通
+  CSS 继续由 Vite 原生 CSS asset 输出，Route A 接管的 CSS Modules scoped CSS 不会重复进入该 asset。
+- 2026-07-07 visual flake 修复：`dev/desktop/base/cascade-active` 曾出现 semantic 背景色偶发回退到
+  `#ffffff`。根因是 dev 多个 virtual CSS style tag 可能带着 partial snapshot 后注入重复 atomic key。
+  当前 dev atomic CSS 使用稳定 cascade layer 固定首次声明顺序，并让 `pnpm verify:phase3:visual`
+  先构建 package dist 后再启动 playground。
+- root 新增 `pnpm verify:phase4:full`，用于串联 Phase 4 静态验收和 visual computed style 对照。
+
+仍然不做：
+
+- 不支持普通全局 CSS 自动 atomic 化。
+- 不支持 `.module.scss` / `.module.less`。
+- 不实现 named exports 和 strict mode。
+- 不做 CSS-only HMR、完整 source map 或 browser overlay。
 
 ## 实现说明
 

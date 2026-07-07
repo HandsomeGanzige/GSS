@@ -1,13 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { createCssModuleTokens, createCssModulesScopeStrategy, isCssModuleFile } from '../src/cssModules.js';
+import {
+  augmentCssModuleTokens,
+  collectExportedClassNames,
+  createCssModulesScopeStrategy,
+  createPreprocessCssModulesOptions,
+  isCssModuleFile
+} from '../src/cssModules.js';
 import type { ResolvedSemanticAtomicCssOptions } from '../src/types.js';
 
 const options: ResolvedSemanticAtomicCssOptions = {
   include: ['**/*.module.css'],
   exclude: ['**/node_modules/**'],
   modules: {
-    localsConvention: 'asIs',
-    namedExports: false
+    localsConvention: undefined,
+    hasLocalsConvention: false,
+    generateScopedName: undefined,
+    hasGenerateScopedName: false,
+    namedExports: false,
+    configured: false
   },
   core: {
     preserveResolvedClass: true
@@ -26,7 +36,7 @@ const options: ResolvedSemanticAtomicCssOptions = {
   }
 };
 
-describe('cssModules adapter helpers', () => {
+describe('cssModules Route A helpers', () => {
   it('只匹配第一版支持的 .module.css 文件', () => {
     expect(isCssModuleFile('/project/src/Button.module.css', '/project', options)).toBe(true);
     expect(isCssModuleFile('/project/src/Button.module.scss', '/project', options)).toBe(false);
@@ -34,181 +44,127 @@ describe('cssModules adapter helpers', () => {
     expect(isCssModuleFile('/project/node_modules/pkg/Button.module.css', '/project', options)).toBe(false);
   });
 
-  it('默认使用 source class 作为 tokens key', () => {
-    const tokens = createCssModuleTokens(
+  it('从 Vite tokens 和 scoped CSS 中收集可能进入 DOM 的 class name', () => {
+    const classNames = collectExportedClassNames(
       {
-        'primary-button': {
-          sourceClassName: 'primary-button',
-          resolvedClassName: 'Button_primary-button__hash',
-          atomicClassNames: ['_a'],
-          suggestedClassName: 'Button_primary-button__hash _a'
-        }
+        button: 'Button_button__hash Base_base__hash',
+        brand: '#0f0',
+        exportedText: 'hello world'
       },
-      'asIs'
+      '.Button_button__hash { color: red; }\n.Base_base__hash { color: blue; }'
     );
 
-    expect(tokens).toEqual({
-      'primary-button': 'Button_primary-button__hash _a'
-    });
+    expect([...classNames]).toEqual(['Button_button__hash', 'Base_base__hash']);
   });
 
-  it('支持 camelCaseOnly tokens key', () => {
-    const tokens = createCssModuleTokens(
+  it('identity scope 只允许 Vite tokens 中确认的 class 参与导出', () => {
+    const scope = createCssModulesScopeStrategy(new Set(['Button_button__hash']));
+
+    expect(
+      scope.resolveClassName('Button_button__hash', {
+        id: '/project/src/Button.module.css',
+        originalSelector: '.Button_button__hash',
+        usage: 'safe-rule'
+      })
+    ).toBe('Button_button__hash');
+    expect(
+      scope.shouldExportClassName?.('Button_button__hash', {
+        id: '/project/src/Button.module.css',
+        originalSelector: '.Button_button__hash',
+        usage: 'safe-rule'
+      })
+    ).toBe(true);
+    expect(
+      scope.shouldExportClassName?.('ant-btn', {
+        id: '/project/src/Button.module.css',
+        originalSelector: '.ant-btn',
+        usage: 'safe-rule'
+      })
+    ).toBe(false);
+  });
+
+  it('只给匹配到 class mapping 的 Vite token 追加 atomic class', () => {
+    const tokens = augmentCssModuleTokens(
       {
-        'primary-button': {
-          sourceClassName: 'primary-button',
-          resolvedClassName: 'Button_primary-button__hash',
-          atomicClassNames: ['_a'],
-          suggestedClassName: 'Button_primary-button__hash _a'
-        }
+        button: 'Button_button__hash',
+        composed: 'Button_button__hash Base_base__hash',
+        brand: '#0f0'
       },
-      'camelCaseOnly'
-    );
-
-    expect(tokens).toEqual({
-      primaryButton: 'Button_primary-button__hash _a'
-    });
-  });
-
-  it('支持 camelCase tokens key 同时保留原始 key', () => {
-    const tokens = createCssModuleTokens(createTokenMappings(), 'camelCase');
-
-    expect(tokens).toEqual({
-      'primary-button': 'Button_primary-button__hash _a',
-      primaryButton: 'Button_primary-button__hash _a',
-      plain: 'Button_plain__hash _b'
-    });
-  });
-
-  it('支持 dashes tokens key 同时保留原始 key', () => {
-    const tokens = createCssModuleTokens(createTokenMappings(), 'dashes');
-
-    expect(tokens).toEqual({
-      'primary-button': 'Button_primary-button__hash _a',
-      primaryButton: 'Button_primary-button__hash _a',
-      plain: 'Button_plain__hash _b'
-    });
-  });
-
-  it('支持 dashesOnly tokens key', () => {
-    const tokens = createCssModuleTokens(createTokenMappings(), 'dashesOnly');
-
-    expect(tokens).toEqual({
-      primaryButton: 'Button_primary-button__hash _a',
-      plain: 'Button_plain__hash _b'
-    });
-  });
-
-  it('重复导出 key 冲突时原始 key 优先，alias 不覆盖真实 camelCase class', () => {
-    const tokens = createCssModuleTokens(
       {
-        'primary-button': {
-          sourceClassName: 'primary-button',
-          resolvedClassName: 'Button_primary-button__hash',
-          atomicClassNames: ['_a'],
-          suggestedClassName: 'Button_primary-button__hash _a'
+        Button_button__hash: {
+          sourceClassName: 'Button_button__hash',
+          resolvedClassName: 'Button_button__hash',
+          atomicClassNames: ['_a', '_b'],
+          suggestedClassName: 'Button_button__hash _a _b'
         },
-        primaryButton: {
-          sourceClassName: 'primaryButton',
-          resolvedClassName: 'Button_primaryButton__hash',
-          atomicClassNames: ['_b'],
-          suggestedClassName: 'Button_primaryButton__hash _b'
+        Base_base__hash: {
+          sourceClassName: 'Base_base__hash',
+          resolvedClassName: 'Base_base__hash',
+          atomicClassNames: ['_a', '_c'],
+          suggestedClassName: 'Base_base__hash _a _c'
         }
-      },
-      'camelCase'
+      }
     );
 
     expect(tokens).toEqual({
-      'primary-button': 'Button_primary-button__hash _a',
-      primaryButton: 'Button_primaryButton__hash _b'
+      button: 'Button_button__hash _a _b',
+      composed: 'Button_button__hash Base_base__hash _a _b _c',
+      brand: '#0f0'
     });
   });
 
-  it('Only 策略重复导出 key 冲突时保留首次出现的稳定结果', () => {
-    const tokens = createCssModuleTokens(
+  it('未显式配置 GSS modules 时继承 Vite css.modules', () => {
+    const modules = createPreprocessCssModulesOptions(
       {
-        'primary-button': {
-          sourceClassName: 'primary-button',
-          resolvedClassName: 'Button_primary-button__hash',
-          atomicClassNames: ['_a'],
-          suggestedClassName: 'Button_primary-button__hash _a'
-        },
-        primaryButton: {
-          sourceClassName: 'primaryButton',
-          resolvedClassName: 'Button_primaryButton__hash',
-          atomicClassNames: ['_b'],
-          suggestedClassName: 'Button_primaryButton__hash _b'
-        }
+        localsConvention: 'camelCaseOnly',
+        generateScopedName: 'native_[local]'
       },
-      'dashesOnly'
+      options
     );
 
-    expect(tokens).toEqual({
-      primaryButton: 'Button_primary-button__hash _a'
+    expect(modules).toEqual({
+      localsConvention: 'camelCaseOnly',
+      generateScopedName: 'native_[local]'
     });
   });
 
-  it('支持字符串模板 scopedName 配置', () => {
-    const scope = createCssModulesScopeStrategy({
-      id: '/project/src/Button.module.css',
-      css: '.primary-button { color: red; }',
-      root: '/project',
-      options: {
+  it('显式配置 GSS modules 后不再继承 Vite css.modules', () => {
+    const modules = createPreprocessCssModulesOptions(
+      {
+        localsConvention: 'camelCaseOnly',
+        generateScopedName: 'native_[local]'
+      },
+      {
         ...options,
         modules: {
           ...options.modules,
-          generateScopedName: 'gss_[name]__[local]__[hash:base64:5]'
+          localsConvention: 'asIs',
+          hasLocalsConvention: true,
+          configured: true
         }
       }
-    });
+    );
 
-    expect(
-      scope.resolveClassName('primary-button', {
-        id: '/project/src/Button.module.css',
-        originalSelector: '.primary-button',
-        usage: 'safe-rule'
-      })
-    ).toMatch(/^gss_Button__primary-button__[a-f0-9]{6}$/);
+    expect(modules).toEqual({});
   });
 
-  it('支持函数 scopedName 配置并修正数字开头 class name', () => {
-    const scope = createCssModulesScopeStrategy({
-      id: '/project/src/Button.module.css',
-      css: '.button { color: red; }',
-      root: '/project',
-      options: {
-        ...options,
-        modules: {
-          ...options.modules,
-          generateScopedName: (name) => `123_${name}`
-        }
+  it('Vite css.modules false 在 GSS 未显式配置时保持关闭', () => {
+    expect(createPreprocessCssModulesOptions(false, options)).toBe(false);
+  });
+
+  it('GSS 显式 modules 配置可以覆盖 Vite css.modules false', () => {
+    const modules = createPreprocessCssModulesOptions(false, {
+      ...options,
+      modules: {
+        ...options.modules,
+        hasGenerateScopedName: true,
+        generateScopedName: 'gss_[local]',
+        configured: true
       }
     });
 
-    expect(
-      scope.resolveClassName('button', {
-        id: '/project/src/Button.module.css',
-        originalSelector: '.button',
-        usage: 'safe-rule'
-      })
-    ).toBe('_123_button');
+    expect(modules).toEqual({
+      generateScopedName: 'gss_[local]'
+    });
   });
 });
-
-/** 创建覆盖 dashed 与普通 class 的 tokens fixture。 */
-function createTokenMappings(): Parameters<typeof createCssModuleTokens>[0] {
-  return {
-    'primary-button': {
-      sourceClassName: 'primary-button',
-      resolvedClassName: 'Button_primary-button__hash',
-      atomicClassNames: ['_a'],
-      suggestedClassName: 'Button_primary-button__hash _a'
-    },
-    plain: {
-      sourceClassName: 'plain',
-      resolvedClassName: 'Button_plain__hash',
-      atomicClassNames: ['_b'],
-      suggestedClassName: 'Button_plain__hash _b'
-    }
-  };
-}

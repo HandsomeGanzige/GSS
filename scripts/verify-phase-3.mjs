@@ -36,7 +36,7 @@ async function main() {
   assertIncludes(css, 'content: "";', 'pseudo-element fallback 应保留到全局 CSS asset');
   assertMatches(
     css,
-    /\.[A-Za-z][A-Za-z0-9_-]*__[a-f0-9]{6}\s+\.[A-Za-z][A-Za-z0-9_-]*__[a-f0-9]{6}/,
+    /\.-?[_a-zA-Z][-_a-zA-Z0-9]*\s+\.-?[_a-zA-Z][-_a-zA-Z0-9]*/,
     'descendant selector fallback 应以 scoped class 形式保留'
   );
   await assertNotExists(manifestFile, 'manifest 默认不应输出');

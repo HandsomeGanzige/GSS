@@ -148,6 +148,7 @@ function choosePrimaryReason(details: UnsafeSelectorReason[]): UnsafeSelectorRea
     'pseudo-element',
     'unsupported-pseudo',
     'compound-class-selector',
+    'non-exported-class',
     'unknown-selector'
   ];
 

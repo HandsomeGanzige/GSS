@@ -594,8 +594,39 @@ async function saveFailureArtifacts(label, viewportName, semanticPage, nativePag
   await Promise.all([
     semanticPage.screenshot({ path: path.join(artifactDir, `${baseName}-semantic.png`), fullPage: true }),
     nativePage.screenshot({ path: path.join(artifactDir, `${baseName}-native.png`), fullPage: true }),
-    writeFile(path.join(artifactDir, `${baseName}-error.txt`), formatError(error), 'utf8')
+    writeFile(path.join(artifactDir, `${baseName}-error.txt`), formatError(error), 'utf8'),
+    writeFailureDebugArtifact(path.join(artifactDir, `${baseName}-semantic-debug.json`), semanticPage),
+    writeFailureDebugArtifact(path.join(artifactDir, `${baseName}-native-debug.json`), nativePage)
   ]);
+}
+
+/** 保存失败时页面内 CSS 与目标元素状态，便于定位 dev 注入顺序问题。 */
+async function writeFailureDebugArtifact(file, page) {
+  const debug = await page.evaluate(() => {
+    const target = document.querySelector('[data-gss-case="cascade-active"]');
+    const targetStyle = target ? window.getComputedStyle(target) : undefined;
+
+    return {
+      target: target
+        ? {
+            className: target.className,
+            backgroundColor: targetStyle?.backgroundColor,
+            color: targetStyle?.color,
+            borderTopColor: targetStyle?.borderTopColor
+          }
+        : null,
+      styles: [...document.querySelectorAll('style')].map((style, index) => ({
+        index,
+        attributes: [...style.attributes].map((attribute) => [attribute.name, attribute.value]),
+        text: style.textContent?.slice(0, 20_000) ?? ''
+      })),
+      links: [...document.querySelectorAll('link[rel="stylesheet"]')].map((link) => ({
+        href: link.getAttribute('href')
+      }))
+    };
+  });
+
+  await writeFile(file, JSON.stringify(debug, null, 2), 'utf8');
 }
 
 /** 一次申请多个空闲端口，减少调用方样板代码。 */

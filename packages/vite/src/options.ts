@@ -6,9 +6,12 @@ export function resolveOptions(options: SemanticAtomicCssOptions = {}): Resolved
     include: toArray(options.include ?? '**/*.module.css'),
     exclude: toArray(options.exclude ?? '**/node_modules/**'),
     modules: {
-      localsConvention: options.modules?.localsConvention ?? 'asIs',
+      localsConvention: options.modules?.localsConvention,
+      hasLocalsConvention: options.modules?.localsConvention !== undefined,
       generateScopedName: options.modules?.generateScopedName,
-      namedExports: options.modules?.namedExports ?? false
+      hasGenerateScopedName: options.modules?.generateScopedName !== undefined,
+      namedExports: options.modules?.namedExports ?? false,
+      configured: options.modules !== undefined
     },
     core: {
       preserveResolvedClass: options.core?.preserveResolvedClass ?? true,

@@ -1,10 +1,11 @@
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { build } from 'vite';
+import { build, type CSSModulesOptions } from 'vite';
 import { semanticAtomicCss } from '../src/plugin.js';
 
 const tempRoots: string[] = [];
+type TestCssModulesOptions = CSSModulesOptions & { namedExports?: boolean };
 
 describe('semanticAtomicCss build plugin', () => {
   afterEach(async () => {
@@ -83,9 +84,7 @@ describe('semanticAtomicCss build plugin', () => {
       column: 3
     });
     expect(atomicEntry.sources[0]?.id).toMatch(/Button\.module\.css$/);
-    expect(classEntry).toMatchObject({
-      sourceClassName: 'button'
-    });
+    expect(classEntry.sourceClassName).toContain('button');
     expect(classEntry.id).toMatch(/Button\.module\.css$/);
     expect(diagnostic).toMatchObject({
       code: 'unsafe-selector',
@@ -95,11 +94,213 @@ describe('semanticAtomicCss build plugin', () => {
       line: 5,
       column: 1
     });
+    expect(report.analysis).toMatchObject({
+      health: {
+        status: 'risky'
+      },
+      risk: {
+        unsafeReasonDistribution: {
+          'attribute-selector': 1
+        },
+        highRiskFiles: [expect.objectContaining({ unsafeRules: 1 })]
+      },
+      size: {
+        beforeRawCssBytes: expect.any(Number),
+        afterGzipCssBytes: expect.any(Number),
+        afterBrotliCssBytes: expect.any(Number)
+      }
+    });
+  });
+
+  it('Route A 复用 Vite preprocessCSS 处理 composes、:import、@value 和 :export', async () => {
+    const root = await createBuildFixture(
+      [
+        ':import("./Tokens.module.css") {',
+        '  importedBrand: brand;',
+        '}',
+        '@value gap: 8px;',
+        ':export { exported: importedBrand; gapValue: gap; }',
+        '.primary-button {',
+        '  composes: base from "./Base.module.css";',
+        '  background: importedBrand;',
+        '  padding: gap;',
+        '}'
+      ].join('\n'),
+      {
+        mainJs: [
+          "import './global.css';",
+          "import styles from './Button.module.css';",
+          "document.body.setAttribute('data-primary', styles.primaryButton);",
+          "document.body.setAttribute('data-exported', styles.exported);",
+          "document.body.setAttribute('data-gap', styles.gapValue);"
+        ].join('\n'),
+        extraFiles: {
+          'Base.module.css': '.base {\n  color: red;\n}',
+          'global.css': '.global-banner {\n  color: black;\n}',
+          'Tokens.module.css': ':export {\n  brand: #0f0;\n}'
+        }
+      }
+    );
+
+    await runBuild(root, {
+      modules: {
+        localsConvention: 'camelCaseOnly',
+        generateScopedName: 'x_[name]__[local]'
+      },
+      core: {
+        className: {
+          strategy: 'readable'
+        }
+      }
+    });
+
+    const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
+    const js = await readBuiltAssets(join(root, 'dist/assets'), '.js');
+    const viteCss = await readBuiltAssetsExcept(join(root, 'dist/assets'), '.css', new Set(['semantic-atomic.css']));
+
+    expect(js).toContain('x_Button-module__primary-button');
+    expect(js).toContain('x_Base-module__base');
+    expect(js).toContain('_background_0f0');
+    expect(js).toContain('_padding_8px');
+    expect(js).toContain('_color_red');
+    expect(js).toContain('#0f0');
+    expect(js).not.toContain('#0f0 _');
+    expect(js).toMatch(/gapValue:\s*"8px"/);
+    expect(css).toContain('background: #0f0;');
+    expect(css).toContain('padding: 8px;');
+    expect(css).toContain('color: red;');
+    expect(css).not.toContain('.x_Button-module__primary-button {');
+    expect(viteCss).toContain('.global-banner');
+    expect(viteCss).not.toContain('x_Button-module__primary-button');
+  });
+
+  it('Route A 对非导出 global selector 保留 fallback，避免生成无法命中 DOM 的 atomic CSS', async () => {
+    const root = await createBuildFixture(
+      [
+        '.button {',
+        '  color: red;',
+        '}',
+        '',
+        ':global(.ant-btn) {',
+        '  color: blue;',
+        '}'
+      ].join('\n')
+    );
+
+    await runBuild(root, {
+      core: {
+        className: {
+          strategy: 'readable'
+        }
+      },
+      report: {
+        enabled: true
+      }
+    });
+
+    const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
+    const report = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-report.json'), 'utf8'));
+
+    expect(css).toContain('._color_red');
+    expect(css).toContain('.ant-btn');
+    expect(css).toContain('color: blue;');
+    expect(report.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'unsafe-selector',
+        reason: 'non-exported-class'
+      })
+    );
+  });
+
+  it('Phase 4 对未实现的 namedExports 和 strict mode 显式失败', async () => {
+    const root = await createBuildFixture('.button {\n  color: red;\n}');
+
+    await expect(
+      runBuild(root, {
+        modules: {
+          namedExports: true
+        }
+      })
+    ).rejects.toThrow('modules.namedExports: true');
+
+    await expect(runBuild(root, {}, { namedExports: true })).rejects.toThrow('css.modules.namedExports');
+
+    await expect(
+      runBuild(root, {
+        diagnostics: {
+          strict: true
+        }
+      })
+    ).rejects.toThrow('diagnostics.strict: true');
+  });
+
+  it('Vite css.modules: false 且未显式配置 GSS modules 时失败', async () => {
+    const root = await createBuildFixture('.button {\n  color: red;\n}');
+
+    await expect(runBuild(root, {}, false)).rejects.toThrow('css.modules: false');
+  });
+
+  it('GSS 显式 modules 配置可在 Vite css.modules: false 下重新启用 Route A', async () => {
+    const root = await createBuildFixture('.button {\n  color: red;\n}');
+
+    await runBuild(
+      root,
+      {
+        modules: {
+          generateScopedName: 'gss_[local]'
+        },
+        core: {
+          className: {
+            strategy: 'readable'
+          }
+        }
+      },
+      false
+    );
+
+    const js = await readBuiltAssets(join(root, 'dist/assets'), '.js');
+    const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
+
+    expect(js).toContain('gss_button');
+    expect(js).toContain('_color_red');
+    expect(css).toContain('._color_red');
+  });
+
+  it('GSS 显式 modules 配置会覆盖 Vite css.modules.namedExports', async () => {
+    const root = await createBuildFixture('.button {\n  color: red;\n}');
+
+    await runBuild(
+      root,
+      {
+        modules: {
+          generateScopedName: 'gss_[local]'
+        },
+        core: {
+          className: {
+            strategy: 'readable'
+          }
+        }
+      },
+      {
+        namedExports: true,
+        generateScopedName: 'native_[local]'
+      }
+    );
+
+    const js = await readBuiltAssets(join(root, 'dist/assets'), '.js');
+
+    expect(js).toContain('gss_button');
+    expect(js).not.toContain('native_button');
   });
 });
 
+type BuildFixtureOptions = {
+  mainJs?: string;
+  extraFiles?: Record<string, string>;
+};
+
 /** 创建最小 Vite build fixture。 */
-async function createBuildFixture(css: string): Promise<string> {
+async function createBuildFixture(css: string, options: BuildFixtureOptions = {}): Promise<string> {
   const root = await mkdtemp(join(process.cwd(), '.tmp-vite-build-'));
   const srcDir = join(root, 'src');
   tempRoots.push(root);
@@ -107,25 +308,66 @@ async function createBuildFixture(css: string): Promise<string> {
   await writeFile(join(root, 'index.html'), '<script type="module" src="/src/main.js"></script>');
   await writeFile(
     join(srcDir, 'main.js'),
-    [
-      "import styles from './Button.module.css';",
-      "document.body.setAttribute('data-class-name', styles.button);"
-    ].join('\n')
+    options.mainJs ??
+      [
+        "import styles from './Button.module.css';",
+        "document.body.setAttribute('data-class-name', styles.button);"
+      ].join('\n')
   );
   await writeFile(join(srcDir, 'Button.module.css'), css);
+
+  for (const [filename, source] of Object.entries(options.extraFiles ?? {})) {
+    await writeFile(join(srcDir, filename), source);
+  }
+
   return root;
 }
 
 /** 运行带 GSS adapter 的 Vite build。 */
-async function runBuild(root: string, options: Parameters<typeof semanticAtomicCss>[0] = {}): Promise<void> {
+async function runBuild(
+  root: string,
+  options: Parameters<typeof semanticAtomicCss>[0] = {},
+  cssModules?: false | TestCssModulesOptions
+): Promise<void> {
   await build({
     root,
     configFile: false,
     logLevel: 'silent',
+    css: {
+      modules: cssModules
+    },
     plugins: [semanticAtomicCss(options)],
     build: {
       outDir: join(root, 'dist'),
       emptyOutDir: true
     }
   });
+}
+
+/** 读取 build 输出目录中指定后缀的 asset 内容。 */
+async function readBuiltAssets(dir: string, extension: string): Promise<string> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const chunks: string[] = [];
+
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith(extension)) {
+      chunks.push(await readFile(join(dir, entry.name), 'utf8'));
+    }
+  }
+
+  return chunks.join('\n');
+}
+
+/** 读取 build 输出目录中指定后缀且排除给定文件名的 asset 内容。 */
+async function readBuiltAssetsExcept(dir: string, extension: string, excludedNames: Set<string>): Promise<string> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const chunks: string[] = [];
+
+  for (const entry of entries) {
+    if (entry.isFile() && entry.name.endsWith(extension) && !excludedNames.has(entry.name)) {
+      chunks.push(await readFile(join(dir, entry.name), 'utf8'));
+    }
+  }
+
+  return chunks.join('\n');
 }

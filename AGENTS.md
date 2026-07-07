@@ -37,19 +37,24 @@ CSS Modules only + Safe Atomization + Preserve Semantic Class + Unsafe CSS Fallb
 
 ## 当前状态
 
-Phase 3 已经恢复 Vite adapter，并保留 Phase 1/2 的历史记录：
+Phase 4 已经完成 Vite adapter Route A 迁移和第二批验收补强，并保留 Phase 1/2/3 的历史记录：
 
 - `@semantic-atomic-css/core` 只负责把标准 CSS 字符串转换为 atomic CSS、preserved CSS、manifest
   数据和 report 数据，不感知 CSS Modules、Vite、React 或浏览器运行时。
-- `@semantic-atomic-css/vite` 采用 Route B：拦截 `.module.css`，生成虚拟 JS 模块，并导入 virtual CSS。
+- `@semantic-atomic-css/vite` 采用 Route A：通过 Vite 6 `preprocessCSS` 复用原生 CSS Modules scoped CSS
+  和 `modules` tokens，再执行 safe atomization、tokens atomic 增强、fallback CSS 和 asset/report 输出。
+- `@semantic-atomic-css/analyzer` 负责构建后风险、收益、体积和试用健康度分析，不读取文件、不依赖 Vite。
 - `playground/vite-css-modules-acceptance` 是自动验收用的精简 React + Vite + CSS Modules fixture。
 - `playground/vite-react-css-modules` 是较大业务场景 playground，只用于人工观察。
 - `pnpm verify:phase3` 是当前静态端到端验收命令。
 - `pnpm verify:phase3:visual` 是当前 Playwright computed style 对照验收命令。
+- `pnpm verify:phase4` 是当前 Route A 与 analyzer 静态验收命令。
+- `pnpm verify:phase4:full` 是当前 Phase 4 完整验收命令，会额外执行 visual computed style 对照。
 
 ## 仓库结构
 
 - `packages/core`：与构建工具无关的核心编译逻辑。
+- `packages/analyzer`：与构建工具无关的构建后分析与评估逻辑。
 - `packages/vite`：Vite adapter。
 - `playground/vite-css-modules-acceptance`：自动验收用精简 fixture。
 - `playground/vite-react-css-modules`：人工观察用较大场景 playground。
@@ -58,6 +63,7 @@ Phase 3 已经恢复 Vite adapter，并保留 Phase 1/2 的历史记录：
 - `scripts/verify-phase-1.mjs`：自动化构建产物验收脚本。
 - `scripts/verify-phase-3.mjs`：Phase 3 精简 fixture 静态产物验收脚本。
 - `scripts/verify-phase-3-visual.mjs`：Phase 3 semantic/native computed style 对照验收脚本。
+- `scripts/verify-phase-4.mjs`：Phase 4 Route A 与 analyzer 静态产物验收脚本。
 - `semantic-atomic-css-plugin-plan.md`：完整技术和产品方案。
 
 ## 不可妥协的规则
@@ -152,14 +158,19 @@ unsupported-pseudo
 `packages/vite` 负责：
 
 - 解析并加载 `.module.css` 文件。
-- 在 adapter 层生成 CSS Modules scoped class、tokens 和 virtual module。
+- 通过 Vite 6 `preprocessCSS` 获取原生 CSS Modules scoped CSS 和 `modules` tokens。
+- 在 adapter 层接管最终 JS/CSS 输出，但不自行实现 scoped class 或 CSS Modules tokens。
 - 调用 core 当前公开的 `transformCss` / `createTransformer`。
-- 返回导出 CSS Modules tokens 的 JS 模块。
+- 返回基于 Vite 原生 tokens 增强后的 default export JS 模块。
 - dev 阶段导入全局去重 virtual CSS 快照。
 - build 阶段 emit 全局聚合 CSS asset，并在显式开启时 emit manifest/report asset。
+- 显式开启 report 时，应通过 `@semantic-atomic-css/analyzer` 添加 `analysis` 字段。
 
-当前 Route B 实现有意近似 CSS Modules 行为。增加 `localsConvention`、自定义 scoped name 等
-兼容能力时，需要格外小心，并同步更新测试和文档。
+Route A 下，`composes`、`:import(...)`、`:export`、`@value`、`localsConvention`、`generateScopedName`
+优先继承 Vite 原生 CSS Modules 行为。未显式配置 GSS `modules` 时继承 Vite `css.modules`；显式配置
+GSS `modules` 时，以 GSS modules 配置作为覆盖源。`modules.namedExports: true`、未显式覆盖的
+Vite `css.modules.namedExports: true`、`diagnostics.strict: true` 和未显式覆盖的 `css.modules: false`
+当前必须显式失败。
 
 ## 常用命令
 
@@ -173,6 +184,8 @@ pnpm build
 pnpm verify:phase1
 pnpm verify:phase3
 pnpm verify:phase3:visual
+pnpm verify:phase4
+pnpm verify:phase4:full
 pnpm dev
 pnpm dev:acceptance
 ```
@@ -183,10 +196,22 @@ pnpm dev:acceptance
 pnpm verify:phase3
 ```
 
+Route A、CSS Modules feature 继承、配置保护或 analyzer report 改动还需要运行：
+
+```bash
+pnpm verify:phase4
+```
+
 浏览器级渲染等价改动还需要运行：
 
 ```bash
 pnpm verify:phase3:visual
+```
+
+需要一次性覆盖 Phase 4 静态验收和 visual computed style 对照时运行：
+
+```bash
+pnpm verify:phase4:full
 ```
 
 较大 playground dev server 地址通常是：
@@ -214,8 +239,9 @@ compiler 改动需要在 `packages/core/test` 中新增或更新 Vitest 覆盖�
 - `playground/vite-css-modules-acceptance/dist/semantic-atomic-report.json`
 - `playground/vite-css-modules-acceptance/dist/semantic-atomic-manifest.json`
 
-渲染等价改动需要运行 `pnpm verify:phase3:visual`。该命令使用 Playwright 驱动本机 Google Chrome，对比
-精简 fixture 在 semantic/native dev 与 build preview 下的 computed style；本阶段不覆盖 HMR 写文件验收。
+渲染等价改动需要运行 `pnpm verify:phase3:visual`。该命令会先构建 core、analyzer、vite package，
+再使用 Playwright 驱动本机 Google Chrome，对比精简 fixture 在 semantic/native dev 与 build preview
+下的 computed style；本阶段不覆盖 HMR 写文件验收。
 
 ## 下一步可能任务
 

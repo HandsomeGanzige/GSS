@@ -59,6 +59,7 @@ export type DeclarationMeta = {
 export type UnsafeSelectorReason =
   | 'selector-list'
   | 'missing-source-class'
+  | 'non-exported-class'
   | 'compound-class-selector'
   | 'descendant-selector'
   | 'child-selector'

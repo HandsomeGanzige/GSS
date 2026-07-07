@@ -92,6 +92,7 @@ describe('semanticAtomicCss dev plugin', () => {
 
       const cssCode = await loadVirtualCss(server, cssImport);
 
+      expect(cssCode).toContain('@layer gss-');
       expect(countOccurrences(cssCode, '._background_ffffff {')).toBe(1);
       expect(countOccurrences(cssCode, '._align-items_center {')).toBe(1);
       expect(cssCode.indexOf('._background_ffffff {')).toBeLessThan(cssCode.indexOf('._background_ecfdf5 {'));

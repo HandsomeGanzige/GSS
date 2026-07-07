@@ -173,3 +173,26 @@ corepack pnpm verify:phase3
 - 后续如果新增 virtual module query 参数，需要确认完整 id 不会触发 Vite CSS Modules 判断。
 - 这个修复是 adapter 层问题，不应把 CSS Modules 判断、Vite id 规则或 dev cache 逻辑下沉到 core。
 - 运行中的 Vite dev server 会缓存已加载的 plugin 代码；修复 `packages/vite/dist` 后需要重启 dev server。
+
+## Phase 4 Route A 追加修复：partial snapshot 覆盖
+
+2026-07-07，Phase 4 Route A visual 验收中发现 `dev/desktop/base/cascade-active` 偶发失败：
+
+```txt
+backgroundColor 期望 rgb(236, 253, 245)，实际 rgb(255, 255, 255)
+```
+
+失败时 DOM class string 已包含 `_background_ecfdf5`，但后注入的某个 virtual CSS style tag 只包含
+partial snapshot 中的 `_background_ffffff`，没有包含 active 语义对应的 `_background_ecfdf5`。由于两者
+都是单 class selector，后注入的重复 base atomic rule 会覆盖 active atomic rule。
+
+修复策略：
+
+- dev 阶段为 atomic key 记录首次声明顺序。
+- dev virtual CSS 渲染 atomic rule 时，把每条 rule 放入按首次声明顺序命名的 cascade layer。
+- 每个 virtual CSS 片段都输出当前 layer prelude，使后注入的重复 atomic key 仍处于原来的低优先级层。
+- preserved fallback CSS 不进入该 layer 机制，继续作为普通 fallback CSS 输出。
+
+同时，`pnpm verify:phase3:visual` 已改为先构建 core、analyzer 和 Vite adapter package，再启动
+playground，避免 visual 验收使用旧 `packages/vite/dist` 造成误判。失败 artifact 也新增 debug JSON，
+记录目标元素 className、computed style、style tag 和 stylesheet link 信息。

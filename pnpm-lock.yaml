@@ -27,6 +27,22 @@ importers:
         specifier: ^2.1.8
         version: 2.1.8(@types/node@22.10.2)
 
+  packages/analyzer:
+    dependencies:
+      '@semantic-atomic-css/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.2
+        version: 22.10.2
+      typescript:
+        specifier: ^5.7.2
+        version: 5.7.2
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.8(@types/node@22.10.2)
+
   packages/core:
     dependencies:
       postcss:
@@ -45,9 +61,18 @@ importers:
 
   packages/vite:
     dependencies:
+      '@semantic-atomic-css/analyzer':
+        specifier: workspace:*
+        version: link:../analyzer
       '@semantic-atomic-css/core':
         specifier: workspace:*
         version: link:../core
+      postcss:
+        specifier: ^8.4.49
+        version: 8.4.49
+      postcss-selector-parser:
+        specifier: ^7.0.0
+        version: 7.0.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.2

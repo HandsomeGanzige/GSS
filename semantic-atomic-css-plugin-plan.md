@@ -21,9 +21,10 @@
 - 多人协作时容易出现 arbitrary value 滥用
 - 样式复用边界依赖团队规范
 
-本项目希望探索一种反向方案：
+本项目希望探索一种依托 CSS Modules 的反向方案：
 
-> 开发者仍然像传统 CSS 一样写语义化 class，构建工具在打包阶段自动将 CSS declaration 编译成可复用的 Atomic CSS 产物。
+> 开发者仍然像传统 CSS Modules 一样写语义化 class，构建工具在打包阶段通过 CSS Modules export mapping
+> 自动追加 atomic class，并生成可复用的 Atomic CSS 产物。
 
 ---
 
@@ -77,7 +78,7 @@ export default {
 也就是说：
 
 ```txt
-开发写语义 CSS，产物生成 Atomic CSS。
+开发写语义 CSS Modules，产物生成 Atomic CSS。
 ```
 
 ---
@@ -88,11 +89,19 @@ export default {
 
 本工具可以被定义为：
 
-> 一个面向现代前端工程的 Semantic CSS to Atomic CSS 编译器。
+> 一个面向 CSS Modules 项目的 Semantic CSS Modules to Atomic CSS 编译器。
 
-更准确地说，MVP 阶段是：
+更准确地说，GSS 的产品主路径是：
 
-> 一个基于 CSS Modules 的 Safe Atomic CSS Compiler。
+> CSS Modules only + Safe Atomization + Preserve Semantic Class + Unsafe CSS Fallback。
+
+这里的 CSS Modules only 不是单纯的 MVP 限制，而是项目成立的核心杠杆。CSS Modules 提供了
+`styles.xxx` export mapping 这个稳定插入点，使工具可以在不改写 JSX / TSX 的前提下，把 atomic
+class 安全追加到 DOM class string 中。
+
+普通全局 CSS 没有这个插入点。如果要把普通 CSS 自动 atomic 化，通常必须改写 HTML / JSX / 模板、
+引入 runtime class 注入，或继续保留原 selector 而失去主要复用收益。因此普通 CSS 不进入 GSS
+主线能力；未来最多作为 analysis/report-only 或显式实验能力讨论。
 
 ---
 
@@ -100,21 +109,21 @@ export default {
 
 | 维度 | Tailwind / UnoCSS | 本工具 |
 |---|---|---|
-| 开发方式 | 开发者直接写 atomic class | 开发者写语义 CSS class |
+| 开发方式 | 开发者直接写 atomic class | 开发者写语义 CSS Modules class |
 | 样式组织 | utility-first | semantic-first |
 | JSX 可读性 | className 可能很长 | className 保持简洁 |
 | CSS 产物 | Atomic CSS | Atomic CSS |
 | 学习成本 | 需要学习 utility class 体系 | 接近传统 CSS |
-| 编译难点 | class 扫描、动态 class | CSS 语义安全转换 |
+| 编译难点 | class 扫描、动态 class | CSS Modules mapping 与 CSS 语义安全转换 |
 | 适合切入点 | 新项目、设计系统成熟项目 | 已使用 CSS Modules 的项目 |
 
 ---
 
-## 3. MVP 约束
+## 3. 产品边界与 MVP 约束
 
-### 3.1 强制前置条件
+### 3.1 强制产品边界
 
-MVP 阶段建议明确限制：
+GSS 主路径明确限制：
 
 ```txt
 只支持 CSS Modules。
@@ -126,7 +135,7 @@ MVP 阶段建议明确限制：
 *.module.css
 ```
 
-暂不处理：
+主线不处理：
 
 ```txt
 普通全局 CSS
@@ -136,17 +145,21 @@ CSS-in-JS
 动态运行时注入样式
 ```
 
+这些范围不是简单延后，而是与当前产品价值不同。尤其普通全局 CSS 缺少 CSS Modules export mapping，
+无法在不改业务代码的前提下把 atomic class 追加到真实 DOM。
+
 ---
 
-### 3.2 为什么选择 CSS Modules 作为前置条件
+### 3.2 为什么 CSS Modules 是产品基础
 
-CSS Modules 能显著降低问题复杂度：
+CSS Modules 不只是降低实现复杂度，它提供了 GSS 的核心产品支点：
 
-1. **作用域可控**  
+1. **有稳定 class 注入点**  
+   业务侧使用 `styles.button`，插件可以改写 CSS Modules export mapping，让 DOM 同时获得 semantic
+   scoped class 和 atomic classes，而不需要改写 JSX / TSX。
+
+2. **作用域可控**  
    每个 class 属于当前 module，不需要担心全局同名 class 冲突。
-
-2. **不需要改写 JSX / TSX**  
-   业务侧仍然使用 `styles.button`，插件只需要改写 CSS Modules export mapping。
 
 3. **迁移成本低**  
    用户已有 CSS Modules 项目可以直接接入。
@@ -157,16 +170,19 @@ CSS Modules 能显著降低问题复杂度：
 5. **可以保留 semantic hash class**  
    保证复杂 selector、调试、测试、兼容性更安全。
 
+6. **可以安全回退到 fallback CSS**  
+   unsafe selector 仍能依赖保留的 scoped class 命中 DOM，这是普通 CSS 自动 atomic 化难以同时满足的能力。
+
 ---
 
-### 3.3 MVP 支持范围
+### 3.3 CSS Modules 主路径支持范围
 
-MVP 支持：
+当前主路径支持：
 
 ```txt
 - .module.css
 - 单 local class selector
-- 普通 CSS declaration
+- 普通属性 declaration
 - 简单 pseudo class
 - @media 下的单 local class
 - @supports 下的单 local class
@@ -205,9 +221,9 @@ MVP 支持：
 
 ---
 
-### 3.4 MVP 暂不支持或默认保留
+### 3.4 Safe mode 暂不支持或默认保留
 
-MVP 暂不转换：
+Safe mode 暂不转换：
 
 ```css
 .card .button {}
@@ -235,6 +251,24 @@ button.button {}
 ```txt
 不转换，保留原 CSS，并输出 unsafe report。
 ```
+
+---
+
+### 3.5 普通 CSS 的定位
+
+普通全局 CSS 不作为 GSS 主线转换对象。
+
+如果未来探索普通 CSS，也应优先定位为：
+
+```txt
+analysis/report-only
+显式 opt-in 实验能力
+迁移辅助工具
+```
+
+不应把普通 CSS 自动 atomic 化作为默认产品承诺。原因是普通 CSS 没有 CSS Modules export mapping，
+无法自然把 atomic class 追加到 DOM。若要做到语义等价，通常必须引入模板/JSX 改写、运行时 class
+注入或全项目使用点分析，这会让问题域从 CSS Modules adapter 扩大为全栈样式重写系统。
 
 ---
 
@@ -389,9 +423,12 @@ packages/
 - manifest 生成
 - report 生成
 
+core 可以保持为通用 CSS transform engine，但这只是架构边界，不代表产品主线承诺普通 CSS 转换。
+面向用户的稳定闭环仍然由 CSS Modules adapter 提供。
+
 #### vite adapter
 
-负责接入 Vite：
+负责接入 Vite CSS Modules：
 
 - 读取配置
 - 接入 transform / generateBundle
@@ -401,19 +438,20 @@ packages/
 
 #### rsbuild adapter
 
-后续阶段接入 Rsbuild / Rspack：
+后续阶段接入 Rsbuild / Rspack 的 CSS Modules 构建流程：
 
 - 复用 core
-- 通过 Rsbuild plugin 生命周期接入
-- 必要时使用 Rspack loader / plugin
+- 通过 Rsbuild plugin 生命周期处理 `.module.css`
+- 必要时使用 Rspack loader / plugin 生成 CSS Modules tokens
+- 不把普通 CSS 自动转换作为默认目标
 
 ---
 
 ## 6. 核心编译流程
 
-### 6.1 Pipeline
+### 6.1 CSS Modules 主路径 Pipeline
 
-推荐核心流程：
+推荐主路径流程：
 
 ```txt
 1. 读取 .module.css 文件
@@ -430,6 +468,9 @@ packages/
 12. 生成 manifest
 13. 生成 size report
 ```
+
+其中第 2 到第 9 步属于 core 可复用的 CSS transform 能力；第 1、10、11、12、13 步由具体
+CSS Modules adapter / integration layer 负责组织。
 
 ---
 
@@ -1101,6 +1142,16 @@ Vite 原生 CSS Modules 编译
 
 等 core 算法验证后，再考虑与 Vite 原生 CSS pipeline 深度兼容。
 
+Phase 4 当前结论：
+
+```txt
+Vite adapter 已从路线 B 迁移到路线 A。
+```
+
+具体落地方式是使用 Vite 6 公开导出的 `preprocessCSS` 获取原生 CSS Modules scoped CSS 与
+`modules` tokens；GSS 不再自行生成 scoped class 或自行实现 CSS Modules tokens，只在 Vite 结果基础上
+执行 safe atomization、tokens atomic 增强、fallback CSS、asset/report 输出和 analyzer 集成。
+
 ---
 
 ## 14. Vite 插件实现草图
@@ -1576,33 +1627,52 @@ fixtures/
 
 ---
 
-### 21.4 阶段四：预处理器支持
+### 21.4 阶段四：真实项目试用稳固
+
+任务：
+
+```txt
+- 强化 CSS Modules only 产品边界
+- 检测暂不支持的 CSS Modules 语义，避免 silent miscompile
+- 改进 report，让用户理解 atomic 收益、fallback 占比和 unsafe reason 分布
+- 评估并规划可复用的 CSS Modules adapter 能力
+- 评估并规划构建工具无关的 report / size report 能力
+- 扩展 acceptance fixture 和 computed style verifier 的高风险覆盖
+```
+
+---
+
+### 21.5 阶段五：CSS Modules 预处理器支持
 
 任务：
 
 ```txt
 - 支持 .module.scss
 - 支持 .module.less
-- 先处理预处理器编译后的 CSS
-- 尽量保留 source map
+- 先由 adapter / 构建工具把预处理器输入编译为标准 CSS
+- 继续通过 CSS Modules mapping 追加 atomic class
+- 尽量保留 source location / source map 辅助信息
 ```
+
+注意：本阶段仍然是 CSS Modules 预处理器支持，不是普通 `.scss` / `.less` 全局 CSS 转换。
 
 ---
 
-### 21.5 阶段五：Rsbuild 支持
+### 21.6 阶段六：Rsbuild / Rspack CSS Modules 支持
 
 任务：
 
 ```txt
 - 实现 rsbuild adapter
-- 复用 core
-- 接入 Rsbuild / Rspack 构建流程
-- 输出 asset / manifest / report
+- 复用 core 和可复用 CSS Modules adapter 能力
+- 接入 Rsbuild / Rspack CSS Modules 构建流程
+- 输出 atomic CSS asset / manifest / report
+- 与 Vite adapter 保持一致的 safe fallback 和 report 语义
 ```
 
 ---
 
-### 21.6 阶段六：验证器与调试体验
+### 21.7 阶段七：验证器与调试体验
 
 任务：
 
@@ -1612,6 +1682,8 @@ fixtures/
 - Dev server report API
 - Browser overlay
 ```
+
+验证器默认围绕 CSS Modules 原生构建与 GSS 构建做对照，不扩展为任意普通 CSS 页面转换验证器。
 
 ---
 
@@ -1655,19 +1727,16 @@ fixtures/
 
 ---
 
-## 23. Code Agent 优先任务清单
+## 23. Code Agent 当前优先任务清单
 
 ### 23.1 第一优先级
 
 ```txt
-1. 初始化 monorepo
-2. 创建 core 包
-3. 创建 vite 包
-4. 创建 playground
-5. 实现最小 compiler.compileCssModule
-6. 支持 .button { color: red; font-size: 16px; }
-7. 输出 tokens + virtual CSS
-8. 页面正常渲染
+1. 准备 Phase 4 真实项目试用稳固规划文档
+2. 将 CSS Modules only 产品边界沉淀到 README、AGENTS 和阶段文档
+3. 设计暂不支持 CSS Modules 语义的检测和失败策略
+4. 设计 report / size report 的构建工具无关共享能力
+5. 补充对应 acceptance fixture 和验收命令规划
 ```
 
 ---
@@ -1675,24 +1744,23 @@ fixtures/
 ### 23.2 第二优先级
 
 ```txt
-1. 支持 :hover
-2. 支持 @media
-3. 支持 unsafe selector 保留
-4. 输出 manifest
-5. 输出 report
-6. 添加 fixture snapshot test
+1. 评估 CSS Modules adapter 共享包边界
+2. 收敛 named exports、strict mode、composes 等后续兼容策略
+3. 扩展 unsafe reason 分布、fallback 占比和压缩体积报告
+4. 强化 computed style verifier 的高风险 CSS Modules 场景
+5. 校准较大 playground 与精简 acceptance fixture 的职责边界
 ```
 
 ---
 
-### 23.3 第三优先级
+### 23.3 暂缓优先级
 
 ```txt
-1. 支持 gzip / brotli size report
-2. 支持 readable / hash className
-3. 支持 important
-4. 支持 custom property 保守处理
-5. 支持 basic source location
+1. 普通全局 CSS 自动 atomic 化
+2. aggressive atomization
+3. Less / Sass 非 CSS Modules 输入
+4. Rsbuild / Rspack adapter 实现
+5. CSS-only HMR 和完整 source map
 ```
 
 ---
@@ -1722,7 +1790,7 @@ fixtures/
 CSS Modules only + Safe Atomization + Preserve Semantic Class + Unsafe CSS Fallback
 ```
 
-这条路线能明显降低完整 CSS atomic 编译的复杂度，同时保留真实项目可落地性。
+这条路线能避开普通 CSS 全项目重写的复杂度，同时保留真实项目可落地性。
 
 最重要的原则是：
 
@@ -1735,10 +1803,11 @@ CSS Modules only + Safe Atomization + Preserve Semantic Class + Unsafe CSS Fallb
 
 ```txt
 阶段一：CSS Modules Safe Compiler
-阶段二：Vite / Rsbuild 插件
-阶段三：Report / Manifest / Verifier
-阶段四：CSS-like 受限新语言
-阶段五：样式治理与可视化分析工具
+阶段二：Vite CSS Modules 插件
+阶段三：CSS Modules 兼容与 computed style verifier
+阶段四：真实项目试用稳固与 report 能力
+阶段五：CSS Modules 预处理器与 Rsbuild / Rspack adapter
+阶段六：样式治理与可视化分析工具
 ```
 
 一句话总结：
