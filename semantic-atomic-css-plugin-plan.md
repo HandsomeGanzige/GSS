@@ -871,6 +871,11 @@ MVP 建议：
 - declaration canonicalization
 ```
 
+Phase 4 已先实现不改写 CSS 的 analyzer declaration conflict 提示：只报告同一
+semantic class 内可从 manifest 证明的同属性或保守 shorthand / longhand 顺序依赖。跨 class
+冲突必须先获得 JSX / TSX 或其他 usage graph 的共现证据，不得仅因同模块 class
+共享属性而报告。
+
 ---
 
 ## 10. Atomic Class 生成

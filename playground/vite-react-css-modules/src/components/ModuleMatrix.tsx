@@ -12,10 +12,12 @@ export type ModuleSurface = {
 /** 模块矩阵输入。 */
 type ModuleMatrixProps = {
   surfaces: ModuleSurface[];
+  selectedName?: string;
+  onSelect?: (surface: ModuleSurface) => void;
 };
 
 /** 渲染路由和组件文件矩阵。 */
-export function ModuleMatrix({ surfaces }: ModuleMatrixProps) {
+export function ModuleMatrix({ surfaces, selectedName, onSelect }: ModuleMatrixProps) {
   return (
     <section className={styles.matrixPanel} aria-label="Module matrix">
       <div className={styles.panelHeader}>
@@ -28,7 +30,12 @@ export function ModuleMatrix({ surfaces }: ModuleMatrixProps) {
 
       <div className={styles.surfaceGrid}>
         {surfaces.map((surface) => (
-          <article key={surface.name} className={styles.surfaceCard} data-state={surface.state}>
+          <article
+            key={surface.name}
+            className={`${styles.surfaceCard} ${selectedName === surface.name ? styles.selectedSurface : ''}`}
+            data-state={surface.state}
+            data-pilot-case={`module-${surface.name.toLowerCase().replaceAll(' ', '-')}`}
+          >
             <div className={styles.surfaceTopline}>
               <h3 className={styles.surfaceName}>{surface.name}</h3>
               <span className={styles.weightBadge}>{surface.weight}</span>
@@ -41,6 +48,9 @@ export function ModuleMatrix({ surfaces }: ModuleMatrixProps) {
               ))}
             </ul>
             <p className={styles.coverage}>{surface.coverage}</p>
+            <button className={styles.inspectButton} type="button" onClick={() => onSelect?.(surface)}>
+              Inspect surface
+            </button>
           </article>
         ))}
       </div>

@@ -5,10 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "pnpm run dev:semantic",
-    "dev:semantic": "GSS_PLAYGROUND_CSS_MODE=semantic vite --host 127.0.0.1",
-    "dev:native": "GSS_PLAYGROUND_CSS_MODE=native vite --host 127.0.0.1",
-    "build": "vite build",
-    "preview": "vite preview --host 127.0.0.1"
+    "dev:semantic": "GSS_PLAYGROUND_CSS_MODE=semantic vite --host 127.0.0.1 --port 5173 --strictPort",
+    "dev:native": "GSS_PLAYGROUND_CSS_MODE=native vite --host 127.0.0.1 --port 5174 --strictPort",
+    "build": "pnpm run build:semantic",
+    "build:semantic": "GSS_PLAYGROUND_CSS_MODE=semantic vite build --outDir dist/semantic --emptyOutDir",
+    "build:native": "GSS_PLAYGROUND_CSS_MODE=native vite build --outDir dist/native --emptyOutDir",
+    "preview": "pnpm run preview:semantic",
+    "preview:semantic": "GSS_PLAYGROUND_CSS_MODE=semantic vite preview --host 127.0.0.1 --port 4173 --strictPort --outDir dist/semantic",
+    "preview:native": "GSS_PLAYGROUND_CSS_MODE=native vite preview --host 127.0.0.1 --port 4174 --strictPort --outDir dist/native"
   },
   "dependencies": {
     "@semantic-atomic-css/vite": "workspace:*",

@@ -13,6 +13,8 @@ export type DebugTokenGroup = {
 /** Debug 面板输入。 */
 type DebugPanelProps = {
   groups: DebugTokenGroup[];
+  expandedKeys?: string[];
+  onToggle?: (tokenKey: string) => void;
 };
 
 const tokenSources: Record<string, Record<string, string>> = {
@@ -22,7 +24,7 @@ const tokenSources: Record<string, Record<string, string>> = {
 };
 
 /** 渲染 tokens 输出面板，用于人工检查 semantic scoped class 与 atomic classes。 */
-export function DebugPanel({ groups }: DebugPanelProps) {
+export function DebugPanel({ groups, expandedKeys = [], onToggle }: DebugPanelProps) {
   return (
     <section className={styles.debugPanel} aria-label="CSS Modules token debug">
       <div className={styles.panelHeader}>
@@ -37,13 +39,20 @@ export function DebugPanel({ groups }: DebugPanelProps) {
           const token = tokenSources[group.tokenKey]?.[group.tokenKey] ?? 'missing-token';
 
           return (
-            <article key={group.tokenKey} className={styles.tokenCard}>
+            <article key={group.tokenKey} className={styles.tokenCard} data-pilot-case={`token-${group.tokenKey}`}>
               <div className={styles.tokenMeta}>
                 <strong className={styles.tokenLabel}>{group.label}</strong>
                 <span className={styles.tokenKey}>{group.tokenKey}</span>
+                <button className={styles.tokenToggle} type="button" onClick={() => onToggle?.(group.tokenKey)}>
+                  {expandedKeys.includes(group.tokenKey) ? 'Collapse' : 'Expand'}
+                </button>
               </div>
-              <pre className={styles.tokenValue}>{token}</pre>
-              <p className={styles.tokenNote}>{group.note}</p>
+              {expandedKeys.includes(group.tokenKey) ? (
+                <>
+                  <pre className={styles.tokenValue}>{token}</pre>
+                  <p className={styles.tokenNote}>{group.note}</p>
+                </>
+              ) : null}
             </article>
           );
         })}

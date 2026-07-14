@@ -1,0 +1,11 @@
+@value accentName: operations-teal;
+@value accentColor: #0f766e;
+
+:export {
+  spacingUnit: 8px;
+}
+
+.tokenProbe {
+  color: accentColor;
+  font-weight: 800;
+}

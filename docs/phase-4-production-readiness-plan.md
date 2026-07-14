@@ -2,10 +2,13 @@
 
 ## 文档状态
 
-Status: visual-flake-fixed
+Status: completed
 
 本文档是 Phase 4 的活文档，用于在实现前沉淀阶段目标、产品边界、关键决策、执行顺序和验收标准。
-当前版本已经完成 Route A 实现、验收补强和 visual flake 修复记录；后续如果 Route A 在真实项目试用中暴露新的阻塞或迁移结论，应继续回写本文档。
+当前版本已经完成 Route A 实现、验收补强、visual flake 修复、dev shared CSS owner
+调整、中型真实项目 Pilot 和 analyzer declaration conflict 提示。Phase 4 已于 2026-07-14
+完成收尾；后续如果 Route A 在真实项目试用中暴露新的阻塞或迁移结论，应进入新的
+追踪文档，不再重开 Phase 4 范围。
 
 ## 已确认背景
 
@@ -69,9 +72,16 @@ Route A 当前仍不承诺完整 source map，也不承诺 named exports、stric
   `namedExports`。
 - Route A build 测试和 `pnpm verify:phase4` 临时 fixture 增加普通 CSS 对照，确认普通 CSS 仍由 Vite
   原生 CSS asset 输出，而原 CSS Modules scoped CSS 不会重复进入 Vite 原生 CSS asset。
-- dev virtual CSS 已修复 partial snapshot 重复 atomic key 覆盖问题。Route A dev 下 atomic rule 会按首次声明
-  顺序放入稳定 cascade layer，使后注入的重复 `_background_ffffff` 不能覆盖更晚语义层的
-  `_background_ecfdf5`。
+- dev virtual CSS 已切换为单一 shared CSS owner。Route A dev 下所有 `.module.css` 导入同一个
+  `virtual:semantic-atomic-css/dev.css`，该 owner 聚合当前 `devResults`、按 atomic key 去重并保持首次出现顺序，
+  不再使用 cascade layer 包裹 atomic rule。
+- shared CSS owner 已加载后，如果普通加载路径首次转换新的 CSS Module，adapter 会通过 Vite dev server
+  重新加载该 virtual CSS module。该动作同时使服务端 transform 缓存失效并向浏览器发送 shared virtual CSS
+  模块更新，避免新模块只进入 `devResults`、浏览器却继续复用旧 shared CSS 快照。
+- 2026-07-14 复盘确认：cascade layer 可以限制 GSS 内部重复 atomic key 的后注入覆盖，但 layered
+  normal declaration 会输给未分层的普通 author CSS，例如全局 `button { font: inherit; }`，导致按钮
+  `font-weight` 与 Vite native CSS Modules dev 渲染不一致。shared unlayered CSS owner 是当前 MVP 下更接近
+  Vite native dev 行为的方案。
 - `pnpm verify:phase3:visual` 现在会先构建 core、analyzer 和 vite package，再启动 semantic/native dev
   与 build preview，避免 visual 验收误用旧 `dist`。
 - 新增 `pnpm verify:phase4:full`，串联 Phase 4 静态验收与 visual computed style 对照。`pnpm verify:phase4`
@@ -542,11 +552,70 @@ Phase 4 明确不做：
 - `scripts/verify-phase-4.mjs` 验证普通 CSS 继续由 Vite asset 输出，CSS Modules scoped CSS 不会重复进入
   Vite 原生 CSS asset。
 - `pnpm verify:phase3:visual` 会先构建 core、analyzer、vite package，再执行 Playwright computed
-  style 对照，避免使用旧 dist 造成误判。
+  style 对照，避免使用旧 dist 造成误判；interaction button 场景会额外断言 `fontWeight: 800`，覆盖
+  shared dev CSS owner 对全局 `button { font: inherit; }` 的回归。
 - `pnpm verify:phase4:full` 会串联 `pnpm verify:phase4` 和 `pnpm verify:phase3:visual`，作为 Phase 4
   完整验收入口。
 - 2026-07-07 已通过 `pnpm verify:phase4` 和修复后的 `pnpm verify:phase3:visual`。本地连续三次
   visual 验收通过，用于回归之前的 `dev/desktop/base/cascade-active` flake。
+- 2026-07-14 dev shared CSS owner 调整后，已通过 `pnpm --filter @semantic-atomic-css/vite test`、
+  `pnpm verify:phase3:visual` 和 `pnpm verify:phase4:full`。
+
+### 7. 中型 React + Vite 真实项目 Pilot
+
+目标：
+
+- 把 `playground/vite-react-css-modules` 从人工展示页升级为真实项目试用基准。
+- 使用 5 个 lazy route、16 个导出 React 组件和 18 个 CSS Module 覆盖 shared owner、Route A 继承、
+  safe atomization、unsafe fallback、report/manifest 与响应式布局。
+- 通过 semantic/native、dev/build preview、desktop/mobile 四个维度执行人工浏览器验收。
+
+实现状态：
+
+- 已完成，详细推进和结果见 `docs/phase-4-real-project-pilot-tracking.md`。
+- Vite 原生 `localsConvention: 'camelCase'` 和可读 `generateScopedName` 由 Route A 继承，GSS 未配置
+  modules 覆盖；semantic build 显式输出 manifest 与带 `analysis` 的 report。
+- semantic/native dev、build、preview 入口已分离，semantic/native build 分别写入 `dist/semantic`
+  与 `dist/native`。
+- 浏览器验收覆盖搜索、筛选、选中、抽屉、fallback、artifact、ICSS exports、条件 class、表单校验、
+  checkbox、disabled/save 和一次可逆 CSS Module full reload。
+
+Pilot 推动的 adapter 修复：
+
+- CSS Module HMR 除清理 `devResults` 和 shared CSS 外，还会精确失效对应内部 JS virtual module，
+  确保 full reload 重新生成 tokens，不再依赖测试中的 `moduleGraph.invalidateAll()`。
+- dev/build 聚合 atomic CSS 会稳定地先输出基础 rules，再输出 `@media` / `@supports` contextual rules；
+  简单 `max-width` 在原槽位中按断点从大到小、简单 `min-width` 从小到大，避免复用 key 破坏正常
+  responsive override。复杂媒体表达式仍保持首次登记顺序，不宣称完整跨模块 cascade 建模。
+- build CSS、preserved fallback 和 analyzer modules 按规范化 source id 使用同一稳定顺序；report diagnostics、
+  manifest keys 和共享 atomic sources 在输出边界规范化，避免并发 transform 完成顺序进入持久化产物。
+
+最终结果：
+
+- 2026-07-14 再次通过 `pnpm verify:phase4:full`；Vite adapter 当前为 24 个测试。
+- semantic/native 的 dev 与 build preview 在 desktop 和 `390 × 844` 下关键 computed style 与核心交互
+  一致，五个移动 route 的横向溢出和控件裁切均为 `0`。
+- analyzer health 为 `risky`，原因是刻意保留的 unsafe selector fallback 和 1 组同一
+  semantic class 内的 shorthand / longhand 顺序依赖；`unsupportedFeatures` 为空，
+  preserved CSS ratio 为 `0.1882`。
+- 连续两次 semantic build 的 atomic CSS、report 与 manifest SHA-256 分别保持一致，analyzer 最终
+  gzip 为 `4609 / 4073` bytes、brotli 为 `3875 / 3558` bytes。
+- 当前仍不处理两个同时生效 class 的同属性竞争，也不完整建模复杂媒体表达式与任意 import order；这些
+  场景应优先进入 analyzer 冲突提示，再决定是否扩展编译语义。
+
+### 8. Analyzer declaration conflict 提示
+
+已按 `docs/phase-4-analyzer-conflict-tracking.md` 完成结构化冲突提示。第一版只报告
+同一 semantic class 内可从 manifest 确定的同属性或 shorthand / longhand 竞争；不读取
+JSX / TSX，不把同模块不同 class 共享属性直接视为冲突。Pilot 校准表明，后一策略
+会产生 164 组缺少 DOM 共现证据的高噪声候选。
+
+实现结果：
+
+- `analysis.risk` 新增 `declarationConflictSummary` 和 `declarationConflicts`。
+- 冲突存在时 health 降为 `risky`，但不作为 `blocked` 或构建失败条件。
+- analyzer 单元测试和 Vite build report 测试已覆盖输出与误报边界。
+- Pilot 最终确定 1 组 `border -> border-left-color` shorthand / longhand 顺序依赖。
 
 ## 验收标准
 
@@ -588,6 +657,8 @@ pnpm verify:phase4:full
 - 普通 CSS asset 保持 Vite 原生输出；Route A 接管的 CSS Modules scoped CSS 不重复注入到 Vite 原生
   CSS asset。
 - 显式开启 report 后，build JSON report 包含 analyzer analysis 数据。
+- analyzer analysis 包含同一 semantic class 内可证明的 declaration conflict 摘要与详情，
+  且不误报跨 class、跨 pseudo 或跨 important 层级的声明。
 - 默认仍不输出 manifest/report。
 - `pnpm verify:phase4` 是静态验收；`pnpm verify:phase4:full` 额外包含 visual computed style 对照。
 
@@ -605,3 +676,13 @@ pnpm verify:phase4:full
 
 - 验收产物是 spike 结论文档。
 - spike 结论必须记录阻塞点、备选路线、兼容风险和后续决策入口。
+
+## Phase 4 收尾结论
+
+2026-07-14，Phase 4 已达到“真实项目可试用”成功标准：Route A 不支持的边界能够明确失败或
+保守 fallback，analyzer 能解释收益、风险、体积和 class 内 declaration 冲突，精简 fixture 的
+静态与 visual 验收全部通过，中型 Pilot 的 semantic/native dev 与 build preview 完成四维对照。
+
+本结论表示可进入真实项目扩大试用，不表示已进入公开生产发布。named exports、strict mode、
+预处理器、CSS-only HMR、完整 source map 和跨 class / 复杂媒体表达式的完整 cascade 建模仍保持为
+后续范围。

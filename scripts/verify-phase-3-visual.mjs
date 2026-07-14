@@ -112,11 +112,12 @@ const baseCases = [
   },
   {
     id: 'disabled-button',
-    properties: ['color', 'backgroundColor', 'cursor'],
+    properties: ['color', 'backgroundColor', 'cursor', 'fontWeight'],
     expected: {
       color: 'rgb(148, 163, 184)',
       backgroundColor: 'rgb(241, 245, 249)',
-      cursor: 'not-allowed'
+      cursor: 'not-allowed',
+      fontWeight: '800'
     }
   }
 ];
@@ -137,10 +138,11 @@ const pseudoCases = [
 const hoverCases = [
   {
     id: 'hover-button',
-    properties: ['backgroundColor', 'borderTopColor', 'cursor'],
+    properties: ['backgroundColor', 'borderTopColor', 'cursor', 'fontWeight'],
     expected: {
       backgroundColor: 'rgb(248, 250, 252)',
-      borderTopColor: 'rgb(148, 163, 184)'
+      borderTopColor: 'rgb(148, 163, 184)',
+      fontWeight: '800'
     }
   }
 ];
@@ -148,11 +150,12 @@ const hoverCases = [
 const focusCases = [
   {
     id: 'focus-button',
-    properties: ['outlineColor', 'outlineStyle', 'outlineWidth', 'outlineOffset'],
+    properties: ['outlineColor', 'outlineStyle', 'outlineWidth', 'outlineOffset', 'fontWeight'],
     expected: {
       outlineColor: 'rgb(153, 246, 228)',
       outlineStyle: 'solid',
-      outlineWidth: '3px'
+      outlineWidth: '3px',
+      fontWeight: '800'
     }
   }
 ];

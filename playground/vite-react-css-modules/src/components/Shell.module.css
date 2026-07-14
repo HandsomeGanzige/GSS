@@ -83,6 +83,8 @@
 }
 
 .actionButton {
+  display: inline-flex;
+  align-items: center;
   padding: 8px 12px;
   color: #111827;
   background: #ffffff;
@@ -90,6 +92,7 @@
   border-radius: 8px;
   font-size: 13px;
   font-weight: 700;
+  text-decoration: none;
   cursor: pointer;
 }
 
@@ -110,7 +113,7 @@
 
 .routeNav {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   width: min(100%, 1180px);
   margin: 0 auto 24px;

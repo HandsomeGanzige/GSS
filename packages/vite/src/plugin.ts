@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { preprocessCSS, type Plugin, type ResolvedConfig } from 'vite';
+import { preprocessCSS, type ModuleNode, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
 import {
   createTransformer,
   transformCss,
@@ -8,6 +8,7 @@ import {
   type Diagnostic,
   type TransformCssOptions,
   type TransformCssResult,
+  type TransformManifest,
   type TransformReport,
   type Transformer
 } from '@semantic-atomic-css/core';
@@ -25,8 +26,8 @@ import {
 import { resolveOptions } from './options.js';
 import type { ResolvedSemanticAtomicCssOptions, SemanticAtomicCssOptions } from './types.js';
 
-const virtualCssPrefix = 'virtual:semantic-atomic-css/css.css?source=';
-const resolvedVirtualCssPrefix = '\0semantic-atomic-css/css.css?source=';
+const virtualDevCssId = 'virtual:semantic-atomic-css/dev.css';
+const resolvedVirtualDevCssId = '\0semantic-atomic-css/dev.css';
 const resolvedModulePrefix = '\0semantic-atomic-css/module?source=';
 const buildCssFileName = 'assets/semantic-atomic.css';
 
@@ -44,11 +45,10 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
   const resolvedOptions = resolveOptions(options);
   const buildResults = new Map<string, CssModuleTransformResult>();
   const devResults = new Map<string, CssModuleTransformResult>();
-  const devAtomicOrder = new Map<string, number>();
   const pendingDevTransforms = new Set<Promise<void>>();
-  const buildOrder: string[] = [];
   const warnedDiagnostics = new Set<string>();
   let config: ResolvedConfig | undefined;
+  let devServer: ViteDevServer | undefined;
   let buildTransformer: Transformer | undefined;
 
   return {
@@ -60,18 +60,20 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
       config = resolvedConfig;
     },
 
+    configureServer(server): void {
+      devServer = server;
+    },
+
     buildStart(): void {
       buildResults.clear();
-      devAtomicOrder.clear();
       pendingDevTransforms.clear();
-      buildOrder.length = 0;
       warnedDiagnostics.clear();
       buildTransformer = createTransformer(resolveCoreOptions(resolvedOptions, 'build'));
     },
 
     async resolveId(id, importer): Promise<string | null> {
-      if (id.startsWith(virtualCssPrefix)) {
-        return id.replace(virtualCssPrefix, resolvedVirtualCssPrefix);
+      if (id === virtualDevCssId || id === resolvedVirtualDevCssId) {
+        return resolvedVirtualDevCssId;
       }
 
       if (id.startsWith(resolvedModulePrefix)) {
@@ -93,8 +95,8 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
     },
 
     async load(id): Promise<{ code: string; map: null } | string | null> {
-      if (id.startsWith(resolvedVirtualCssPrefix)) {
-        return loadDevVirtualCss(id, devResults, devAtomicOrder, pendingDevTransforms);
+      if (id === resolvedVirtualDevCssId) {
+        return loadDevVirtualCss(devResults, pendingDevTransforms);
       }
 
       if (!id.startsWith(resolvedModulePrefix)) {
@@ -107,6 +109,7 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
         return null;
       }
 
+      const isNewDevModule = config.command === 'serve' && !hasTransformResult(devResults, file);
       const css = await fs.readFile(file, 'utf8');
       const result = await trackDevTransform(
         config,
@@ -118,15 +121,17 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
           options: resolvedOptions,
           buildTransformer,
           buildResults,
-          devResults,
-          devAtomicOrder,
-          buildOrder
+          devResults
         })
       );
       emitDiagnostics(this, result.transform.diagnostics, resolvedOptions, warnedDiagnostics);
 
+      if (isNewDevModule) {
+        await reloadDevVirtualCssModule(devServer);
+      }
+
       return {
-        code: renderCssModuleJs(file, result, config.command),
+        code: renderCssModuleJs(result, config.command),
         map: null
       };
     },
@@ -138,9 +143,10 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
         return;
       }
 
-      deleteTransformResult(devResults, file);
-      rebuildDevAtomicOrder(devAtomicOrder, devResults);
+      const transformedFile = deleteTransformResult(devResults, file) ?? file;
       pendingDevTransforms.clear();
+      invalidateDevCssModule(context.server, transformedFile, context.modules);
+      invalidateDevVirtualCssModule(context.server);
       context.server.ws.send({ type: 'full-reload' });
       return [];
     },
@@ -158,7 +164,7 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
         return;
       }
 
-      const css = createBuildCss(buildTransformer, buildOrder, buildResults);
+      const css = createBuildCss(buildResults);
 
       if (css.trim().length > 0) {
         this.emitFile({
@@ -173,7 +179,7 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
         this.emitFile({
           type: 'asset',
           fileName: resolvedOptions.manifest.filename,
-          source: JSON.stringify(buildTransformer.getManifest(), null, 2)
+          source: JSON.stringify(stabilizeManifest(buildTransformer.getManifest()), null, 2)
         });
       }
 
@@ -181,7 +187,7 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
         this.emitFile({
           type: 'asset',
           fileName: resolvedOptions.report.filename,
-          source: JSON.stringify(createBuildReport(buildTransformer, buildOrder, buildResults, css), null, 2)
+          source: JSON.stringify(createBuildReport(buildTransformer, buildResults, css), null, 2)
         });
       }
     },
@@ -271,10 +277,10 @@ function inheritsViteNamedExports(config: ResolvedConfig, options: ResolvedSeman
   );
 }
 
-/** 删除指定文件的 transform 结果，并兼容 macOS /var 与 /private/var 路径别名。 */
-function deleteTransformResult(results: Map<string, CssModuleTransformResult>, file: string): void {
+/** 删除指定文件的 transform 结果，并返回真实缓存键以便同步失效 Vite module graph。 */
+function deleteTransformResult(results: Map<string, CssModuleTransformResult>, file: string): string | undefined {
   if (results.delete(file)) {
-    return;
+    return file;
   }
 
   const target = normalizeFileIdentity(file);
@@ -282,15 +288,67 @@ function deleteTransformResult(results: Map<string, CssModuleTransformResult>, f
   for (const key of results.keys()) {
     if (normalizeFileIdentity(key) === target) {
       results.delete(key);
-      return;
+      return key;
     }
   }
+
+  return undefined;
+}
+
+/** 判断指定文件是否已有 transform 结果，并兼容 macOS /var 与 /private/var 路径别名。 */
+function hasTransformResult(results: Map<string, CssModuleTransformResult>, file: string): boolean {
+  if (results.has(file)) {
+    return true;
+  }
+
+  const target = normalizeFileIdentity(file);
+  return [...results.keys()].some((key) => normalizeFileIdentity(key) === target);
 }
 
 /** 归一化文件身份，避免同一文件因系统路径别名无法命中缓存。 */
 function normalizeFileIdentity(file: string): string {
   const resolved = normalizeToPosix(path.resolve(file));
   return process.platform === 'darwin' && resolved.startsWith('/private/') ? resolved.slice('/private'.length) : resolved;
+}
+
+/** CSS Module HMR 时让内部 JS virtual module 失效，确保 full reload 重新生成 tokens。 */
+function invalidateDevCssModule(
+  server: ViteDevServer,
+  file: string,
+  contextModules: ModuleNode[]
+): void {
+  const modules = new Set(contextModules);
+  const directModule = server.moduleGraph.getModuleById(createResolvedModuleId(file));
+
+  if (directModule) {
+    modules.add(directModule);
+  }
+
+  for (const moduleNode of modules) {
+    server.moduleGraph.invalidateModule(moduleNode);
+  }
+}
+
+/** CSS Module HMR 时让单一 dev CSS owner 失效，避免 full reload 前后复用旧快照。 */
+function invalidateDevVirtualCssModule(server: ViteDevServer): void {
+  const moduleNode = server.moduleGraph.getModuleById(resolvedVirtualDevCssId);
+
+  if (moduleNode) {
+    server.moduleGraph.invalidateModule(moduleNode);
+  }
+}
+
+/** 新 CSS Module 首次登记后刷新已加载的 shared CSS owner，使浏览器取得最新全局快照。 */
+async function reloadDevVirtualCssModule(server: ViteDevServer | undefined): Promise<void> {
+  if (!server) {
+    return;
+  }
+
+  const moduleNode = server.moduleGraph.getModuleById(resolvedVirtualDevCssId);
+
+  if (moduleNode) {
+    await server.reloadModule(moduleNode);
+  }
 }
 
 /** 创建内部 CSS Modules JS virtual module id。 */
@@ -312,8 +370,6 @@ async function transformCssModule(input: {
   buildTransformer: Transformer | undefined;
   buildResults: Map<string, CssModuleTransformResult>;
   devResults: Map<string, CssModuleTransformResult>;
-  devAtomicOrder: Map<string, number>;
-  buildOrder: string[];
 }): Promise<CssModuleTransformResult> {
   if (input.config.command === 'build') {
     const cached = input.buildResults.get(input.id);
@@ -345,9 +401,7 @@ async function transformCssModule(input: {
 
   if (input.config.command === 'build') {
     input.buildResults.set(input.id, result);
-    input.buildOrder.push(input.id);
   } else {
-    registerDevAtomicOrder(input.devAtomicOrder, transform.atomic);
     input.devResults.set(input.id, result);
   }
 
@@ -388,32 +442,20 @@ async function preprocessCssModule(
 
 /** 渲染替代 CSS Modules 的 JS module。 */
 function renderCssModuleJs(
-  id: string,
   result: CssModuleTransformResult,
   command: ResolvedConfig['command']
 ): string {
-  const cssImport = command === 'serve' ? `import ${JSON.stringify(createVirtualCssId(id))};\n` : '';
+  const cssImport = command === 'serve' ? `import ${JSON.stringify(virtualDevCssId)};\n` : '';
   return `${cssImport}const tokens = ${JSON.stringify(result.tokens, null, 2)};\nexport default tokens;\n`;
 }
 
 /** 读取 dev virtual CSS 内容，并等待当前并发 transform 排空后再创建全局快照。 */
 async function loadDevVirtualCss(
-  id: string,
   devResults: Map<string, CssModuleTransformResult>,
-  devAtomicOrder: Map<string, number>,
   pendingDevTransforms: Set<Promise<void>>
 ): Promise<string> {
-  const source = decodeVirtualCssSource(id);
-
   await waitForDevTransformIdle(pendingDevTransforms);
-
-  const result = devResults.get(source);
-
-  if (!result) {
-    return '';
-  }
-
-  return createDevCss(devResults, devAtomicOrder);
+  return createDevCss(devResults);
 }
 
 /** 等待当前 dev CSS Module transform 队列短暂排空，避免 virtual CSS 拿到 partial snapshot。 */
@@ -431,24 +473,23 @@ async function waitForDevTransformIdle(pendingDevTransforms: Set<Promise<void>>)
   } while (pendingDevTransforms.size > 0 && Date.now() < deadline);
 }
 
-/** 创建 dev 阶段的全局 CSS 快照，避免不同模块重复 atomic class 后破坏 cascade 顺序。 */
-function createDevCss(
-  devResults: Map<string, CssModuleTransformResult>,
-  devAtomicOrder?: Map<string, number>
-): string {
-  const atomic = createDevAtomicCss(devResults, devAtomicOrder);
+/** 创建 dev 阶段由单一 virtual CSS owner 持有的全局快照，避免多个 style tag 重复注入 atomic class。 */
+function createDevCss(devResults: Map<string, CssModuleTransformResult>): string {
+  const atomic = createDevAtomicCss(devResults);
   const preservedCss = [...devResults.values()].map((result) => result.transform.css.preserved);
   return joinCss([atomic, ...preservedCss]);
 }
 
 /** 聚合当前 dev 已知模块的 atomic declaration，并按 atomic key 去重。 */
-function createDevAtomicCss(
-  devResults: Map<string, CssModuleTransformResult>,
-  devAtomicOrder?: Map<string, number>
-): string {
+function createDevAtomicCss(devResults: Map<string, CssModuleTransformResult>): string {
+  return renderAtomicDeclarations(collectAtomicDeclarations(devResults.values()));
+}
+
+/** 聚合多个模块的 atomic declaration，并按 atomic key 保留首次登记项。 */
+function collectAtomicDeclarations(results: Iterable<CssModuleTransformResult>): AtomicDeclaration[] {
   const declarations = new Map<string, AtomicDeclaration>();
 
-  for (const result of devResults.values()) {
+  for (const result of results) {
     for (const declaration of result.transform.atomic) {
       if (!declarations.has(declaration.key)) {
         declarations.set(declaration.key, declaration);
@@ -456,31 +497,89 @@ function createDevAtomicCss(
     }
   }
 
-  return renderAtomicDeclarations([...declarations.values()], devAtomicOrder);
+  return [...declarations.values()];
 }
 
-/** 渲染 adapter 内部聚合出来的 atomic declarations，保持 core 输出格式兼容。 */
-function renderAtomicDeclarations(
-  declarations: AtomicDeclaration[],
-  devAtomicOrder?: Map<string, number>
-): string {
-  const css = declarations
-    .map((declaration) => renderAtomicDeclaration(declaration, devAtomicOrder?.get(declaration.key)))
-    .join('\n\n');
+/** 渲染 adapter 内部聚合出来的 atomic declarations，并让条件上下文位于基础规则之后。 */
+function renderAtomicDeclarations(declarations: AtomicDeclaration[]): string {
+  return orderAtomicDeclarations(declarations).map((declaration) => renderAtomicDeclaration(declaration)).join('\n\n');
+}
 
-  if (!devAtomicOrder || declarations.length === 0) {
-    return css;
+/** 稳定分区基础与条件规则，避免复用的媒体 key 早于后续模块基础规则而失效。 */
+function orderAtomicDeclarations(declarations: AtomicDeclaration[]): AtomicDeclaration[] {
+  const base: AtomicDeclaration[] = [];
+  const contextual: Array<{ declaration: AtomicDeclaration; order: number }> = [];
+
+  for (const [order, declaration] of declarations.entries()) {
+    if (declaration.context.media || declaration.context.supports) {
+      contextual.push({ declaration, order });
+    } else {
+      base.push(declaration);
+    }
   }
 
-  return joinCss([renderDevLayerPrelude(devAtomicOrder), css]);
+  return [...base, ...orderSimpleWidthBreakpoints(contextual).map((entry) => entry.declaration)];
+}
+
+/** 只替换同类简单宽度条件的原槽位，避免复杂条件混排时产生不稳定 comparator。 */
+function orderSimpleWidthBreakpoints(
+  entries: Array<{ declaration: AtomicDeclaration; order: number }>
+): Array<{ declaration: AtomicDeclaration; order: number }> {
+  const maxEntries = entries
+    .filter((entry) => readSimpleWidthBreakpoint(entry.declaration.context.media)?.kind === 'max')
+    .sort((left, right) => compareSimpleWidthEntries(left, right, 'max'));
+  const minEntries = entries
+    .filter((entry) => readSimpleWidthBreakpoint(entry.declaration.context.media)?.kind === 'min')
+    .sort((left, right) => compareSimpleWidthEntries(left, right, 'min'));
+  let maxIndex = 0;
+  let minIndex = 0;
+
+  return entries.map((entry) => {
+    const breakpoint = readSimpleWidthBreakpoint(entry.declaration.context.media);
+
+    if (breakpoint?.kind === 'max') {
+      return maxEntries[maxIndex++] ?? entry;
+    }
+
+    if (breakpoint?.kind === 'min') {
+      return minEntries[minIndex++] ?? entry;
+    }
+
+    return entry;
+  });
+}
+
+/** 比较同一种简单宽度条件，确保窄屏或高断点规则在后方覆盖。 */
+function compareSimpleWidthEntries(
+  left: { declaration: AtomicDeclaration; order: number },
+  right: { declaration: AtomicDeclaration; order: number },
+  kind: 'min' | 'max'
+): number {
+  const leftPixels = readSimpleWidthBreakpoint(left.declaration.context.media)?.pixels ?? 0;
+  const rightPixels = readSimpleWidthBreakpoint(right.declaration.context.media)?.pixels ?? 0;
+  const distance = kind === 'max' ? rightPixels - leftPixels : leftPixels - rightPixels;
+  return distance || left.order - right.order;
+}
+
+/** 解析 MVP 常用的单一 min/max-width px 媒体条件，其他表达式不参与重排。 */
+function readSimpleWidthBreakpoint(media: string | undefined): { kind: 'min' | 'max'; pixels: number } | undefined {
+  const match = media?.match(/^\(\s*(min|max)-width\s*:\s*(\d+(?:\.\d+)?)px\s*\)$/i);
+
+  if (!match) {
+    return undefined;
+  }
+
+  return {
+    kind: match[1].toLowerCase() as 'min' | 'max',
+    pixels: Number(match[2])
+  };
 }
 
 /** 渲染单条 atomic declaration，并恢复其 @media/@supports 上下文。 */
-function renderAtomicDeclaration(declaration: AtomicDeclaration, devLayerOrder?: number): string {
+function renderAtomicDeclaration(declaration: AtomicDeclaration): string {
   const selector = `.${declaration.className}${declaration.context.pseudo ?? ''}`;
   const rule = renderCssRule(selector, declaration.declaration);
-  const contextualRule = wrapAtomicAtRules(rule, declaration);
-  return devLayerOrder === undefined ? contextualRule : wrapDevLayer(contextualRule, devLayerOrder);
+  return wrapAtomicAtRules(rule, declaration);
 }
 
 /** 渲染单 declaration CSS rule，输出格式与 core renderRule 保持一致。 */
@@ -518,58 +617,6 @@ function indentCssBlock(css: string): string {
     .join('\n');
 }
 
-/** 记录 dev 阶段 atomic key 的首次声明顺序，供 cascade layer 固定优先级。 */
-function registerDevAtomicOrder(devAtomicOrder: Map<string, number>, declarations: AtomicDeclaration[]): void {
-  for (const declaration of declarations) {
-    if (!devAtomicOrder.has(declaration.key)) {
-      devAtomicOrder.set(declaration.key, devAtomicOrder.size);
-    }
-  }
-}
-
-/** HMR 删除模块后重建 dev atomic 顺序，避免旧 key 长期残留。 */
-function rebuildDevAtomicOrder(
-  devAtomicOrder: Map<string, number>,
-  devResults: Map<string, CssModuleTransformResult>
-): void {
-  devAtomicOrder.clear();
-
-  for (const result of devResults.values()) {
-    registerDevAtomicOrder(devAtomicOrder, result.transform.atomic);
-  }
-}
-
-/** 输出 dev cascade layer 顺序声明，让后注入的重复 atomic key 不能覆盖更晚语义层。 */
-function renderDevLayerPrelude(devAtomicOrder: Map<string, number>): string {
-  const layers = [...devAtomicOrder.values()]
-    .sort((left, right) => left - right)
-    .map((order) => createDevLayerName(order));
-  return `@layer ${layers.join(', ')};`;
-}
-
-/** 把单条 dev atomic rule 包进稳定层。 */
-function wrapDevLayer(css: string, order: number): string {
-  return `@layer ${createDevLayerName(order)} {\n${indentCssBlock(css)}\n}`;
-}
-
-/** 根据声明顺序生成稳定 dev layer 名称。 */
-function createDevLayerName(order: number): string {
-  return `gss-${order}`;
-}
-
-/** 生成 dev virtual CSS 的用户可见 id。 */
-function createVirtualCssId(id: string): string {
-  // 这里不能把真实路径明文放进 query。Vite 会在完整 id 中匹配 `.module.css`，
-  // 如果 query 暴露源文件名，生成后的 atomic CSS 会被二次当成 CSS Modules 处理。
-  return `${virtualCssPrefix}${encodeId(id)}`;
-}
-
-/** 从 resolved virtual CSS id 中解析真实源文件。 */
-function decodeVirtualCssSource(id: string): string {
-  const query = id.slice(resolvedVirtualCssPrefix.length);
-  return decodeId(query);
-}
-
 /** 编码内部 JS virtual module source，避免 id 中出现 .css 被 Vite CSS 插件误判。 */
 function encodeId(id: string): string {
   return Buffer.from(id, 'utf8').toString('base64url');
@@ -594,36 +641,41 @@ function resolveCoreOptions(
   };
 }
 
-/** 创建 build 阶段全局聚合 CSS。 */
-function createBuildCss(
-  transformer: Transformer,
-  buildOrder: string[],
+/** 创建 build 阶段全局聚合 CSS，并使用稳定 source id 顺序消除并发 transform 漂移。 */
+function createBuildCss(buildResults: Map<string, CssModuleTransformResult>): string {
+  const results = getStableBuildResults(buildResults);
+  const atomicCss = renderAtomicDeclarations(collectAtomicDeclarations(results));
+  const preservedCss = results.map((result) => result.transform.css.preserved);
+  return joinCss([atomicCss, ...preservedCss]);
+}
+
+/** 按规范化 source id 排序 build 结果，保证 CSS、fallback 与 analysis 使用同一稳定顺序。 */
+function getStableBuildResults(
   buildResults: Map<string, CssModuleTransformResult>
-): string {
-  const preservedCss = buildOrder.map((id) => buildResults.get(id)?.transform.css.preserved ?? '');
-  return joinCss([transformer.getAtomicCss(), ...preservedCss]);
+): CssModuleTransformResult[] {
+  return [...buildResults.values()].sort((left, right) => {
+    const leftId = normalizeFileIdentity(left.id);
+    const rightId = normalizeFileIdentity(right.id);
+    return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+  });
 }
 
 /** 创建 build JSON report，并附加 Phase 4 analyzer 结构化分析。 */
 function createBuildReport(
   transformer: Transformer,
-  buildOrder: string[],
   buildResults: Map<string, CssModuleTransformResult>,
   outputCss: string
 ): TransformReport & { analysis: BuildAnalysis } {
-  const report = transformer.getReport();
-  const manifest = transformer.getManifest();
-  const modules = buildOrder
-    .map((id) => buildResults.get(id))
-    .filter((result): result is CssModuleTransformResult => Boolean(result))
-    .map((result) => ({
-      id: result.id,
-      sourceCss: result.sourceCss,
-      scopedCss: result.scopedCss,
-      atomicCss: result.transform.css.atomic,
-      preservedCss: result.transform.css.preserved,
-      diagnostics: result.transform.diagnostics
-    }));
+  const report = stabilizeReport(transformer.getReport());
+  const manifest = stabilizeManifest(transformer.getManifest());
+  const modules = getStableBuildResults(buildResults).map((result) => ({
+    id: result.id,
+    sourceCss: result.sourceCss,
+    scopedCss: result.scopedCss,
+    atomicCss: result.transform.css.atomic,
+    preservedCss: result.transform.css.preserved,
+    diagnostics: result.transform.diagnostics
+  }));
 
   return {
     ...report,
@@ -634,6 +686,82 @@ function createBuildReport(
       outputCss
     })
   };
+}
+
+/** 规范化 report diagnostics 顺序，避免并发 transform 完成顺序进入 JSON 产物。 */
+function stabilizeReport(report: TransformReport): TransformReport {
+  return {
+    ...report,
+    diagnostics: [...report.diagnostics].sort((left, right) => {
+      const sourceOrder = compareSourceLocation(
+        left.source ?? { id: left.id },
+        right.source ?? { id: right.id }
+      );
+
+      if (sourceOrder !== 0) {
+        return sourceOrder;
+      }
+
+      return compareText(
+        [left.code, left.reason ?? '', left.selector ?? '', left.sourceClassName ?? ''].join('\0'),
+        [right.code, right.reason ?? '', right.selector ?? '', right.sourceClassName ?? ''].join('\0')
+      );
+    })
+  };
+}
+
+/** 规范化 manifest 键和 source 数组，并为共享 atomic declaration 选择稳定主来源。 */
+function stabilizeManifest(manifest: TransformManifest): TransformManifest {
+  const atomic = Object.fromEntries(
+    Object.entries(manifest.atomic)
+      .sort(([left], [right]) => compareText(left, right))
+      .map(([key, entry]) => {
+        const sources = [...entry.sources].sort(compareSourceLocation);
+        return [
+          key,
+          {
+            ...entry,
+            declaration: {
+              ...entry.declaration,
+              source: sources[0] ? { ...sources[0] } : entry.declaration.source
+            },
+            context: { ...entry.context },
+            sources: sources.map((source) => ({ ...source }))
+          }
+        ];
+      })
+  );
+  const classes = Object.fromEntries(
+    Object.entries(manifest.classes)
+      .sort(([left], [right]) => compareText(left, right))
+      .map(([key, entry]) => [
+        key,
+        {
+          ...entry,
+          atomicClassNames: [...entry.atomicClassNames],
+          unsafeReasons: entry.unsafeReasons ? [...entry.unsafeReasons].sort(compareText) : undefined
+        }
+      ])
+  );
+
+  return { atomic, classes };
+}
+
+/** 按规范化文件、行和列比较 source location。 */
+function compareSourceLocation(
+  left: { id: string; line?: number; column?: number },
+  right: { id: string; line?: number; column?: number }
+): number {
+  return (
+    compareText(normalizeFileIdentity(left.id), normalizeFileIdentity(right.id)) ||
+    (left.line ?? 0) - (right.line ?? 0) ||
+    (left.column ?? 0) - (right.column ?? 0)
+  );
+}
+
+/** 使用不依赖 locale 的字典序比较文本。 */
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 /** 拼接 CSS 片段并保持空片段不输出。 */

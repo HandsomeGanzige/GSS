@@ -1,17 +1,23 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Shell, type RouteLink } from './components/Shell';
-import { BuildRoute } from './routes/BuildRoute';
-import { DiagnosticsRoute } from './routes/DiagnosticsRoute';
-import { ModulesRoute } from './routes/ModulesRoute';
-import { OverviewRoute } from './routes/OverviewRoute';
+import styles from './App.module.css';
 
-type RouteId = 'overview' | 'modules' | 'diagnostics' | 'build';
+type RouteId = 'overview' | 'modules' | 'diagnostics' | 'build' | 'settings';
+
+const OverviewRoute = lazy(() => import('./routes/OverviewRoute').then((module) => ({ default: module.OverviewRoute })));
+const ModulesRoute = lazy(() => import('./routes/ModulesRoute').then((module) => ({ default: module.ModulesRoute })));
+const DiagnosticsRoute = lazy(() =>
+  import('./routes/DiagnosticsRoute').then((module) => ({ default: module.DiagnosticsRoute }))
+);
+const BuildRoute = lazy(() => import('./routes/BuildRoute').then((module) => ({ default: module.BuildRoute })));
+const SettingsRoute = lazy(() => import('./routes/SettingsRoute').then((module) => ({ default: module.SettingsRoute })));
 
 const routes: RouteLink<RouteId>[] = [
   { id: 'overview', label: 'Overview', description: '跨模块概览' },
   { id: 'modules', label: 'Modules', description: '文件与组件矩阵' },
   { id: 'diagnostics', label: 'Diagnostics', description: '选择器安全性' },
-  { id: 'build', label: 'Build', description: '产物与 tokens' }
+  { id: 'build', label: 'Build', description: '产物与 tokens' },
+  { id: 'settings', label: 'Settings', description: '运行门禁设置' }
 ];
 
 /** 渲染多路由 playground，使用 hash route 避免引入额外依赖。 */
@@ -27,7 +33,15 @@ export function App() {
 
   return (
     <Shell routes={routes} activeRoute={activeRoute} activeDescription={activeMeta.description}>
-      {renderRoute(activeRoute)}
+      <Suspense
+        fallback={
+          <div className={styles.routePending} data-pilot-case="route-pending" role="status">
+            正在加载运行视图…
+          </div>
+        }
+      >
+        {renderRoute(activeRoute)}
+      </Suspense>
     </Shell>
   );
 }
@@ -41,6 +55,8 @@ function renderRoute(route: RouteId) {
       return <DiagnosticsRoute />;
     case 'build':
       return <BuildRoute />;
+    case 'settings':
+      return <SettingsRoute />;
     case 'overview':
     default:
       return <OverviewRoute />;

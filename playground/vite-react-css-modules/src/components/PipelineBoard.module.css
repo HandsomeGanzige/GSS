@@ -98,6 +98,36 @@
   font-weight: 800;
 }
 
+.selectedStage {
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.18);
+}
+
+.stageActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stageSelect {
+  padding: 6px 8px;
+  color: #334155;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.stageSelect:hover {
+  background: #f1f5f9;
+}
+
+.stageSelect:focus-visible {
+  outline: 3px solid #99f6e4;
+  outline-offset: 2px;
+}
+
 .taskList {
   display: grid;
   gap: 12px;
@@ -187,5 +217,12 @@
 
   .stageGrid {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 560px) {
+  .stageHeader {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

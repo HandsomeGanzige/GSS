@@ -19,10 +19,12 @@ export type PipelineStage = {
 /** Pipeline 面板输入。 */
 type PipelineBoardProps = {
   stages: PipelineStage[];
+  selectedStage?: string;
+  onSelectStage?: (title: string) => void;
 };
 
 /** 渲染转换流水线看板，覆盖多列布局、hover 和 unsafe descendant fallback。 */
-export function PipelineBoard({ stages }: PipelineBoardProps) {
+export function PipelineBoard({ stages, selectedStage, onSelectStage }: PipelineBoardProps) {
   return (
     <section className={styles.board} aria-label="Semantic transform pipeline">
       <div className={styles.boardHeader}>
@@ -35,10 +37,25 @@ export function PipelineBoard({ stages }: PipelineBoardProps) {
 
       <div className={styles.stageGrid}>
         {stages.map((stage) => (
-          <article key={stage.title} className={styles.stage} data-health={stage.health}>
+          <article
+            key={stage.title}
+            className={`${styles.stage} ${selectedStage === stage.title ? styles.selectedStage : ''}`}
+            data-health={stage.health}
+            data-pilot-case={`pipeline-${stage.title.toLowerCase()}`}
+          >
             <div className={styles.stageHeader}>
               <h3 className={styles.stageTitle}>{stage.title}</h3>
-              <span className={styles.stageCount}>{stage.count}</span>
+              <div className={styles.stageActions}>
+                <span className={styles.stageCount}>{stage.count}</span>
+                <button
+                  className={styles.stageSelect}
+                  type="button"
+                  aria-pressed={selectedStage === stage.title}
+                  onClick={() => onSelectStage?.(stage.title)}
+                >
+                  {selectedStage === stage.title ? 'Selected' : 'Inspect'}
+                </button>
+              </div>
             </div>
 
             <div className={styles.taskList}>

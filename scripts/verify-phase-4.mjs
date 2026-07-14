@@ -117,6 +117,16 @@ async function verifyRouteAFixture(fixtureRoot) {
   assertDoesNotInclude(viteCss, 'p4_Button-module__primary-button', '原 CSS Modules scoped CSS 不应重复进入 Vite 原生 CSS asset');
   assertIncludes(JSON.stringify(report.analysis), 'unsafeReasonDistribution', 'report 应包含 analyzer analysis');
   assertIncludes(JSON.stringify(report.analysis), 'non-exported-class', 'analysis 应聚合 non-exported-class 风险');
+  assertEqual(
+    report.analysis.risk.declarationConflictSummary.total,
+    0,
+    '标准 Route A fixture 不应产生 declaration 顺序冲突'
+  );
+  assertEqual(
+    report.analysis.risk.declarationConflicts.length,
+    0,
+    'analysis 应输出结构化 declaration conflict 列表'
+  );
 }
 
 /** 校验未显式配置 GSS modules 时，继承 Vite namedExports 会明确失败。 */
@@ -199,6 +209,13 @@ function assertIncludes(value, expected, message) {
 function assertDoesNotInclude(value, expected, message) {
   if (value.includes(expected)) {
     throw new Error(message);
+  }
+}
+
+/** 断言两个值严格相等。 */
+function assertEqual(value, expected, message) {
+  if (value !== expected) {
+    throw new Error(`${message}: 期望 ${expected}，实际 ${value}`);
   }
 }
 

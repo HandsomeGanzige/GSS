@@ -32,10 +32,10 @@ export const metrics: MetricItem[] = [
   },
   {
     label: 'Route views',
-    value: '4',
-    delta: 'hash',
+    value: '5',
+    delta: 'lazy',
     tone: 'positive',
-    detail: '用无依赖 hash route 覆盖更接近 SPA 的加载路径。'
+    detail: '无依赖 hash route 配合 lazy chunk 覆盖真实 SPA 加载路径。'
   }
 ];
 
@@ -148,6 +148,13 @@ export const moduleSurfaces: ModuleSurface[] = [
     coverage: '产物断言、tokens 输出、深色 debug panel',
     weight: 'medium',
     state: 'active'
+  },
+  {
+    name: 'Settings route',
+    files: ['SettingsRoute.tsx', 'SettingsRoute.module.css'],
+    coverage: '条件 class、表单校验、checkbox、disabled 与保存状态',
+    weight: 'medium',
+    state: 'active'
   }
 ];
 
@@ -164,8 +171,8 @@ export const selectorCases: SelectorCase[] = [
 export const artifactChecks: ArtifactCheck[] = [
   { label: 'HTML link injection', value: 'assets/semantic-atomic.css', status: 'pass' },
   { label: 'Global atomic asset', value: 'semantic-atomic.css', status: 'pass' },
-  { label: 'Manifest default', value: 'not emitted', status: 'pass' },
-  { label: 'Report default', value: 'not emitted', status: 'pass' },
+  { label: 'Manifest opt-in', value: 'semantic-atomic-manifest.json', status: 'pass' },
+  { label: 'Report analysis', value: 'semantic-atomic-report.json', status: 'pass' },
   { label: 'Unsafe fallback', value: 'scoped preserved CSS', status: 'watch' }
 ];
 

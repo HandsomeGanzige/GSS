@@ -54,6 +54,14 @@ pnpm verify:phase3:visual
 其中 `pnpm verify:phase3:visual` 在修复后连续运行三次通过，覆盖此前不稳定的
 `dev/desktop/base/cascade-active` 背景色用例。
 
+2026-07-14 Phase 4 dev shared CSS owner 调整后已重新通过：
+
+```txt
+pnpm --filter @semantic-atomic-css/vite test
+pnpm verify:phase3:visual
+pnpm verify:phase4:full
+```
+
 覆盖范围：
 
 - core 单元测试通过。
@@ -71,10 +79,14 @@ pnpm verify:phase3:visual
 - Vite adapter build 测试覆盖显式开启 manifest/report 后的 source location 反查，包含 atomic source、
   class manifest id 和 diagnostic source。
 - Vite adapter dev transform 覆盖 virtual CSS id 编码，确保 atomic CSS 不会被 Vite CSS Modules 二次 scoped。
-- Vite adapter dev transform 覆盖全局 atomic CSS 去重顺序，确保后加载模块不会用重复 atomic class 覆盖
-  active 状态或 `@media` 覆盖。
-- Vite adapter dev transform 使用 cascade layer 固定 atomic 首次声明顺序，避免 dev 多个 virtual CSS
-  style tag 中的 partial snapshot 后注入重复 atomic key，覆盖 active 状态。
+- Vite adapter dev transform 覆盖 shared dev CSS owner，确保所有 CSS Module 导入同一个
+  `virtual:semantic-atomic-css/dev.css`，并在单一 CSS 快照内按 atomic key 去重。
+- Vite adapter dev transform 覆盖 shared CSS 已缓存后首次加载新 CSS Module 的时序，确保服务端缓存失效、
+  浏览器收到 shared virtual CSS 模块更新，且再次请求 shared owner 时包含新旧模块的完整 CSS 快照。
+- Vite adapter dev transform 覆盖全局 atomic CSS 去重顺序，确保重复 atomic class 不会覆盖 active 状态或
+  `@media` 覆盖。
+- visual computed style 覆盖 interaction button 的 `fontWeight: 800`，确保 GSS dev atomic rule 不会被未分层的
+  全局 `button { font: inherit; }` 覆盖。
 - Vite adapter dev transform 覆盖 CSS Module 写文件后 full reload、dev cache 失效和重新请求后的新 tokens、
   新 atomic CSS、新 fallback CSS。
 - 根项目 TypeScript typecheck 通过。

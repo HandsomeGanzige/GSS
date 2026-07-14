@@ -108,7 +108,7 @@ packages/vite/src/plugin.ts
 - 改为复用内部 `encodeId(id)`，使用 base64url 编码 source。
 - `decodeVirtualCssSource(id)` 同步改为 `decodeId(query)`。
 
-修复后的 dev virtual CSS id 形态：
+当时修复后的 dev virtual CSS id 形态：
 
 ```txt
 virtual:semantic-atomic-css/css.css?source=L1VzZXJzL2...
@@ -165,7 +165,8 @@ corepack pnpm verify:phase3
 - core、vite package、playground build。
 - Phase 3 playground build 产物验收。
 - 后续同类 dev/build 渲染等价回归由 `playground/vite-css-modules-acceptance` 和
-  `pnpm verify:phase3:visual` 覆盖；较大 `vite-react-css-modules` playground 仅作为人工观察样例。
+  `pnpm verify:phase3:visual` 覆盖；较大 `vite-react-css-modules` playground 已在 Phase 4 升级为中型
+  真实项目 Pilot，继续采用人工浏览器验收而不进入自动门禁。
 
 ## 注意事项
 
@@ -186,7 +187,7 @@ backgroundColor 期望 rgb(236, 253, 245)，实际 rgb(255, 255, 255)
 partial snapshot 中的 `_background_ffffff`，没有包含 active 语义对应的 `_background_ecfdf5`。由于两者
 都是单 class selector，后注入的重复 base atomic rule 会覆盖 active atomic rule。
 
-修复策略：
+当时修复策略：
 
 - dev 阶段为 atomic key 记录首次声明顺序。
 - dev virtual CSS 渲染 atomic rule 时，把每条 rule 放入按首次声明顺序命名的 cascade layer。
@@ -196,3 +197,65 @@ partial snapshot 中的 `_background_ffffff`，没有包含 active 语义对应�
 同时，`pnpm verify:phase3:visual` 已改为先构建 core、analyzer 和 Vite adapter package，再启动
 playground，避免 visual 验收使用旧 `packages/vite/dist` 造成误判。失败 artifact 也新增 debug JSON，
 记录目标元素 className、computed style、style tag 和 stylesheet link 信息。
+
+## Phase 4 Route A 追加修复：shared dev CSS owner
+
+2026-07-14，在对比 GSS dev 与 Vite native dev 页面时发现 interaction button 的 `fontWeight` 不一致：
+
+```txt
+GSS dev: 400
+Vite native dev: 800
+```
+
+根因不是 CSS Modules tokens 或 scoped class 生成错误，而是上一轮 cascade layer 修复引入了新的 cascade
+差异。CSS cascade 中未分层的普通 author CSS normal declaration 会优先于任意 named layer 中的 normal
+declaration，因此全局 `button { font: inherit; }` 会覆盖 GSS 放在 `@layer gss-*` 内的
+`._font-weight_800 { font-weight: 800; }`；Vite native CSS Modules 下 scoped class rule 未分层，会凭 class
+specificity 赢过该全局 reset。
+
+新的修复策略：
+
+- dev 下所有 CSS Module JS 都导入同一个 `virtual:semantic-atomic-css/dev.css`。
+- 该 shared virtual CSS 基于当前 `devResults` 输出一个全局快照，在同一个 CSS owner 内按 atomic key 去重。
+- atomic rule 不再使用 `@layer` 包裹，避免 layered atomic declaration 输给未分层普通 author CSS。
+- shared owner 已经被浏览器加载后，普通加载路径首次转换新的 CSS Module 时，会调用 Vite dev server
+  重新加载该 virtual CSS module，使服务端缓存失效并向浏览器发送 shared virtual CSS 模块更新。仅更新
+  `devResults` 不足以刷新浏览器已执行过的同 URL ESM import，因此这一步是 shared owner 正确性的必要条件。
+- CSS Module HMR 仍采用 full reload；文件更新时删除对应 dev result，并让 shared virtual CSS module 失效。
+- visual 验收新增 interaction button 的 `fontWeight: 800` 断言，覆盖这类全局 reset 回归。
+
+当前边界：
+
+- 仍不实现 CSS-only HMR。
+- 仍不精确建模普通 CSS 与多个 CSS Module 任意交错导入的完整 cascade 顺序；如果后续普通 CSS 进入 GSS
+  处理范围，需要再评估 runtime style manager 或 module graph ordered chunks。
+
+## Phase 4 Pilot 追加修复：HMR tokens 与 contextual rule 顺序
+
+2026-07-14，中型 Pilot 的真实浏览器验收补充发现两个 shared owner 阻塞问题。
+
+第一，CSS Module 文件更新时只清理 `devResults` 和 shared CSS module，内部 CSS Module JS virtual module
+仍命中 Vite transform cache。full reload 后页面因此继续使用旧 tokens，shared CSS 即使刷新也无法让旧
+atomic class 命中新规则。修复后 HMR 会根据 `devResults` 的真实缓存键精确失效对应 virtual JS module；
+回归测试移除了原先的 `moduleGraph.invalidateAll()` 补偿，并直接用同一请求 URL 验证新 tokens、atomic
+CSS 与 fallback CSS。
+
+第二，shared owner 的首次登记去重会让早期 route 已复用的 contextual atomic key 排在后续 route 的
+基础 rule 前面，导致正常 `base + @media` 响应式覆盖失效。build 虽然 module graph 顺序不同，也存在
+同类风险。修复后 dev/build 共用以下最终渲染顺序：
+
+- 基础 atomic rules 在前，`@media` / `@supports` contextual rules 在后。
+- 两个分区内部保持稳定登记顺序。
+- 简单 `max-width: Npx` 只在同类原槽位中按 `N` 从大到小排列。
+- 简单 `min-width: Npx` 只在同类原槽位中按 `N` 从小到大排列。
+- 复杂媒体表达式和 supports-only 条件保持原槽位，不参与宽度断点重排。
+
+该规则覆盖当前 MVP 明确支持的常见响应式写法，但不宣称完整 CSS cascade 建模。两个同时生效 class
+竞争同一属性、反向 context/base 源码顺序、复杂媒体条件跨模块竞争仍是后续 analyzer 提示与编译策略
+研究范围。
+
+同一轮 Pilot 重复构建还发现 `buildOrder` 来自并发 transform 完成顺序，导致 CSS declaration 顺序、
+analyzer 压缩估算、report 与 manifest 序列化顺序漂移。adapter 已改为按规范化 source id 统一排序 build
+CSS、preserved fallback 和 analyzer modules，并在输出边界规范化 diagnostics、manifest keys 和共享
+atomic sources。连续两次 semantic build 的 atomic CSS、report、manifest SHA-256 均保持一致。该稳定
+顺序不等同于任意 lazy module graph 的完整 cascade 顺序，跨模块同属性竞争仍属于已记录边界。

@@ -40,6 +40,128 @@ describe('semanticAtomicCss build plugin', () => {
     expect(css).toContain('.gss-color_red');
   });
 
+  it('build 聚合时把复用的媒体 atomic rule 稳定输出在后续基础规则之后', async () => {
+    const root = await createBuildFixture(
+      [
+        '.early {',
+        '  display: grid;',
+        '}',
+        '',
+        '@media (max-width: 620px) {',
+        '  .early {',
+        '    grid-template-columns: 1fr;',
+        '  }',
+        '}',
+        '',
+        '@media (min-width: 1200px) {',
+        '  .early {',
+        '    gap: 24px;',
+        '  }',
+        '}',
+        '',
+        '.panel {',
+        '  grid-template-columns: 200px 1fr;',
+        '  gap: 8px;',
+        '}',
+        '',
+        '@media (max-width: 1100px) {',
+        '  .panel {',
+        '    grid-template-columns: repeat(2, minmax(0, 1fr));',
+        '  }',
+        '}',
+        '',
+        '@media (max-width: 620px) {',
+        '  .panel {',
+        '    grid-template-columns: 1fr;',
+        '  }',
+        '}',
+        '',
+        '@media (min-width: 600px) {',
+        '  .panel {',
+        '    gap: 12px;',
+        '  }',
+        '}',
+        '',
+        '@media (min-width: 1200px) {',
+        '  .panel {',
+        '    gap: 24px;',
+        '  }',
+        '}'
+      ].join('\n')
+    );
+
+    await runBuild(root, {
+      core: {
+        className: {
+          strategy: 'readable'
+        }
+      }
+    });
+
+    const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
+
+    expect(css.indexOf('grid-template-columns: 200px 1fr;')).toBeLessThan(
+      css.indexOf('grid-template-columns: repeat(2, minmax(0, 1fr));')
+    );
+    expect(css.indexOf('grid-template-columns: repeat(2, minmax(0, 1fr));')).toBeLessThan(
+      css.indexOf('grid-template-columns: 1fr;')
+    );
+    expect(css.indexOf('gap: 8px;')).toBeLessThan(css.indexOf('gap: 12px;'));
+    expect(css.indexOf('gap: 12px;')).toBeLessThan(css.indexOf('gap: 24px;'));
+  });
+
+  it('build 聚合结果按 source id 稳定排序，不依赖并发 transform 完成顺序', async () => {
+    const root = await createBuildFixture(
+      '.button {\n  color: blue;\n}\n.button[data-state="open"] {\n  border-color: blue;\n}',
+      {
+        mainJs: [
+          "import button from './Button.module.css';",
+          "import alpha from './Alpha.module.css';",
+          "document.body.setAttribute('data-button', button.button);",
+          "document.body.setAttribute('data-alpha', alpha.alpha);"
+        ].join('\n'),
+        extraFiles: {
+          'Alpha.module.css':
+            '.alpha {\n  color: red;\n}\n.alpha[data-state="open"] {\n  border-color: red;\n}'
+        }
+      }
+    );
+
+    await runBuild(root, {
+      core: {
+        className: {
+          strategy: 'readable'
+        }
+      },
+      manifest: { enabled: true },
+      report: { enabled: true }
+    });
+
+    const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
+    const manifest = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-manifest.json'), 'utf8')) as {
+      atomic: Record<string, { sources: Array<{ id: string; line?: number; column?: number }> }>;
+      classes: Record<string, unknown>;
+    };
+    const report = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-report.json'), 'utf8')) as {
+      diagnostics: Array<{ id: string; source?: { line?: number; column?: number } }>;
+    };
+    const atomicKeys = Object.keys(manifest.atomic);
+    const classKeys = Object.keys(manifest.classes);
+
+    expect(css.indexOf('color: red;')).toBeLessThan(css.indexOf('color: blue;'));
+    expect(atomicKeys).toEqual([...atomicKeys].sort());
+    expect(classKeys).toEqual([...classKeys].sort());
+    expect(
+      Object.values(manifest.atomic).every((entry) => {
+        const locations = entry.sources.map((source) => `${source.id}:${source.line ?? 0}:${source.column ?? 0}`);
+        return locations.join('\n') === [...locations].sort().join('\n');
+      })
+    ).toBe(true);
+    expect(report.diagnostics.map((item) => item.id)).toEqual(
+      report.diagnostics.map((item) => item.id).sort()
+    );
+  });
+
   it('显式开启 manifest/report 后保留基础 source location', async () => {
     const root = await createBuildFixture(
       [
@@ -109,6 +231,61 @@ describe('semanticAtomicCss build plugin', () => {
         afterGzipCssBytes: expect.any(Number),
         afterBrotliCssBytes: expect.any(Number)
       }
+    });
+  });
+
+  it('build report 输出同一 semantic class 的 declaration 顺序冲突', async () => {
+    const root = await createBuildFixture(
+      [
+        '.button {',
+        '  color: red;',
+        '  border: 1px solid transparent;',
+        '}',
+        '',
+        '.button {',
+        '  color: blue;',
+        '  border-color: blue;',
+        '}',
+        '',
+        '.label {',
+        '  color: green;',
+        '}'
+      ].join('\n')
+    );
+
+    await runBuild(root, {
+      core: {
+        className: {
+          strategy: 'readable'
+        }
+      },
+      report: {
+        enabled: true
+      }
+    });
+
+    const report = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-report.json'), 'utf8'));
+
+    expect(report.analysis.risk.declarationConflictSummary).toEqual({
+      total: 2,
+      sameProperty: 1,
+      shorthandLonghand: 1,
+      affectedFiles: 1,
+      affectedClasses: 1
+    });
+    expect(report.analysis.risk.declarationConflicts).toEqual([
+      expect.objectContaining({
+        kind: 'same-property',
+        properties: ['color']
+      }),
+      expect.objectContaining({
+        kind: 'shorthand-longhand',
+        properties: ['border', 'border-color']
+      })
+    ]);
+    expect(report.analysis.health).toMatchObject({
+      status: 'risky',
+      reasons: expect.arrayContaining(['存在同一 semantic class 的 declaration 顺序冲突'])
     });
   });
 

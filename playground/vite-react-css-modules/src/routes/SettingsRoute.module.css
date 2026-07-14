@@ -1,0 +1,204 @@
+.route {
+  display: contents;
+}
+
+.settingsPanel {
+  composes: sharedSurface from "../styles/SharedSurface.module.css";
+  display: grid;
+  grid-column: span 12;
+  gap: 20px;
+  padding: 20px;
+}
+
+.panelHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.sectionKicker {
+  margin: 0 0 4px;
+  color: #be123c;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.sectionTitle {
+  margin: 0;
+  color: #111827;
+  font-size: 20px;
+}
+
+.savedStatus {
+  padding: 6px 9px;
+  color: #065f46;
+  background: #d1fae5;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.unsavedStatus {
+  padding: 6px 9px;
+  color: #92400e;
+  background: #fef3c7;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.settingGroup {
+  display: grid;
+  gap: 10px;
+}
+
+.fieldLabel {
+  color: #475569;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.densitySwitch {
+  display: flex;
+  gap: 8px;
+}
+
+.densityNormal {
+  padding: 9px 13px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.densityActive {
+  padding: 9px 13px;
+  color: #ffffff;
+  background: #0f766e;
+  border: 1px solid #0f766e;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.densityNormal:hover {
+  background: #e2e8f0;
+}
+
+.densityActive:active {
+  background: #115e59;
+}
+
+.densityNormal:focus-visible {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 2px;
+}
+
+.densityActive:focus-visible {
+  outline: 3px solid #99f6e4;
+  outline-offset: 2px;
+}
+
+.settingsForm {
+  display: grid;
+  gap: 16px;
+}
+
+.fieldFrame {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-left-color: #38bdf8;
+  border-radius: 8px;
+}
+
+.textControl {
+  min-height: 42px;
+  padding: 9px 11px;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.textControl:focus-visible {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 2px;
+}
+
+.validationMessage {
+  color: #b91c1c !important;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.checkboxRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #334155;
+  font-size: 14px;
+}
+
+.formActions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.saveButton {
+  padding: 10px 14px;
+  color: #ffffff;
+  background: #0f766e;
+  border: 1px solid #0f766e;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.saveButton:hover {
+  background: #115e59;
+}
+
+.saveButton:active {
+  background: #134e4a;
+}
+
+.saveButton:focus-visible {
+  outline: 3px solid #99f6e4;
+  outline-offset: 2px;
+}
+
+.saveButton:disabled {
+  color: #94a3b8;
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .panelHeader {
+    flex-direction: column;
+  }
+
+  .densitySwitch {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .formActions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

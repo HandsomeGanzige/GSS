@@ -68,8 +68,10 @@
   CSS 继续由 Vite 原生 CSS asset 输出，Route A 接管的 CSS Modules scoped CSS 不会重复进入该 asset。
 - 2026-07-07 visual flake 修复：`dev/desktop/base/cascade-active` 曾出现 semantic 背景色偶发回退到
   `#ffffff`。根因是 dev 多个 virtual CSS style tag 可能带着 partial snapshot 后注入重复 atomic key。
-  当前 dev atomic CSS 使用稳定 cascade layer 固定首次声明顺序，并让 `pnpm verify:phase3:visual`
-  先构建 package dist 后再启动 playground。
+- 2026-07-14 追加修正：旧 cascade layer 方案会让 GSS atomic normal declaration 输给未分层普通 author
+  CSS，例如全局 `button { font: inherit; }`。当前 dev 改为单一 shared CSS owner，在同一个
+  `virtual:semantic-atomic-css/dev.css` 中聚合并去重 atomic CSS，不再使用 layer；`pnpm verify:phase3:visual`
+  会覆盖 interaction button 的 `fontWeight: 800`。
 - root 新增 `pnpm verify:phase4:full`，用于串联 Phase 4 静态验收和 visual computed style 对照。
 
 仍然不做：
@@ -99,13 +101,15 @@ build 阶段：
 dev 阶段：
 
 - 每个 CSS Module 使用 `transformCss()` 单文件转换。
-- JS module 导入 per-file virtual CSS。
-- virtual CSS 内容基于当前 `devResults` 生成全局 atomic CSS 快照：atomic declaration 按首次出现顺序聚合，并按
-  atomic key 去重；preserved fallback CSS 按当前模块顺序拼接。
-- 这样可以避免多个 `.module.css` 在 dev 下重复注入同名 atomic class，导致后加载模块覆盖前面模块的状态样式或
-  `@media` 覆盖。
-- virtual CSS id 的 source 使用 base64url 编码，避免 `.module.css` 源路径出现在 CSS id query 中，
-  导致 Vite 把已生成的 atomic CSS 二次当作 CSS Modules scoped。
+- JS module 统一导入 `virtual:semantic-atomic-css/dev.css`，由单一 dev CSS owner 持有当前全局快照。
+- virtual CSS 内容基于当前 `devResults` 生成：atomic declaration 按首次出现顺序聚合并按 atomic key 去重；
+  preserved fallback CSS 按当前模块顺序拼接。
+- 这样可以避免多个 `.module.css` 在 dev 下重复注入同名 atomic class，同时避免 cascade layer 让 atomic
+  normal declaration 输给未分层普通 author CSS。
+- shared virtual CSS id 不包含 `.module.css` 源路径，避免 Vite 把已生成的 atomic CSS 二次当作 CSS Modules
+  scoped。
+- shared owner 已加载后首次转换新 CSS Module 时，通过 Vite `reloadModule()` 使 owner 的 transform 缓存失效
+  并通知浏览器重新执行该 virtual CSS 模块，避免只更新 `devResults` 而遗漏新模块样式。
 - 文件更新时清空缓存并触发 full reload。
 - 较大场景 playground dev 分为两个对照模式：
   - `pnpm dev:semantic` 或 `pnpm dev`：传入 `GSS_PLAYGROUND_CSS_MODE=semantic`，启用 `semanticAtomicCss()`。

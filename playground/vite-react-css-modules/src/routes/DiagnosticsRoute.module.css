@@ -1,0 +1,184 @@
+.route {
+  display: contents;
+}
+
+.filterBar {
+  composes: sharedSurface from "../styles/SharedSurface.module.css";
+  display: grid;
+  grid-column: span 12;
+  grid-template-columns: 180px 180px minmax(180px, 1fr);
+  gap: 16px;
+  align-items: end;
+  padding: 16px;
+}
+
+.filterField {
+  display: grid;
+  gap: 8px;
+}
+
+.filterLabel {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.selectControl {
+  min-height: 40px;
+  padding: 8px 11px;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+}
+
+.selectControl:focus-visible {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 2px;
+}
+
+.pendingAction {
+  min-height: 40px;
+  justify-self: end;
+  padding: 8px 12px;
+  color: #92400e;
+  background: #fef3c7;
+  border: 1px solid #f59e0b;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.acknowledgedAction {
+  min-height: 40px;
+  justify-self: end;
+  padding: 8px 12px;
+  color: #065f46;
+  background: #d1fae5;
+  border: 1px solid #34d399;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.pendingAction:hover {
+  background: #fde68a;
+}
+
+.acknowledgedAction:hover {
+  background: #a7f3d0;
+}
+
+.pendingAction:focus-visible {
+  outline: 3px solid #fde68a;
+  outline-offset: 2px;
+}
+
+.acknowledgedAction:focus-visible {
+  outline: 3px solid #99f6e4;
+  outline-offset: 2px;
+}
+
+.diagnosticProbe {
+  position: relative;
+  display: flex;
+  grid-column: span 12;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 15px 16px;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+.warningProbe {
+  color: #92400e;
+  background: #fffbeb;
+}
+
+.acknowledgedProbe {
+  color: #065f46;
+  background: #ecfdf5;
+}
+
+.diagnosticCode {
+  color: inherit;
+  font-size: 13px;
+}
+
+.acknowledgedList {
+  display: grid;
+  grid-column: span 12;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.acknowledgedItem {
+  padding: 10px 12px;
+  color: #475569;
+  background: #ffffff;
+  border-radius: 8px;
+}
+
+.diagnosticProbe[data-level='warning'] {
+  border-left-color: #dc2626;
+  border-left-width: 4px;
+}
+
+.diagnosticProbe.acknowledgedProbe {
+  box-shadow: 0 0 0 3px rgba(52, 211, 153, 0.18);
+}
+
+.diagnosticProbe .diagnosticCode {
+  text-decoration: underline;
+  text-decoration-color: #f59e0b;
+}
+
+.acknowledgedList > .acknowledgedItem {
+  border-left: 4px solid #38bdf8;
+}
+
+.diagnosticProbe::before {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  content: "";
+  background: #f59e0b;
+  border-radius: 50%;
+}
+
+:global(.pilot-global-probe) {
+  grid-column: span 12;
+  padding: 10px 12px;
+  color: #3730a3;
+  background: #eef2ff;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+@media (max-width: 720px) {
+  .filterBar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .pendingAction {
+    justify-self: stretch;
+  }
+
+  .acknowledgedAction {
+    justify-self: stretch;
+  }
+
+  .diagnosticProbe {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

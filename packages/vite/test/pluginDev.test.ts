@@ -31,6 +31,7 @@ describe('semanticAtomicCss dev plugin', () => {
       }
 
       expect(cssImport).not.toContain('.module.css');
+      expect(cssImport).toContain('semantic-atomic-css/dev.css');
 
       const resolvedCssId = cssImport.replace(/^\/@id\/__x00__/, '\0');
       const cssResult = await server.transformRequest(resolvedCssId);
@@ -39,6 +40,55 @@ describe('semanticAtomicCss dev plugin', () => {
       expect(cssCode).toContain('._color_red');
       expect(cssCode).not.toContain('export const _color_red');
       expect(cssCode).not.toContain('.__color_red_');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('shared CSS 已缓存后首次转换新模块会刷新服务端快照并通知浏览器', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gss-vite-dev-'));
+    const srcDir = join(root, 'src');
+    const wsMessages: unknown[] = [];
+    tempRoots.push(root);
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(root, 'index.html'), '<div id="root"></div>');
+    await writeFile(join(srcDir, 'Shell.module.css'), '.shell { color: red; }');
+    await writeFile(join(srcDir, 'Panel.module.css'), '.panel { color: blue; }');
+
+    const server = await createViteServer(root);
+
+    try {
+      const shellResult = await server.transformRequest('/src/Shell.module.css');
+      const cssImport = readCssImport(shellResult?.code);
+      const firstCss = await loadVirtualCss(server, cssImport);
+
+      expect(firstCss).toContain('._color_red');
+      expect(firstCss).not.toContain('._color_blue');
+
+      server.ws.send = ((payload: unknown) => {
+        wsMessages.push(payload);
+      }) as ViteDevServer['ws']['send'];
+
+      const panelResult = await server.transformRequest('/src/Panel.module.css');
+      const secondCssImport = readCssImport(panelResult?.code);
+      const secondCss = await loadVirtualCss(server, secondCssImport);
+
+      expect(stripTimestampQuery(secondCssImport)).toBe(stripTimestampQuery(cssImport));
+      expect(secondCss).toContain('._color_red');
+      expect(secondCss).toContain('._color_blue');
+      expect(wsMessages).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'update',
+            updates: expect.arrayContaining([
+              expect.objectContaining({
+                type: 'js-update',
+                acceptedPath: expect.stringContaining('semantic-atomic-css/dev.css')
+              })
+            ])
+          })
+        ])
+      );
     } finally {
       await server.close();
     }
@@ -62,9 +112,10 @@ describe('semanticAtomicCss dev plugin', () => {
         '  background: #ecfdf5;',
         '}',
         '',
-        '@media (max-width: 900px) {',
+        '@media (max-width: 620px) {',
         '  .navItem {',
         '    align-items: flex-start;',
+        '    grid-template-columns: 1fr;',
         '  }',
         '}'
       ].join('\n')
@@ -75,6 +126,19 @@ describe('semanticAtomicCss dev plugin', () => {
         '.panel {',
         '  background: #ffffff;',
         '  align-items: center;',
+        '  grid-template-columns: 200px 1fr;',
+        '}',
+        '',
+        '@media (max-width: 1100px) {',
+        '  .panel {',
+        '    grid-template-columns: repeat(2, minmax(0, 1fr));',
+        '  }',
+        '}',
+        '',
+        '@media (max-width: 620px) {',
+        '  .panel {',
+        '    grid-template-columns: 1fr;',
+        '  }',
         '}'
       ].join('\n')
     );
@@ -82,21 +146,30 @@ describe('semanticAtomicCss dev plugin', () => {
     const server = await createViteServer(root);
 
     try {
-      await server.transformRequest('/src/Shell.module.css');
+      const shellResult = await server.transformRequest('/src/Shell.module.css');
       const panelResult = await server.transformRequest('/src/Panel.module.css');
+      const shellCssImport = readCssImport(shellResult?.code);
       const cssImport = panelResult?.code.match(/import\s+"([^"]+)"/)?.[1];
 
       if (!cssImport) {
         throw new Error('未找到 dev virtual CSS import。');
       }
 
+      expect(stripTimestampQuery(shellCssImport)).toBe(stripTimestampQuery(cssImport));
+
       const cssCode = await loadVirtualCss(server, cssImport);
 
-      expect(cssCode).toContain('@layer gss-');
+      expect(cssCode).not.toContain('@layer gss-');
       expect(countOccurrences(cssCode, '._background_ffffff {')).toBe(1);
       expect(countOccurrences(cssCode, '._align-items_center {')).toBe(1);
       expect(cssCode.indexOf('._background_ffffff {')).toBeLessThan(cssCode.indexOf('._background_ecfdf5 {'));
       expect(cssCode.indexOf('align-items: center;')).toBeLessThan(cssCode.indexOf('align-items: flex-start;'));
+      expect(cssCode.indexOf('grid-template-columns: 200px 1fr;')).toBeLessThan(
+        cssCode.indexOf('grid-template-columns: repeat(2, minmax(0, 1fr));')
+      );
+      expect(cssCode.indexOf('grid-template-columns: repeat(2, minmax(0, 1fr));')).toBeLessThan(
+        cssCode.indexOf('grid-template-columns: 1fr;')
+      );
     } finally {
       await server.close();
     }
@@ -169,12 +242,12 @@ describe('semanticAtomicCss dev plugin', () => {
       expect(wsMessages).toContainEqual({ type: 'full-reload' });
 
       expect(await loadRawVirtualCss(plugin, firstCssImport)).toBe('');
-      server.moduleGraph.invalidateAll();
 
-      const secondResult = await server.transformRequest('/src/Button.module.css?phase3-hmr=1');
+      const secondResult = await server.transformRequest('/src/Button.module.css');
       const secondCssImport = readCssImport(secondResult?.code);
       const secondCss = await loadRawVirtualCss(plugin, secondCssImport);
 
+      expect(stripTimestampQuery(secondCssImport)).toBe(stripTimestampQuery(firstCssImport));
       expect(secondResult?.code).toContain('_color_blue');
       expect(secondResult?.code).not.toContain('_color_red');
       expect(secondCss).toContain('._color_blue');
@@ -223,7 +296,7 @@ async function loadRawVirtualCss(plugin: Plugin, cssImport: string): Promise<str
     throw new Error('semanticAtomicCss 插件缺少 load。');
   }
 
-  const resolvedCssId = cssImport.replace(/^\/@id\/__x00__/, '\0');
+  const resolvedCssId = stripTimestampQuery(cssImport).replace(/^\/@id\/__x00__/, '\0');
   const loadVirtualModule = load as (this: unknown, id: string) => unknown | Promise<unknown>;
   const result = await loadVirtualModule.call(undefined, resolvedCssId);
 
@@ -236,6 +309,11 @@ async function loadRawVirtualCss(plugin: Plugin, cssImport: string): Promise<str
   }
 
   return '';
+}
+
+/** 移除 Vite 为已失效模块追加的 HMR 时间戳，只比较 shared owner 的稳定模块身份。 */
+function stripTimestampQuery(id: string): string {
+  return id.replace(/\?t=\d+$/, '');
 }
 
 /** 统计固定片段出现次数，用于确认 dev 聚合 CSS 已去重。 */

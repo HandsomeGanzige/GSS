@@ -37,15 +37,21 @@ CSS Modules only + Safe Atomization + Preserve Semantic Class + Unsafe CSS Fallb
 
 ## 当前状态
 
-Phase 4 已经完成 Vite adapter Route A 迁移和第二批验收补强，并保留 Phase 1/2/3 的历史记录：
+Phase 4 已经完成 Vite adapter Route A 迁移、第二批验收补强、中型真实项目 Pilot 和
+analyzer declaration conflict 提示，并保留
+Phase 1/2/3 的历史记录：
 
 - `@semantic-atomic-css/core` 只负责把标准 CSS 字符串转换为 atomic CSS、preserved CSS、manifest
   数据和 report 数据，不感知 CSS Modules、Vite、React 或浏览器运行时。
 - `@semantic-atomic-css/vite` 采用 Route A：通过 Vite 6 `preprocessCSS` 复用原生 CSS Modules scoped CSS
   和 `modules` tokens，再执行 safe atomization、tokens atomic 增强、fallback CSS 和 asset/report 输出。
-- `@semantic-atomic-css/analyzer` 负责构建后风险、收益、体积和试用健康度分析，不读取文件、不依赖 Vite。
+- `@semantic-atomic-css/analyzer` 负责构建后风险、收益、体积、试用健康度和同一 semantic class
+  内可证明的 declaration 顺序冲突分析，不读取文件、不依赖 Vite。
 - `playground/vite-css-modules-acceptance` 是自动验收用的精简 React + Vite + CSS Modules fixture。
-- `playground/vite-react-css-modules` 是较大业务场景 playground，只用于人工观察。
+- `playground/vite-react-css-modules` 是正式的中型真实项目 Pilot，使用 5 个 lazy route、16 个导出
+  React 组件和 18 个 CSS Module，承担人工浏览器验收，不接入自动门禁。
+- `docs/phase-4-real-project-pilot-tracking.md` 记录 Pilot 的场景矩阵、四维验收、analyzer 指标和异常。
+- `docs/phase-4-analyzer-conflict-tracking.md` 记录 declaration conflict 的判定边界、噪声校准和验收结果。
 - `pnpm verify:phase3` 是当前静态端到端验收命令。
 - `pnpm verify:phase3:visual` 是当前 Playwright computed style 对照验收命令。
 - `pnpm verify:phase4` 是当前 Route A 与 analyzer 静态验收命令。
@@ -57,7 +63,9 @@ Phase 4 已经完成 Vite adapter Route A 迁移和第二批验收补强，并�
 - `packages/analyzer`：与构建工具无关的构建后分析与评估逻辑。
 - `packages/vite`：Vite adapter。
 - `playground/vite-css-modules-acceptance`：自动验收用精简 fixture。
-- `playground/vite-react-css-modules`：人工观察用较大场景 playground。
+- `playground/vite-react-css-modules`：Phase 4 中型真实项目 Pilot，承担人工浏览器验收。
+- `docs/phase-4-real-project-pilot-tracking.md`：Phase 4 中型真实项目 Pilot 推进与验收记录。
+- `docs/phase-4-analyzer-conflict-tracking.md`：Phase 4 analyzer declaration conflict 提示推进与验收记录。
 - `docs/phase-1-acceptance.md`：Phase 1 验收清单。
 - `docs/phase-1-vite-prototype-tracking.md`：Phase 1 实现记录和风险追踪。
 - `scripts/verify-phase-1.mjs`：自动化构建产物验收脚本。
@@ -162,7 +170,12 @@ unsupported-pseudo
 - 在 adapter 层接管最终 JS/CSS 输出，但不自行实现 scoped class 或 CSS Modules tokens。
 - 调用 core 当前公开的 `transformCss` / `createTransformer`。
 - 返回基于 Vite 原生 tokens 增强后的 default export JS 模块。
-- dev 阶段导入全局去重 virtual CSS 快照。
+- dev 阶段导入单一 shared virtual CSS 快照，在同一个 CSS owner 内完成 atomic key 去重。
+- CSS Module HMR 必须同时失效对应内部 JS virtual module 与 shared CSS，确保 full reload 重建 tokens。
+- dev/build 聚合输出必须先渲染基础 atomic rules，再渲染 contextual rules；简单 `max-width` 按断点
+  从大到小、简单 `min-width` 从小到大，复杂媒体表达式保持首次登记顺序。
+- build CSS、preserved fallback、analyzer modules、report diagnostics 和 manifest source 索引必须使用
+  稳定规范化顺序，不允许并发 transform 完成顺序进入持久化产物。
 - build 阶段 emit 全局聚合 CSS asset，并在显式开启时 emit manifest/report asset。
 - 显式开启 report 时，应通过 `@semantic-atomic-css/analyzer` 添加 `analysis` 字段。
 
@@ -220,6 +233,9 @@ pnpm verify:phase4:full
 http://127.0.0.1:5173/
 ```
 
+中型 Pilot 的 semantic/native dev 固定为 `5173/5174`，semantic/native preview 固定为 `4173/4174`；
+如果这些端口已有用户进程，人工验收应使用备用端口，不得终止未知进程。
+
 ## 测试要求
 
 compiler 改动需要在 `packages/core/test` 中新增或更新 Vitest 覆盖。重点覆盖：
@@ -245,13 +261,14 @@ compiler 改动需要在 `packages/core/test` 中新增或更新 Vitest 覆盖�
 
 ## 下一步可能任务
 
-Phase 1 已完成。适合继续推进的任务包括：
+Phase 4 已完成。适合继续推进的任务包括：
 
 - 为 compiler 增加 fixture 或 snapshot tests。
-- 提升 CSS Modules 兼容性，尤其是 `localsConvention` 和 scoped name 配置。
-- 增加 gzip 和 brotli size report。
-- 改进 Vite adapter 的 HMR 行为。
-- 改进 source map 或 source location 信息。
+- 评估是否由 adapter 提供 JSX / TSX usage metadata，在有 DOM 共现证据后再扩展跨 class
+  declaration conflict 提示。
+- 改进 report 中 scoped semantic class 到原始 local class 的反查与 source location 信息。
+- 改进 Vite adapter 的 CSS-only HMR 行为。
+- 评估复杂媒体表达式和任意 import order 所需的 module graph 顺序建模。
 - 继续扩展 Playwright computed-style verifier 的覆盖面。
 - 在 core 和 Vite 行为稳定后，再增加 Rsbuild/Rspack 支持。
 

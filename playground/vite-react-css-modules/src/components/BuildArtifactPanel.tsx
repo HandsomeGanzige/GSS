@@ -10,10 +10,12 @@ export type ArtifactCheck = {
 /** build 产物面板输入。 */
 type BuildArtifactPanelProps = {
   checks: ArtifactCheck[];
+  selectedLabel?: string;
+  onSelect?: (check: ArtifactCheck) => void;
 };
 
 /** 渲染 build 输出检查面板。 */
-export function BuildArtifactPanel({ checks }: BuildArtifactPanelProps) {
+export function BuildArtifactPanel({ checks, selectedLabel, onSelect }: BuildArtifactPanelProps) {
   return (
     <section className={styles.artifactPanel} aria-label="Build artifact checks">
       <div className={styles.panelHeader}>
@@ -26,10 +28,18 @@ export function BuildArtifactPanel({ checks }: BuildArtifactPanelProps) {
 
       <div className={styles.artifactList}>
         {checks.map((check) => (
-          <div key={check.label} className={styles.artifactRow} data-status={check.status}>
+          <div
+            key={check.label}
+            className={`${styles.artifactRow} ${selectedLabel === check.label ? styles.selectedArtifact : ''}`}
+            data-status={check.status}
+            data-pilot-case={`artifact-${check.label.toLowerCase().replaceAll(' ', '-')}`}
+          >
             <span className={styles.checkLabel}>{check.label}</span>
             <code className={styles.checkValue}>{check.value}</code>
             <span className={styles.statusBadge}>{check.status}</span>
+            <button className={styles.inspectButton} type="button" onClick={() => onSelect?.(check)}>
+              Inspect
+            </button>
           </div>
         ))}
       </div>

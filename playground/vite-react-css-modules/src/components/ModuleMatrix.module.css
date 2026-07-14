@@ -62,6 +62,10 @@
   background: #ffffff;
 }
 
+.selectedSurface {
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.18);
+}
+
 .surfaceCard[data-state='watch'] {
   border-color: #fed7aa;
 }
@@ -115,6 +119,26 @@
   color: #64748b;
   font-size: 13px;
   line-height: 1.55;
+}
+
+.inspectButton {
+  align-self: end;
+  padding: 8px 10px;
+  color: #0f766e;
+  background: #ffffff;
+  border: 1px solid #99f6e4;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.inspectButton:hover {
+  background: #f0fdfa;
+}
+
+.inspectButton:focus-visible {
+  outline: 3px solid #99f6e4;
+  outline-offset: 2px;
 }
 
 @media (max-width: 1100px) {
