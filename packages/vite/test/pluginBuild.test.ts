@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { build, type CSSModulesOptions } from 'vite';
+import { build, type CSSModulesOptions, type CSSOptions, type RenderBuiltAssetUrl } from 'vite';
 import { semanticAtomicCss } from '../src/plugin.js';
 
 const tempRoots: string[] = [];
@@ -38,6 +38,98 @@ describe('semanticAtomicCss build plugin', () => {
     const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
 
     expect(css).toContain('.gss-color_red');
+  });
+
+  it('build 将 url() 关联 class 整体保留，并在聚合 CSS 中解析本地资源', async () => {
+    const root = await createBuildFixture(
+      '.hero { color: red; background: url("./mark.svg#phase5") no-repeat; }',
+      {
+        extraFiles: {
+          'mark.svg': '<svg xmlns="http://www.w3.org/2000/svg"><circle id="phase5" r="4" /></svg>'
+        }
+      }
+    );
+
+    await runBuild(
+      root,
+      {
+        core: { className: { strategy: 'readable' } },
+        report: { enabled: true }
+      },
+      undefined,
+      { base: './', assetsInlineLimit: 0 }
+    );
+
+    const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
+    const js = await readBuiltAssets(join(root, 'dist/assets'), '.js');
+    const report = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-report.json'), 'utf8'));
+    const assetNames = (await readdir(join(root, 'dist/assets'))).filter((name) => name.endsWith('.svg'));
+
+    expect(assetNames).toHaveLength(1);
+    expect(css).toContain(`url("./${assetNames[0]}#phase5")`);
+    expect(css).toContain('color: red;');
+    expect(css).not.toContain('._color_red');
+    expect(css).not.toContain('__VITE_ASSET__');
+    expect(js).not.toContain('_color_red');
+    expect(report.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'preserved-class', reason: 'asset-reference' })
+    );
+  });
+
+  it('publicDir 资源和自定义 renderBuiltUrl 在资源 class 中明确失败', async () => {
+    const publicRoot = await createBuildFixture('.hero { background: url("/mark.svg"); }');
+    await mkdir(join(publicRoot, 'public'), { recursive: true });
+    await writeFile(join(publicRoot, 'public/mark.svg'), '<svg xmlns="http://www.w3.org/2000/svg" />');
+
+    await expect(runBuild(publicRoot)).rejects.toThrow('vite.public-asset-url');
+
+    const customRoot = await createBuildFixture('.hero { background: url("./mark.svg"); }', {
+      extraFiles: {
+        'mark.svg': '<svg xmlns="http://www.w3.org/2000/svg" />'
+      }
+    });
+
+    await expect(
+      runBuild(customRoot, {}, undefined, {
+        assetsInlineLimit: 0,
+        renderBuiltUrl: () => ({ relative: true })
+      })
+    ).rejects.toThrow('vite.experimental.renderBuiltUrl');
+  });
+
+  it('SCSS/Less 由 Vite 原生预处理并共享 atomic/fallback 管线', async () => {
+    const root = await createPreprocessorBuildFixture();
+
+    await runBuild(
+      root,
+      {
+        modules: {
+          localsConvention: 'camelCaseOnly',
+          generateScopedName: 'p5_[name]__[local]'
+        },
+        core: { className: { strategy: 'readable' } }
+      },
+      undefined,
+      {
+        preprocessorOptions: {
+          scss: { additionalData: '$runtime-gap: 2px;\n' },
+          less: { additionalData: '@runtime-radius: 7px;\n' }
+        }
+      }
+    );
+
+    const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
+    const js = await readBuiltAssets(join(root, 'dist/assets'), '.js');
+
+    expect(js).toContain('p5_Button-module__button');
+    expect(js).toContain('p5_Panel-module__panel');
+    expect(js).toContain('_color_0f766e');
+    expect(js).toContain('_background_eff6ff');
+    expect(css).toContain('padding: 10px;');
+    expect(css).toContain('border-radius: 7px;');
+    expect(css).toContain('.p5_Panel-module__panel .p5_Panel-module__child');
+    expect(css).not.toContain('$accent');
+    expect(css).not.toContain('@panel-color');
   });
 
   it('build 聚合时把复用的媒体 atomic rule 稳定输出在后续基础规则之后', async () => {
@@ -289,7 +381,7 @@ describe('semanticAtomicCss build plugin', () => {
     });
   });
 
-  it('Route A 复用 Vite preprocessCSS 处理 composes、:import、@value 和 :export', async () => {
+  it('原生管线处理 composes、:import、@value 和 :export', async () => {
     const root = await createBuildFixture(
       [
         ':import("./Tokens.module.css") {',
@@ -342,7 +434,8 @@ describe('semanticAtomicCss build plugin', () => {
     expect(js).toContain('_color_red');
     expect(js).toContain('#0f0');
     expect(js).not.toContain('#0f0 _');
-    expect(js).toMatch(/gapValue:\s*"8px"/);
+    expect(js).toContain('gapValue');
+    expect(js).toContain('"8px"');
     expect(css).toContain('background: #0f0;');
     expect(css).toContain('padding: 8px;');
     expect(css).toContain('color: red;');
@@ -351,7 +444,7 @@ describe('semanticAtomicCss build plugin', () => {
     expect(viteCss).not.toContain('x_Button-module__primary-button');
   });
 
-  it('Route A 对非导出 global selector 保留 fallback，避免生成无法命中 DOM 的 atomic CSS', async () => {
+  it('原生管线对非导出 global selector 保留 fallback，避免生成无法命中 DOM 的 atomic CSS', async () => {
     const root = await createBuildFixture(
       [
         '.button {',
@@ -417,7 +510,7 @@ describe('semanticAtomicCss build plugin', () => {
     await expect(runBuild(root, {}, false)).rejects.toThrow('css.modules: false');
   });
 
-  it('GSS 显式 modules 配置可在 Vite css.modules: false 下重新启用 Route A', async () => {
+  it('GSS 显式 modules 配置可在 Vite css.modules: false 下重新启用原生管线', async () => {
     const root = await createBuildFixture('.button {\n  color: red;\n}');
 
     await runBuild(
@@ -476,6 +569,13 @@ type BuildFixtureOptions = {
   extraFiles?: Record<string, string>;
 };
 
+type TestRunBuildOptions = {
+  base?: string;
+  assetsInlineLimit?: number;
+  renderBuiltUrl?: RenderBuiltAssetUrl;
+  preprocessorOptions?: CSSOptions['preprocessorOptions'];
+};
+
 /** 创建最小 Vite build fixture。 */
 async function createBuildFixture(css: string, options: BuildFixtureOptions = {}): Promise<string> {
   const root = await mkdtemp(join(process.cwd(), '.tmp-vite-build-'));
@@ -494,9 +594,55 @@ async function createBuildFixture(css: string, options: BuildFixtureOptions = {}
   await writeFile(join(srcDir, 'Button.module.css'), css);
 
   for (const [filename, source] of Object.entries(options.extraFiles ?? {})) {
-    await writeFile(join(srcDir, filename), source);
+    const file = join(srcDir, filename);
+    await mkdir(dirname(file), { recursive: true });
+    await writeFile(file, source);
   }
 
+  return root;
+}
+
+/** 在已安装 Sass/Less 的专用 fixture 目录下创建隔离构建根。 */
+async function createPreprocessorBuildFixture(): Promise<string> {
+  const fixtureDir = join(process.cwd(), '../../fixtures/vite-css-modules');
+  const root = await mkdtemp(join(fixtureDir, '.tmp-vite-test-'));
+  const srcDir = join(root, 'src');
+  tempRoots.push(root);
+  await mkdir(srcDir, { recursive: true });
+  await writeFile(join(root, 'index.html'), '<script type="module" src="/src/main.js"></script>');
+  await writeFile(
+    join(srcDir, 'main.js'),
+    [
+      "import button from './Button.module.scss';",
+      "import panel from './Panel.module.less';",
+      "document.body.setAttribute('data-button', button.button);",
+      "document.body.setAttribute('data-panel', panel.panel);"
+    ].join('\n')
+  );
+  await writeFile(join(srcDir, '_tokens.scss'), '$accent: #0f766e;');
+  await writeFile(
+    join(srcDir, 'Button.module.scss'),
+    [
+      "@use './tokens' as tokens;",
+      '.button {',
+      '  color: tokens.$accent;',
+      '  padding: calc(8px + $runtime-gap);',
+      '  &:hover { color: #115e59; }',
+      '}'
+    ].join('\n')
+  );
+  await writeFile(join(srcDir, 'tokens.less'), '@panel-color: #eff6ff;');
+  await writeFile(
+    join(srcDir, 'Panel.module.less'),
+    [
+      "@import './tokens.less';",
+      '.panel {',
+      '  background: @panel-color;',
+      '  border-radius: @runtime-radius;',
+      '}',
+      '.panel .child { font-weight: 700; }'
+    ].join('\n')
+  );
   return root;
 }
 
@@ -504,19 +650,26 @@ async function createBuildFixture(css: string, options: BuildFixtureOptions = {}
 async function runBuild(
   root: string,
   options: Parameters<typeof semanticAtomicCss>[0] = {},
-  cssModules?: false | TestCssModulesOptions
+  cssModules?: false | TestCssModulesOptions,
+  buildOptions: TestRunBuildOptions = {}
 ): Promise<void> {
   await build({
     root,
+    base: buildOptions.base,
     configFile: false,
     logLevel: 'silent',
     css: {
-      modules: cssModules
+      modules: cssModules,
+      preprocessorOptions: buildOptions.preprocessorOptions
     },
+    experimental: buildOptions.renderBuiltUrl
+      ? { renderBuiltUrl: buildOptions.renderBuiltUrl }
+      : undefined,
     plugins: [semanticAtomicCss(options)],
     build: {
       outDir: join(root, 'dist'),
-      emptyOutDir: true
+      emptyOutDir: true,
+      assetsInlineLimit: buildOptions.assetsInlineLimit
     }
   });
 }

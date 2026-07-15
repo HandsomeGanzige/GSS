@@ -67,7 +67,7 @@
   border-radius: 8px;
 }
 
-.phase-three-dashed {
+.dashed-token {
   padding: 14px;
   color: #1d4ed8;
   background: #eff6ff;
@@ -76,7 +76,7 @@
   font-weight: 700;
 }
 
-.phaseThreeCamel {
+.camelToken {
   padding: 14px;
   color: #047857;
   background: #ecfdf5;

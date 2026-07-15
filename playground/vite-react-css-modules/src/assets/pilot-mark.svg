@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 42 42" role="img" aria-label="GSS grid mark">
+  <rect width="42" height="42" rx="8" fill="#0f766e"/>
+  <path d="M8 12h26M8 21h26M8 30h26M12 8v26M21 8v26M30 8v26" stroke="#5eead4" stroke-width="1.5" opacity=".32"/>
+  <path d="M12 26c2.4 3.2 5.5 4.8 9.2 4.8 4.8 0 8.8-2.5 8.8-6.5 0-3.3-2.8-5.2-7.6-5.9-3.1-.5-4.4-1.2-4.4-2.5 0-1.5 1.6-2.5 4-2.5 2.5 0 4.8.8 6.8 2.5" fill="none" stroke="#ecfeff" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

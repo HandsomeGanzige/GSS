@@ -1,11 +1,12 @@
+@import (reference) '../styles/pilot-theme.less';
+
 .artifactPanel {
   display: grid;
   grid-column: span 6;
   gap: 16px;
   padding: 20px;
-  background: #ffffff;
-  border: 1px solid #d8dee9;
-  border-radius: 8px;
+  .pilot-surface();
+  border-radius: @pilot-runtime-radius;
 }
 
 .panelHeader {
@@ -26,7 +27,7 @@
 
 .sectionTitle {
   margin: 0;
-  color: #111827;
+  color: @pilot-ink;
   font-size: 20px;
   line-height: 1.2;
 }
@@ -34,28 +35,27 @@
 .downloadButton {
   padding: 8px 12px;
   color: #ffffff;
-  background: #0f766e;
+  background: @pilot-brand;
   border: 0;
-  border-radius: 8px;
+  border-radius: @pilot-runtime-radius;
   font-size: 13px;
   font-weight: 800;
   cursor: pointer;
-}
 
-.downloadButton:hover {
-  background: #115e59;
-}
+  &:hover {
+    background: #115e59;
+  }
 
-.downloadButton:focus-visible {
-  outline: 3px solid #99f6e4;
-  outline-offset: 2px;
+  &:focus-visible {
+    .pilot-focus-outline();
+  }
 }
 
 .artifactList {
   display: grid;
   overflow: hidden;
   border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border-radius: @pilot-runtime-radius;
 }
 
 .artifactRow {
@@ -64,17 +64,17 @@
   gap: 10px;
   align-items: center;
   padding: 12px;
-  background: #ffffff;
+  background: @pilot-surface;
   border-top: 1px solid #e2e8f0;
+
+  &[data-status='pass'] .statusBadge {
+    color: #065f46;
+    background: #d1fae5;
+  }
 }
 
 .selectedArtifact {
   border-left: 4px solid #3b82f6;
-}
-
-.artifactRow[data-status='pass'] .statusBadge {
-  color: #065f46;
-  background: #d1fae5;
 }
 
 .checkLabel {
@@ -95,7 +95,7 @@
   padding: 5px 8px;
   color: #92400e;
   background: #fef3c7;
-  border-radius: 8px;
+  border-radius: @pilot-runtime-radius;
   font-size: 12px;
   font-weight: 800;
 }
@@ -103,21 +103,20 @@
 .inspectButton {
   padding: 7px 9px;
   color: #1d4ed8;
-  background: #ffffff;
+  background: @pilot-surface;
   border: 1px solid #bfdbfe;
-  border-radius: 8px;
+  border-radius: @pilot-runtime-radius;
   font-size: 12px;
   font-weight: 800;
   cursor: pointer;
-}
 
-.inspectButton:hover {
-  background: #dbeafe;
-}
+  &:hover {
+    background: #dbeafe;
+  }
 
-.inspectButton:focus-visible {
-  outline: 3px solid #93c5fd;
-  outline-offset: 2px;
+  &:focus-visible {
+    .pilot-focus-outline(#93c5fd);
+  }
 }
 
 @supports (display: grid) {
@@ -134,14 +133,11 @@
 
 @media (max-width: 620px) {
   .panelHeader {
+    display: grid;
     grid-template-columns: 1fr;
   }
 
   .artifactRow {
     grid-template-columns: 1fr;
-  }
-
-  .panelHeader {
-    display: grid;
   }
 }

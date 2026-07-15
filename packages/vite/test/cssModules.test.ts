@@ -3,13 +3,13 @@ import {
   augmentCssModuleTokens,
   collectExportedClassNames,
   createCssModulesScopeStrategy,
-  createPreprocessCssModulesOptions,
+  createNativeCssModulesOptions,
   isCssModuleFile
 } from '../src/cssModules.js';
 import type { ResolvedSemanticAtomicCssOptions } from '../src/types.js';
 
 const options: ResolvedSemanticAtomicCssOptions = {
-  include: ['**/*.module.css'],
+  include: ['**/*.module.css', '**/*.module.scss', '**/*.module.less'],
   exclude: ['**/node_modules/**'],
   modules: {
     localsConvention: undefined,
@@ -36,10 +36,12 @@ const options: ResolvedSemanticAtomicCssOptions = {
   }
 };
 
-describe('cssModules Route A helpers', () => {
-  it('只匹配第一版支持的 .module.css 文件', () => {
+describe('cssModules native pipeline helpers', () => {
+  it('只匹配支持的 CSS/SCSS/Less module 文件', () => {
     expect(isCssModuleFile('/project/src/Button.module.css', '/project', options)).toBe(true);
-    expect(isCssModuleFile('/project/src/Button.module.scss', '/project', options)).toBe(false);
+    expect(isCssModuleFile('/project/src/Button.module.scss', '/project', options)).toBe(true);
+    expect(isCssModuleFile('/project/src/Button.module.less', '/project', options)).toBe(true);
+    expect(isCssModuleFile('/project/src/Button.module.sass', '/project', options)).toBe(false);
     expect(isCssModuleFile('/project/src/global.css', '/project', options)).toBe(false);
     expect(isCssModuleFile('/project/node_modules/pkg/Button.module.css', '/project', options)).toBe(false);
   });
@@ -114,22 +116,33 @@ describe('cssModules Route A helpers', () => {
   });
 
   it('未显式配置 GSS modules 时继承 Vite css.modules', () => {
-    const modules = createPreprocessCssModulesOptions(
+    const captured: string[] = [];
+    const userCaptured: string[] = [];
+    const modules = createNativeCssModulesOptions(
       {
         localsConvention: 'camelCaseOnly',
-        generateScopedName: 'native_[local]'
+        generateScopedName: 'native_[local]',
+        getJSON(id) {
+          userCaptured.push(id);
+        }
       },
-      options
+      options,
+      (id) => captured.push(id)
     );
 
-    expect(modules).toEqual({
+    expect(modules).toMatchObject({
       localsConvention: 'camelCaseOnly',
       generateScopedName: 'native_[local]'
     });
+    if (modules !== false) {
+      modules.getJSON?.('/project/src/Button.module.css', { button: 'native_button' }, 'unused.css');
+    }
+    expect(userCaptured).toEqual(['/project/src/Button.module.css']);
+    expect(captured).toEqual(['/project/src/Button.module.css']);
   });
 
   it('显式配置 GSS modules 后不再继承 Vite css.modules', () => {
-    const modules = createPreprocessCssModulesOptions(
+    const modules = createNativeCssModulesOptions(
       {
         localsConvention: 'camelCaseOnly',
         generateScopedName: 'native_[local]'
@@ -142,28 +155,35 @@ describe('cssModules Route A helpers', () => {
           hasLocalsConvention: true,
           configured: true
         }
-      }
+      },
+      () => undefined
     );
 
-    expect(modules).toEqual({});
+    expect(modules).toMatchObject({});
+    expect(modules && modules.localsConvention).toBeUndefined();
+    expect(modules && modules.generateScopedName).toBeUndefined();
   });
 
   it('Vite css.modules false 在 GSS 未显式配置时保持关闭', () => {
-    expect(createPreprocessCssModulesOptions(false, options)).toBe(false);
+    expect(createNativeCssModulesOptions(false, options, () => undefined)).toBe(false);
   });
 
   it('GSS 显式 modules 配置可以覆盖 Vite css.modules false', () => {
-    const modules = createPreprocessCssModulesOptions(false, {
-      ...options,
-      modules: {
-        ...options.modules,
-        hasGenerateScopedName: true,
-        generateScopedName: 'gss_[local]',
-        configured: true
-      }
-    });
+    const modules = createNativeCssModulesOptions(
+      false,
+      {
+        ...options,
+        modules: {
+          ...options.modules,
+          hasGenerateScopedName: true,
+          generateScopedName: 'gss_[local]',
+          configured: true
+        }
+      },
+      () => undefined
+    );
 
-    expect(modules).toEqual({
+    expect(modules).toMatchObject({
       generateScopedName: 'gss_[local]'
     });
   });

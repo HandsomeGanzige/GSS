@@ -1,4 +1,5 @@
 import type {
+  ClassPreservationReason,
   CssTransformContext,
   DeclarationMeta,
   PreservedDeclarationReason,
@@ -36,7 +37,7 @@ export type PreservedRule = {
   scopedSelector: string;
   declarations: DeclarationMeta[];
   context: CssTransformContext;
-  reason: UnsafeSelectorReason | PreservedDeclarationReason;
+  reason: UnsafeSelectorReason | PreservedDeclarationReason | ClassPreservationReason;
   source?: SourceLocation;
 };
 

@@ -1,15 +1,22 @@
 # Phase 3 Vite Adapter 验收记录
 
-## 验收命令
+## 当前入口
 
 从仓库根目录执行：
 
 ```bash
-pnpm verify:phase3
-pnpm verify:phase3:visual
+pnpm verify
+pnpm --filter @semantic-atomic-css/vite-fixture test:visual -- --suite base
 ```
 
-`pnpm verify:phase3` 会执行：
+`base` 验收已迁移到 `fixtures/vite-css-modules/suites/base`。`pnpm verify` 运行包级门禁和
+fixture 静态验收；visual 使用包内显式命令，不进入根默认门禁。
+
+`verify:phase*` 命令已退役。以下内容保留 Phase 3/4 当时的实际验收记录。
+
+## 历史验收命令
+
+`pnpm verify:phase3` 当时会执行：
 
 - `pnpm test`
 - `pnpm typecheck`
@@ -19,7 +26,7 @@ pnpm verify:phase3:visual
 - `playground-vite-css-modules-acceptance` build
 - `node scripts/verify-phase-3.mjs`
 
-`pnpm verify:phase3:visual` 会执行：
+`pnpm verify:phase3:visual` 当时会执行：
 
 - 构建 core、analyzer 和 Vite adapter package，确保 playground 使用最新 `dist`。
 - 启动 `playground/vite-css-modules-acceptance` 的 semantic/native dev server。

@@ -133,6 +133,8 @@ GSS 主路径明确限制：
 
 ```txt
 *.module.css
+*.module.scss
+*.module.less
 ```
 
 主线不处理：
@@ -181,6 +183,8 @@ CSS Modules 不只是降低实现复杂度，它提供了 GSS 的核心产品支
 
 ```txt
 - .module.css
+- .module.scss（由构建工具原生预处理）
+- .module.less（由构建工具原生预处理）
 - 单 local class selector
 - 普通属性 declaration
 - 简单 pseudo class
@@ -383,6 +387,10 @@ packages/
     src/
       plugin.ts
 
+  analyzer/
+    src/
+      index.ts
+
   rsbuild/
     src/
       plugin.ts
@@ -391,10 +399,10 @@ packages/
     vite-react-css-modules/
 
   fixtures/
-    basic/
-    pseudo/
-    media/
-    unsafe-selector/
+    vite-css-modules/
+      suites/
+        base/
+        preprocessor/
 ```
 
 推荐包名：
@@ -1156,6 +1164,22 @@ Vite adapter 已从路线 B 迁移到路线 A。
 具体落地方式是使用 Vite 6 公开导出的 `preprocessCSS` 获取原生 CSS Modules scoped CSS 与
 `modules` tokens；GSS 不再自行生成 scoped class 或自行实现 CSS Modules tokens，只在 Vite 结果基础上
 执行 safe atomization、tokens atomic 增强、fallback CSS、asset/report 输出和 analyzer 集成。
+
+Phase 5 当前结论：
+
+```txt
+每个 build adapter 接入它所属构建工具的原生 CSS pipeline。
+core/analyzer 只复用标准 scoped CSS 之后的通用语义。
+```
+
+Vite adapter 已不再直接调用 `preprocessCSS`，而是在 Vite 6 `vite:css` 与 `vite:css-post`
+之间捕获编译后 scoped CSS 与原生 tokens。Sass/Less 编译、partial dependency graph 和资源
+emit 继续由 Vite 拥有；GSS 只负责 token 增强、聚合 CSS、fallback 与报告。
+
+对最终 URL 在 generate 阶段才可知的资源 declaration，adapter 通过通用
+`preserveClassNames: { className: 'asset-reference' }` 要求 core 整个 class 保守 fallback，
+不把 Vite reference id 当作 atomic key。该 core 边界也可供未来 Rspack adapter 复用，
+但 Vite 插件顺序、tokens 引用和 module graph 逻辑不进入共享层。
 
 ---
 

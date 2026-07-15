@@ -1,295 +1,123 @@
-# AGENT.md
+# AGENTS.md
 
-本文档是后续 agent 和维护者修改本仓库时必须遵守的工作指南。完整产品背景以
-`semantic-atomic-css-plugin-plan.md` 为准；本文档负责把技术方案沉淀为日常工程规则。
+本文档只定义 AI agent 在本仓库内工作的工程约束和交付流程，不维护产品介绍、阶段状态、
+路线图或待办列表。动态信息应更新到对应设计、追踪或验收文档，避免本文件再次演变为项目目标文档。
 
-## 项目使命
+## 信息来源
 
-GSS 是一个 Semantic CSS Modules to Atomic CSS 原型项目。
+开始工作前只读取与当前任务有关的资料：
 
-项目探索的核心工作流是：
+| 场景 | 必读资料 |
+| --- | --- |
+| 了解项目入口、包结构和命令 | `README.md`、根目录 `package.json` |
+| 修改产品边界或 compiler 语义 | `semantic-atomic-css-plugin-plan.md` |
+| 修改 core | `packages/core/CORE_DESIGN.md`、相关测试 |
+| 修改包职责或依赖方向 | `docs/phase-2-packages-architecture.md` |
+| 修改 Vite adapter | `docs/phase-3-vite-adapter-design.md`、`docs/phase-3-vite-adapter-tracking.md`、相关测试 |
+| 修改验收流程 | `fixtures/vite-css-modules`、对应 acceptance 文档 |
+| 修改 Phase 4 行为或 analyzer 风险模型 | 对应的 `docs/phase-4-*.md`、相关测试 |
 
-```txt
-开发者编写语义化 CSS Modules。
-构建产物生成可复用的 Atomic CSS。
-```
+不要把上述文档整段复制回本文件。若代码、测试和文档互相矛盾，先确认当前实际行为和差异影响；
+无法从仓库证据确定预期时，向项目 owner 说明冲突，不自行选择新的产品语义。
 
-MVP 定位是：
+## 开始任务
 
-```txt
-CSS Modules only + Safe Atomization + Preserve Semantic Class + Unsafe CSS Fallback
-```
+1. 明确用户要求、允许改动的范围和完成标准。
+2. 检查 `git status` 和相关文件，保留用户已有改动，不覆盖或回退无关内容。
+3. 阅读上表中与任务直接相关的资料，并定位对应实现、测试和文档。
+4. 选择能覆盖改动风险的最小验证集合；不要默认运行与任务无关的耗时验收。
+5. 改动保持聚焦。除非任务明确要求，不顺带重构、升级依赖、调整公共 API 或处理无关问题。
 
-最重要的产品原则是正确性优先于压缩率。任何无法证明安全转换的 CSS 规则，都必须保留
-为 fallback CSS，并在 warning/report 中说明原因。
+## 通用工程约束
 
-## 开发硬性要求
+- 正确性优先于压缩率。无法证明安全等价时，保留原 CSS 并输出可追踪的 warning/report。
+- 使用 PostCSS 和 `postcss-selector-parser` 处理结构化 CSS 与 selector，不用正则替代 AST 解析。
+- 遵循现有 TypeScript、Vitest、包导出和命名风格；不要引入重复抽象或无必要依赖。
+- 不为通过测试而削弱断言、删除 fallback、吞掉异常或降低诊断级别。
+- 输出顺序、class name、manifest 和 report 必须可复现，不得依赖文件遍历或异步 transform 的完成顺序。
+- 除非任务明确涉及依赖，不修改 `package.json`、lockfile 或安装依赖。
+- 不删除、终止或占用来源不明的进程。开发端口被占用时使用备用端口。
+- 未经明确要求，不执行提交、推送、发布或破坏性 Git 操作。
 
-- 相关文档必须使用中文，包括需求说明、设计说明、阶段追踪、验收说明和新增 README 内容。
-- 代码注释必须使用中文。
-- 每个类、函数、方法、导出类型、关键流程函数都需要补充中文注释，说明职责、输入输出或关键约束。
-- 对复杂逻辑块需要补充中文注释，尤其是 selector 安全判断、atomic key 生成、CSS 保留策略、
-  report/manifest 生成和构建工具适配逻辑。
-- 每次推进项目时都要同步并沉淀文档。行为、配置、验收方式、风险或阶段状态发生变化时，
-  必须同步更新相关文档。
-- 文档更新优先选择已有文件：阶段进展写入 `docs/phase-1-vite-prototype-tracking.md` 或后续阶段文档，
-  验收方式写入 `docs/phase-1-acceptance.md` 或对应阶段验收文档，长期产品原则写入本文件或方案文档。
+## 语言、注释与文档
 
-## 当前状态
+- 需求、设计、追踪、验收和 README 等仓库文档使用中文。
+- 代码注释使用中文；标识符、公共 API 和第三方术语沿用项目现有英文约定。
+- 新增或修改类、函数、方法、导出类型和关键流程函数时，补充中文注释，说明职责、输入输出或关键约束。
+- selector 安全判断、atomic key、cascade 顺序、CSS 保留、manifest/report 生成和构建工具适配等复杂逻辑，
+  必须解释“为什么这样处理”，不要添加只复述代码的注释。
+- 行为、配置、输出格式、风险、验收方式或阶段状态发生变化时，同步更新对应现有文档。
+- 优先修改已有文档：设计决策写入设计文档，实施事实写入 tracking 文档，验证步骤写入 acceptance 文档。
+  本文件仅在 AI 工作规则或长期不可妥协的工程边界变化时更新。
 
-Phase 4 已经完成 Vite adapter Route A 迁移、第二批验收补强、中型真实项目 Pilot 和
-analyzer declaration conflict 提示，并保留
-Phase 1/2/3 的历史记录：
+## 包职责边界
 
-- `@semantic-atomic-css/core` 只负责把标准 CSS 字符串转换为 atomic CSS、preserved CSS、manifest
-  数据和 report 数据，不感知 CSS Modules、Vite、React 或浏览器运行时。
-- `@semantic-atomic-css/vite` 采用 Route A：通过 Vite 6 `preprocessCSS` 复用原生 CSS Modules scoped CSS
-  和 `modules` tokens，再执行 safe atomization、tokens atomic 增强、fallback CSS 和 asset/report 输出。
-- `@semantic-atomic-css/analyzer` 负责构建后风险、收益、体积、试用健康度和同一 semantic class
-  内可证明的 declaration 顺序冲突分析，不读取文件、不依赖 Vite。
-- `playground/vite-css-modules-acceptance` 是自动验收用的精简 React + Vite + CSS Modules fixture。
-- `playground/vite-react-css-modules` 是正式的中型真实项目 Pilot，使用 5 个 lazy route、16 个导出
-  React 组件和 18 个 CSS Module，承担人工浏览器验收，不接入自动门禁。
-- `docs/phase-4-real-project-pilot-tracking.md` 记录 Pilot 的场景矩阵、四维验收、analyzer 指标和异常。
-- `docs/phase-4-analyzer-conflict-tracking.md` 记录 declaration conflict 的判定边界、噪声校准和验收结果。
-- `pnpm verify:phase3` 是当前静态端到端验收命令。
-- `pnpm verify:phase3:visual` 是当前 Playwright computed style 对照验收命令。
-- `pnpm verify:phase4` 是当前 Route A 与 analyzer 静态验收命令。
-- `pnpm verify:phase4:full` 是当前 Phase 4 完整验收命令，会额外执行 visual computed style 对照。
+| 范围 | 职责 | 禁止事项 |
+| --- | --- | --- |
+| `packages/core` | 标准 CSS 字符串的 AST 转换、atomic/preserved CSS、manifest 和 report 数据 | 不依赖 Vite、React、CSS Modules tokens、文件系统或浏览器运行时 |
+| `packages/analyzer` | 消费构建数据，分析风险、收益、体积和可证明的 declaration 冲突 | 不读取文件，不依赖 Vite，不猜测缺少 usage evidence 的 DOM class 共现 |
+| `packages/vite` | 复用 Vite 原生 CSS Modules 结果，增强 tokens，聚合 CSS 并输出 assets | 不自行实现 scoped class 或 CSS Modules 编译语义，不静默忽略不支持的配置 |
+| `fixtures/vite-css-modules` | 小型、稳定、自动化真实 Vite 回归 fixture | 不扩展成展示型业务项目 |
+| `playground/vite-react-css-modules` | 中型真实场景 Pilot 和人工浏览器验收 | 未经明确决策不加入自动门禁 |
 
-## 仓库结构
+跨包改动前先确认职责归属。可以在单个包内完成的逻辑，不应通过反向依赖或复制实现扩散到其他包。
 
-- `packages/core`：与构建工具无关的核心编译逻辑。
-- `packages/analyzer`：与构建工具无关的构建后分析与评估逻辑。
-- `packages/vite`：Vite adapter。
-- `playground/vite-css-modules-acceptance`：自动验收用精简 fixture。
-- `playground/vite-react-css-modules`：Phase 4 中型真实项目 Pilot，承担人工浏览器验收。
-- `docs/phase-4-real-project-pilot-tracking.md`：Phase 4 中型真实项目 Pilot 推进与验收记录。
-- `docs/phase-4-analyzer-conflict-tracking.md`：Phase 4 analyzer declaration conflict 提示推进与验收记录。
-- `docs/phase-1-acceptance.md`：Phase 1 验收清单。
-- `docs/phase-1-vite-prototype-tracking.md`：Phase 1 实现记录和风险追踪。
-- `scripts/verify-phase-1.mjs`：自动化构建产物验收脚本。
-- `scripts/verify-phase-3.mjs`：Phase 3 精简 fixture 静态产物验收脚本。
-- `scripts/verify-phase-3-visual.mjs`：Phase 3 semantic/native computed style 对照验收脚本。
-- `scripts/verify-phase-4.mjs`：Phase 4 Route A 与 analyzer 静态产物验收脚本。
-- `semantic-atomic-css-plugin-plan.md`：完整技术和产品方案。
+## CSS 正确性红线
 
-## 不可妥协的规则
-
-- MVP 范围内只转换 `.module.css`。
-- 不改写 JSX 或 TSX 中 CSS Modules 的使用方式。
-- 默认保留 semantic scoped class。
-- unsafe CSS 必须作为 scoped fallback CSS 保留。
-- unsafe selector 必须输出 warning/report。
-- `core` 必须保持与 Vite、React、浏览器运行时无关。
+- 默认只转换 `.module.css`、`.module.scss` 和 `.module.less`，不改写 JSX/TSX 中 CSS Modules 的使用方式。
+- 默认保留 semantic scoped class；除非任务明确批准新的产品模式，不移除 semantic class preservation。
+- unsafe selector 必须保留为 scoped fallback CSS，并在 warning/report 中记录原因。
+- safe selector 仅允许一个 local class、零 tag/id/attribute/combinator/额外 class/pseudo element/`:global`，
+  且最多带一个已支持的 pseudo class：`:hover`、`:focus`、`:active`、`:disabled`、`:focus-visible`。
+- 当前可处理的条件上下文限于已验证的 `@media` 和 `@supports` 路径。扩展 selector 或 at-rule 前，
+  必须先给出语义等价依据并补充测试。
 - atomic class 顺序必须稳定；同一个 local class 内保持 declaration 原始顺序。
-- `!important` 必须进入 atomic key。
-- 默认保留 CSS custom property declaration；但允许使用 `var(...)` 的普通 declaration 被 atomize。
-- 不允许为了提高压缩率而改变 cascade 语义。
+- `!important` 必须进入 atomic key，不能与非 important declaration 复用。
+- CSS custom property declaration 默认保留；使用 `var(...)` 的普通 declaration 可以 atomize。
+- 不通过提高 atomization rate 改变 cascade 语义。shorthand/longhand、重复属性和 contextual rule
+  等顺序敏感场景必须有针对性回归测试。
+- Vite adapter 必须复用 Vite 6 原生 CSS 管线的 scoped CSS、modules tokens、资源和 dependency graph。dev/build 聚合规则的
+  基础/条件分区、简单宽度断点顺序和稳定规范化顺序属于正确性约束，不得无证据移除。
+- 对无法继承且可能 silent miscompile 的 CSS Modules feature 或配置应 fail fast；不要伪装为已支持。
 
-## Safe Selector 范围
+## 测试与验证
 
-MVP 中 safe selector 范围必须保持克制：
+先运行最贴近改动的测试，修复后再运行对应验收。最低要求如下：
 
-```css
-.button {}
-.button:hover {}
-.button:focus {}
-.button:active {}
-.button:disabled {}
-.button:focus-visible {}
+| 改动范围 | 最低验证 |
+| --- | --- |
+| 仅文档 | 检查链接、路径、命令与仓库实际内容一致；通常无需运行代码测试 |
+| core 实现或语义 | 更新 `packages/core/test`；运行 `pnpm --filter @semantic-atomic-css/core verify` |
+| analyzer 实现或 report analysis | 运行 `pnpm --filter @semantic-atomic-css/analyzer verify`；影响 Vite report 时再运行 `pnpm verify` |
+| Vite adapter、CSS Modules 继承、生成 CSS、manifest/report | 更新对应测试；运行 `pnpm --filter @semantic-atomic-css/vite verify` 和 `pnpm verify` |
+| 配置保护、预处理器、资源或 analyzer 集成 | 运行 `pnpm verify` |
+| 浏览器渲染、cascade、响应式或 computed style | 运行 `pnpm --filter @semantic-atomic-css/vite-fixture test:visual` |
 
-@media (min-width: 768px) {
-  .button {}
-}
+新增行为必须同时覆盖成功路径和保守失败/保留路径。涉及 compiler 时重点检查 safe atomization、pseudo、
+`@media`/`@supports`、unsafe preservation、custom property、`!important`、稳定输出以及
+shorthand/longhand 顺序。
 
-@supports (display: grid) {
-  .layout {}
-}
-```
+若受环境、权限或已有进程影响无法运行某项验证，记录未运行的命令、具体原因和已完成的替代检查，
+不要把“未运行”描述为“通过”。
 
-selector 只有在满足以下条件时才是 safe：只有一个 local class、无 tag、无 id、无 attribute、
-无 combinator、无额外 class、无 pseudo element、无 `:global`，并且最多只有一个受支持的
-pseudo class。
+## 必须先确认的决策
 
-## Unsafe Selector 策略
+遇到以下情况，先向项目 owner 确认，不自行扩大范围：
 
-以下 selector 默认必须保留：
+- 扩展到 `.module.css` 以外的输入、普通 CSS、预处理器或新的构建工具。
+- 放宽 safe selector/at-rule 范围，启用 aggressive atomization，或移除 semantic/fallback CSS。
+- 改变 strict mode、unsupported feature、warning 或 fail-fast 语义。
+- 改变 cascade 建模、atomic key、class name、manifest/report schema 等兼容性边界。
+- 引入 JSX/TSX usage metadata、跨 class 冲突推断或其他新的静态分析证据。
+- 进行跨包大重构、公共 API 破坏性修改或新增生产依赖。
 
-```css
-.card .button {}
-.card > .button {}
-.button.primary {}
-button.button {}
-#app .button {}
-.button[data-state='open'] {}
-.button::before {}
-.button + .desc {}
-:global(.ant-btn) {}
-```
+提出确认时应给出仓库现状、无法自行决定的原因、可选方案及各自影响。
 
-常见 unsafe reason 包括：
+## 完成任务
 
-```txt
-complex-selector
-compound-class-selector
-descendant-selector
-child-selector
-attribute-selector
-tag-selector
-id-selector
-pseudo-element
-global-selector
-unsupported-pseudo
-```
+交付前必须：
 
-如果后续要支持任意 unsafe 类别，必须补充测试，并在文档中说明语义等价的证明方式。
-
-## Core Compiler 期望
-
-`packages/core` 负责：
-
-- CSS AST 解析。
-- selector 安全性判断。
-- declaration 抽取。
-- atomic key 和 class name 生成。
-- local class 到 atomic classes 的映射。
-- preserved CSS 生成。
-- manifest 生成。
-- report 生成。
-
-结构化 CSS 和 selector 处理必须优先使用 PostCSS 与 `postcss-selector-parser`。不要用正则解析
-结构化 CSS。
-
-## Vite Adapter 期望
-
-`packages/vite` 负责：
-
-- 解析并加载 `.module.css` 文件。
-- 通过 Vite 6 `preprocessCSS` 获取原生 CSS Modules scoped CSS 和 `modules` tokens。
-- 在 adapter 层接管最终 JS/CSS 输出，但不自行实现 scoped class 或 CSS Modules tokens。
-- 调用 core 当前公开的 `transformCss` / `createTransformer`。
-- 返回基于 Vite 原生 tokens 增强后的 default export JS 模块。
-- dev 阶段导入单一 shared virtual CSS 快照，在同一个 CSS owner 内完成 atomic key 去重。
-- CSS Module HMR 必须同时失效对应内部 JS virtual module 与 shared CSS，确保 full reload 重建 tokens。
-- dev/build 聚合输出必须先渲染基础 atomic rules，再渲染 contextual rules；简单 `max-width` 按断点
-  从大到小、简单 `min-width` 从小到大，复杂媒体表达式保持首次登记顺序。
-- build CSS、preserved fallback、analyzer modules、report diagnostics 和 manifest source 索引必须使用
-  稳定规范化顺序，不允许并发 transform 完成顺序进入持久化产物。
-- build 阶段 emit 全局聚合 CSS asset，并在显式开启时 emit manifest/report asset。
-- 显式开启 report 时，应通过 `@semantic-atomic-css/analyzer` 添加 `analysis` 字段。
-
-Route A 下，`composes`、`:import(...)`、`:export`、`@value`、`localsConvention`、`generateScopedName`
-优先继承 Vite 原生 CSS Modules 行为。未显式配置 GSS `modules` 时继承 Vite `css.modules`；显式配置
-GSS `modules` 时，以 GSS modules 配置作为覆盖源。`modules.namedExports: true`、未显式覆盖的
-Vite `css.modules.namedExports: true`、`diagnostics.strict: true` 和未显式覆盖的 `css.modules: false`
-当前必须显式失败。
-
-## 常用命令
-
-从仓库根目录执行：
-
-```bash
-pnpm install
-pnpm test
-pnpm typecheck
-pnpm build
-pnpm verify:phase1
-pnpm verify:phase3
-pnpm verify:phase3:visual
-pnpm verify:phase4
-pnpm verify:phase4:full
-pnpm dev
-pnpm dev:acceptance
-```
-
-任何影响 compiler 行为、Vite 集成、生成 CSS、manifest 输出或 report 输出的改动，都需要运行：
-
-```bash
-pnpm verify:phase3
-```
-
-Route A、CSS Modules feature 继承、配置保护或 analyzer report 改动还需要运行：
-
-```bash
-pnpm verify:phase4
-```
-
-浏览器级渲染等价改动还需要运行：
-
-```bash
-pnpm verify:phase3:visual
-```
-
-需要一次性覆盖 Phase 4 静态验收和 visual computed style 对照时运行：
-
-```bash
-pnpm verify:phase4:full
-```
-
-较大 playground dev server 地址通常是：
-
-```txt
-http://127.0.0.1:5173/
-```
-
-中型 Pilot 的 semantic/native dev 固定为 `5173/5174`，semantic/native preview 固定为 `4173/4174`；
-如果这些端口已有用户进程，人工验收应使用备用端口，不得终止未知进程。
-
-## 测试要求
-
-compiler 改动需要在 `packages/core/test` 中新增或更新 Vitest 覆盖。重点覆盖：
-
-- 基础 safe rule atomization。
-- pseudo class atomization。
-- `@media` 和 `@supports` 处理。
-- unsafe selector preservation。
-- custom property preservation。
-- `!important` key separation。
-- manifest 和 report 稳定性。
-- shorthand/longhand 等顺序敏感场景。
-
-集成改动需要运行 `pnpm verify:phase3`。必要时检查生成产物：
-
-- `playground/vite-css-modules-acceptance/dist/assets/semantic-atomic.css`
-- `playground/vite-css-modules-acceptance/dist/semantic-atomic-report.json`
-- `playground/vite-css-modules-acceptance/dist/semantic-atomic-manifest.json`
-
-渲染等价改动需要运行 `pnpm verify:phase3:visual`。该命令会先构建 core、analyzer、vite package，
-再使用 Playwright 驱动本机 Google Chrome，对比精简 fixture 在 semantic/native dev 与 build preview
-下的 computed style；本阶段不覆盖 HMR 写文件验收。
-
-## 下一步可能任务
-
-Phase 4 已完成。适合继续推进的任务包括：
-
-- 为 compiler 增加 fixture 或 snapshot tests。
-- 评估是否由 adapter 提供 JSX / TSX usage metadata，在有 DOM 共现证据后再扩展跨 class
-  declaration conflict 提示。
-- 改进 report 中 scoped semantic class 到原始 local class 的反查与 source location 信息。
-- 改进 Vite adapter 的 CSS-only HMR 行为。
-- 评估复杂媒体表达式和任意 import order 所需的 module graph 顺序建模。
-- 继续扩展 Playwright computed-style verifier 的覆盖面。
-- 在 core 和 Vite 行为稳定后，再增加 Rsbuild/Rspack 支持。
-
-在 safe CSS Modules 路径拥有更强测试前，不要优先启动 Rsbuild、预处理器或 aggressive atomization。
-
-## 需要确认的产品预期
-
-做以下较大产品决策前，需要先向项目 owner 确认：
-
-- 仓库是否只使用 `AGENT.md`，还是也需要增加 `AGENTS.md` 兼容查找复数文件名的工具。
-- 下一阶段优先级是 CSS Modules 兼容、verifier、report，还是 Rsbuild 支持。
-- strict mode 遇到 unsafe selector 时应该 fail build，还是只输出 warning/report。
-- 真实项目中需要达到怎样的输出体积收益，才算具备实用价值。
-- 生产产物中 DevTools 可读性的优先级有多高。
-
-## Agent 工作方式
-
-- 修改 compiler 语义前必须阅读 `semantic-atomic-css-plugin-plan.md`。
-- 改动范围保持聚焦，只处理当前任务需要的行为。
-- 行为、报告、验收命令或阶段状态变化时，必须同步更新文档。
-- 除非任务明确要求 aggressive mode，否则不要移除 semantic class preservation。
-- 不要为了提升 atomization rate 削弱 unsafe fallback 行为。
-- 优先做小而可验证的 compiler 改动，避免无必要的大范围重构。
-- 不确定时，保留 CSS 并报告不确定原因。
+1. 检查最终 diff，确认没有无关改动、临时文件或意外生成物。
+2. 确认实现、测试和文档对同一行为的描述一致。
+3. 运行与风险匹配的验证，并记录结果。
+4. 向用户说明改了什么、验证了什么、还有哪些未验证或已知风险。

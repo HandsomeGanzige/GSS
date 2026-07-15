@@ -76,6 +76,50 @@ describe('transformCss fixtures', () => {
     expect(result.report.summary.preservedDeclarations).toBe(1);
   });
 
+  it('adapter 标记的 class 会在所有 safe 上下文中完整保留', () => {
+    const result = transformCss({
+      id: 'asset.css',
+      css: [
+        '.hero { color: red; background: url("./hero.svg"); }',
+        '.hero:hover { color: blue; }',
+        '@media (min-width: 768px) { .hero { padding: 16px; } }',
+        '@supports (display: grid) { .hero { display: grid; } }',
+        '.label { color: green; }'
+      ].join('\n'),
+      scope: createTestScope(),
+      preserveClassNames: {
+        hero: 'asset-reference'
+      }
+    });
+
+    expect(result.classes.hero).toMatchObject({
+      resolvedClassName: 's_hero',
+      atomicClassNames: [],
+      suggestedClassName: 's_hero'
+    });
+    expect(result.classes.label.atomicClassNames).toEqual(['_color_green']);
+    expect(result.css.atomic).not.toContain('color: red');
+    expect(result.css.atomic).toContain('color: green');
+    expect(result.css.preserved).toContain('.s_hero:hover');
+    expect(result.css.preserved).toContain('@media (min-width: 768px)');
+    expect(result.css.preserved).toContain('@supports (display: grid)');
+    expect(result.manifest.classes['asset.css::hero'].atomicClassNames).toEqual([]);
+    expect(result.report.summary).toMatchObject({
+      unsafeRules: 0,
+      preservedRules: 4,
+      preservedDeclarations: 5
+    });
+    expect(result.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'preserved-class',
+          reason: 'asset-reference',
+          sourceClassName: 'hero'
+        })
+      ])
+    );
+  });
+
   it('让 preserved CSS 保持在 atomic CSS 之后由调用方拼接使用', () => {
     const result = transformCss({
       id: 'mixed.css',

@@ -13,6 +13,15 @@ Phase 2 的工作原则是：
 先做少包多模块，再评估是否拆更多 npm package。
 ```
 
+## 2026-07-15 Workspace 测试分层更新
+
+当前生产包仍只有 `packages/core`、`packages/analyzer` 和 `packages/vite`。真实 Vite 消费方验收
+已收敛到独立的 `fixtures/vite-css-modules` workspace，它不是生产 adapter 包；
+`playground/vite-react-css-modules` 只承担人工 Pilot，不进入自动门禁。
+
+包内自行定义 build/test/typecheck/verify，根 `package.json` 只通过 workspace 递归提供
+`pnpm build`、`pnpm test`、`pnpm typecheck` 和 `pnpm verify` 四个仓库级入口。
+
 ## 2026-07-03 状态更新
 
 `packages/core` 已按 `packages/core/CORE_DESIGN.md` 落地 Phase 2 core v1：

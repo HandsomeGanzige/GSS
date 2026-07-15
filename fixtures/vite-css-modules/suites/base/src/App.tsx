@@ -8,7 +8,7 @@ export function App() {
   return (
     <main className="acceptance-root" data-gss-root>
       <header className="acceptance-header">
-        <p>Phase 3 visual acceptance</p>
+        <p>Base visual acceptance</p>
         <h1>Vite CSS Modules semantic/native parity cases</h1>
       </header>
 
@@ -37,10 +37,10 @@ export function App() {
           <span>supports column A</span>
           <span>supports column B</span>
         </div>
-        <div className={cascadeStyles['phase-three-dashed']} data-gss-case="phase-three-dashed">
+        <div className={cascadeStyles['dashed-token']} data-gss-case="dashed-token">
           dashed CSS Modules export key
         </div>
-        <div className={cascadeStyles.phaseThreeCamel} data-gss-case="phase-three-camel">
+        <div className={cascadeStyles.camelToken} data-gss-case="camel-token">
           camelCase CSS Modules export key
         </div>
       </section>

@@ -84,6 +84,62 @@
   border-radius: 8px;
 }
 
+.preprocessorMatrix {
+  display: grid;
+  grid-column: span 12;
+  gap: 14px;
+  padding: 18px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+
+.matrixHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.matrixTitle {
+  margin: 0;
+  color: #0f172a;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.modeBadge {
+  padding: 6px 9px;
+  color: #0f766e;
+  background: #ccfbf1;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sourceGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sourceCard {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  color: #475569;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.sourceTitle {
+  color: #0f172a;
+  font-size: 14px;
+}
+
 @media (max-width: 720px) {
   .environmentBar {
     align-items: stretch;
@@ -100,6 +156,15 @@
   }
 
   .artifactDetail {
+    grid-template-columns: 1fr;
+  }
+
+  .matrixHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sourceGrid {
     grid-template-columns: 1fr;
   }
 }

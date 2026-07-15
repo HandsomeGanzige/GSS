@@ -30,6 +30,8 @@ Phase 2 core v1 已实现以下能力：
   Vite dev/HMR 前，需要补充 `invalidate(id)` 或重新构建 registry 的策略。
 - nested rule 不参与 atomize，当前整体 scoped preserved，并输出 `nested-rule` diagnostic。
 - parse error 不向外抛出，返回 `parse-error` diagnostic 和空 CSS 结果。
+- `TransformCssInput.preserveClassNames` 允许 adapter 按稳定原因保守保留整个 class。
+  Phase 5 首个原因为 `asset-reference`，用于避免构建工具的延迟资源 URL 进入 atomic key。
 
 当前明确不实现：
 
@@ -70,6 +72,8 @@ corepack pnpm --filter @semantic-atomic-css/core build
 - core 不读取文件、不写文件、不处理 include/exclude、不生成 CSS Modules tokens、不管理 virtual module。
 - CSS Modules scoped name、locals convention、named exports、HMR、asset emit 和构建 warning 展示都属于
   adapter/integration layer。
+- `preserveClassNames` 只接收 adapter 已经判定的 class 与原因；core 不识别 Vite 占位符、
+  `url()` 或任何 Sass/Less 语法。
 
 ### Selector 契约
 
@@ -94,6 +98,10 @@ corepack pnpm --filter @semantic-atomic-css/core build
 ### Preserved Fallback 契约
 
 - unsafe selector 整条 preserved。
+- `preserveClassNames` 标记的 safe class 必须整条 preserved，同一 class 的 pseudo、media 和 supports
+  rules 也不能部分 atomize，避免重排后改变 cascade。
+- class 级保留必须输出 `preserved-class` diagnostic，记入 preserved rules/declarations，
+  但不得伪装为 unsafe selector；manifest class 保留且 `atomicClassNames` 为空。
 - safe selector 中 mixed declaration 只 preserved 无法 atomize 的 declaration。
 - nested rule 不参与 atomize，整块 scoped preserved，并输出 `nested-rule` diagnostic。
 - unsupported at-rule 整块 preserved；如果块内包含 selector，输出前应尽量执行 selector scoping，并把 source class

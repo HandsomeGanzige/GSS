@@ -29,7 +29,7 @@ export function OverviewRoute() {
         index === 0
           ? {
               ...metric,
-              value: period === '24h' ? '428' : period === '7d' ? '2.4k' : '9.8k',
+              value: period === '24h' ? '264' : period === '7d' ? '1.8k' : '7.5k',
               delta: period
             }
           : metric

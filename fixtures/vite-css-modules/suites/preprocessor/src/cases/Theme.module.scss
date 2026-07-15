@@ -1,0 +1,33 @@
+@use './tokens' as tokens;
+
+.hero {
+  color: tokens.$accent;
+  background: tokens.$surface url('./fixture-mark.svg') no-repeat right 12px center;
+  padding: tokens.$space;
+  border: 2px solid #5eead4;
+
+  &[data-state='ready'] {
+    box-shadow: 0 8px 18px rgb(15 118 110 / 18%);
+  }
+}
+
+.asset-composed {
+  composes: hero;
+  border-radius: 12px;
+}
+
+.safe-scss {
+  color: tokens.$accent;
+  background: tokens.$surface;
+  padding: calc(tokens.$space + $fixture-runtime-gap);
+
+  &:focus-visible {
+    outline: 3px solid #99f6e4;
+  }
+}
+
+@media (max-width: 620px) {
+  .hero {
+    padding: 10px;
+  }
+}

@@ -39,6 +39,17 @@ describe('analyzeBuild', () => {
     expect(analysis.risk.unsupportedFeatures[0]?.feature).toBe('modules.namedExports');
   });
 
+  it('使用 scoped transform input 而不是预处理器源码计算 before size', () => {
+    const input = createInput();
+    input.modules[0]!.sourceCss = '$color: red; .button { color: $color; }';
+    input.modules[0]!.scopedCss = '.x_button { color: red; }';
+
+    const analysis = analyzeBuild(input);
+
+    expect(analysis.size.beforeRawCssBytes).toBe(Buffer.byteLength(input.modules[0]!.scopedCss));
+    expect(analysis.size.beforeRawCssBytes).not.toBe(Buffer.byteLength(input.modules[0]!.sourceCss));
+  });
+
   it('报告同一 semantic class 内的同属性和 shorthand longhand 冲突', () => {
     const input = createInput();
     input.manifest = createConflictManifest();

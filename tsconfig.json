@@ -16,10 +16,5 @@
     "noEmit": true,
     "jsx": "react-jsx"
   },
-  "include": [
-    "packages/**/*.ts",
-    "playground/**/*.ts",
-    "playground/**/*.tsx",
-    "vite.config.ts"
-  ]
+  "files": []
 }

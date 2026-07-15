@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createServer, type Plugin, type ViteDevServer } from 'vite';
+import { createServer, type Plugin, type PluginOption, type ViteDevServer } from 'vite';
 import { semanticAtomicCss } from '../src/plugin.js';
 
 const tempRoots: string[] = [];
@@ -179,7 +179,8 @@ describe('semanticAtomicCss dev plugin', () => {
     const root = await mkdtemp(join(tmpdir(), 'gss-vite-dev-'));
     const srcDir = join(root, 'src');
     const cssFile = join(srcDir, 'Button.module.css');
-    const plugin = semanticAtomicCss();
+    const pluginOption = semanticAtomicCss();
+    const plugin = readPipelinePlugin(pluginOption);
     const wsMessages: unknown[] = [];
     tempRoots.push(root);
     await mkdir(srcDir, { recursive: true });
@@ -197,7 +198,7 @@ describe('semanticAtomicCss dev plugin', () => {
       ].join('\n')
     );
 
-    const server = await createViteServer(root, plugin);
+    const server = await createViteServer(root, pluginOption);
     server.ws.send = ((payload: unknown) => {
       wsMessages.push(payload);
     }) as ViteDevServer['ws']['send'];
@@ -258,16 +259,111 @@ describe('semanticAtomicCss dev plugin', () => {
       await server.close();
     }
   });
+
+  it('SCSS shared partial 通过 Vite graph 失效 dependent，旧 watch 边会保守重验证', async () => {
+    const { root, partialFile, alphaFile, betaFile } = await createPreprocessorDevFixture();
+    const pluginOption = semanticAtomicCss();
+    const plugin = readPipelinePlugin(pluginOption);
+    const server = await createViteServer(root, pluginOption);
+    const wsMessages: unknown[] = [];
+    server.ws.send = ((payload: unknown) => {
+      wsMessages.push(payload);
+    }) as ViteDevServer['ws']['send'];
+
+    try {
+      const alphaResult = await server.transformRequest('/src/Alpha.module.scss');
+      const betaResult = await server.transformRequest('/src/Beta.module.scss');
+      const cssImport = readCssImport(alphaResult?.code);
+      expect(stripTimestampQuery(readCssImport(betaResult?.code))).toBe(stripTimestampQuery(cssImport));
+      expect(await loadRawVirtualCss(plugin, cssImport)).toContain('color: red;');
+
+      await writeFile(alphaFile, '.alpha { color: green; }');
+      invokeHotUpdate(plugin, server, alphaFile);
+      await server.transformRequest('/src/Alpha.module.scss');
+
+      await writeFile(partialFile, '$color: blue;');
+      invokeHotUpdate(plugin, server, partialFile);
+
+      await server.transformRequest('/src/Alpha.module.scss');
+      await server.transformRequest('/src/Beta.module.scss');
+      const refreshedCss = await loadRawVirtualCss(plugin, cssImport);
+      expect(refreshedCss).toContain('color: green;');
+      expect(refreshedCss).toContain('color: blue;');
+      expect(refreshedCss).not.toContain('color: red;');
+      expect(wsMessages).toContainEqual({ type: 'full-reload' });
+      expect(betaFile).toMatch(/Beta\.module\.scss$/);
+    } finally {
+      await server.close();
+    }
+  });
 });
 
+/** 创建位于 Sass 依赖搜索路径下的 dev partial fixture。 */
+async function createPreprocessorDevFixture(): Promise<{
+  root: string;
+  partialFile: string;
+  alphaFile: string;
+  betaFile: string;
+}> {
+  const fixtureDir = join(process.cwd(), '../../fixtures/vite-css-modules');
+  const root = await mkdtemp(join(fixtureDir, '.tmp-vite-dev-'));
+  const srcDir = join(root, 'src');
+  const partialFile = join(srcDir, '_tokens.scss');
+  const alphaFile = join(srcDir, 'Alpha.module.scss');
+  const betaFile = join(srcDir, 'Beta.module.scss');
+  tempRoots.push(root);
+  await mkdir(srcDir, { recursive: true });
+  await writeFile(join(root, 'index.html'), '<div id="root"></div>');
+  await writeFile(partialFile, '$color: red;');
+  await writeFile(alphaFile, "@use './tokens' as tokens;\n.alpha { color: tokens.$color; }");
+  await writeFile(betaFile, "@use './tokens' as tokens;\n.beta { color: tokens.$color; }");
+  return { root, partialFile, alphaFile, betaFile };
+}
+
+/** 使用 Vite 当前 graph 节点调用 pipeline HMR hook。 */
+function invokeHotUpdate(plugin: Plugin, server: ViteDevServer, file: string): void {
+  const handleHotUpdate = plugin.handleHotUpdate;
+
+  if (typeof handleHotUpdate !== 'function') {
+    throw new Error('semanticAtomicCss 插件缺少 handleHotUpdate。');
+  }
+
+  const modules = [...(server.moduleGraph.getModulesByFile(file) ?? [])];
+  server.moduleGraph.onFileChange(file);
+  handleHotUpdate({
+    file,
+    server,
+    modules,
+    timestamp: Date.now(),
+    read: async () => ''
+  });
+}
+
 /** 创建只用于 transformRequest 的 Vite dev server。 */
-async function createViteServer(root: string, plugin: Plugin = semanticAtomicCss()): Promise<ViteDevServer> {
+async function createViteServer(root: string, plugin: PluginOption = semanticAtomicCss()): Promise<ViteDevServer> {
   return createServer({
-    root,
+    root: await realpath(root),
     configFile: false,
     logLevel: 'silent',
     plugins: [plugin]
   });
+}
+
+/** 从公开 PluginOption 返回值中取出持有 HMR 和 virtual CSS hook 的 pipeline 插件。 */
+function readPipelinePlugin(pluginOption: PluginOption): Plugin {
+  if (!Array.isArray(pluginOption)) {
+    throw new Error('semanticAtomicCss 未返回预期的插件数组。');
+  }
+
+  const plugin = pluginOption.find(
+    (entry): entry is Plugin => Boolean(entry && typeof entry === 'object' && 'name' in entry && entry.name === 'semantic-atomic-css:vite-pipeline')
+  );
+
+  if (!plugin) {
+    throw new Error('未找到 semantic-atomic-css:vite-pipeline。');
+  }
+
+  return plugin;
 }
 
 /** 从 CSS Module JS 中读取 virtual CSS import。 */

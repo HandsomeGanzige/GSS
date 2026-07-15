@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "noEmit": true,
+    "paths": {
+      "@semantic-atomic-css/core": ["packages/core/src/index.ts"],
+      "@semantic-atomic-css/analyzer": ["packages/analyzer/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+}

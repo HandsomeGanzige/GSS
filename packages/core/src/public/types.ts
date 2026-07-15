@@ -38,7 +38,11 @@ export type TransformCssInput = {
   id: string;
   css: string;
   scope: ScopeStrategy;
+  preserveClassNames?: Readonly<Record<string, ClassPreservationReason>>;
 };
+
+/** adapter 要求 core 保守保留整个 class 的稳定原因。 */
+export type ClassPreservationReason = 'asset-reference';
 
 /** CSS rule 所处的安全转换上下文，参与 atomic key 生成。 */
 export type CssTransformContext = {
@@ -114,6 +118,7 @@ export type DeclarationAnalysis =
 export type DiagnosticCode =
   | 'unsafe-selector'
   | 'preserved-declaration'
+  | 'preserved-class'
   | 'parse-error'
   | 'unsupported-at-rule'
   | 'unknown';

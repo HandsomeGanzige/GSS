@@ -11,24 +11,24 @@ import type { SelectorCase } from '../components/SelectorMatrix';
 export const metrics: MetricItem[] = [
   {
     label: 'Atomic rules',
-    value: '428',
-    delta: '+18%',
+    value: '264',
+    delta: '944 reuse',
     tone: 'positive',
     detail: '跨模块重复 declaration 会在 build 阶段聚合去重。'
   },
   {
     label: 'Fallback selectors',
-    value: '14',
+    value: '23',
     delta: 'tracked',
     tone: 'warning',
     detail: '保留 descendant、attribute 与 pseudo-element，验证正确性优先。'
   },
   {
     label: 'Module surfaces',
-    value: '12',
-    delta: '+7',
+    value: '18',
+    delta: '3 langs',
     tone: 'neutral',
-    detail: '多个 CSS Modules 文件共同参与全局 CSS asset 输出。'
+    detail: 'CSS、SCSS 与 Less Modules 共同参与全局 CSS asset 输出。'
   },
   {
     label: 'Route views',
@@ -70,11 +70,11 @@ export const stages: PipelineStage[] = [
 ];
 
 export const activities: ActivityRow[] = [
-  { time: '09:14', module: 'Shell.module.css', event: 'topbar safe rules atomized', tone: 'success' },
+  { time: '09:14', module: 'Shell.module.scss', event: 'asset compose closure preserved', tone: 'warning' },
   { time: '09:27', module: 'MetricsGrid.module.css', event: 'compound metric state preserved', tone: 'risk' },
   { time: '10:03', module: 'PipelineBoard.module.css', event: 'task pseudo-element fallback emitted', tone: 'risk' },
   { time: '10:31', module: 'ActivityTable.module.css', event: 'table row declarations atomized', tone: 'success' },
-  { time: '11:08', module: 'RuleInspector.module.css', event: 'attribute selector warning visible', tone: 'warning' }
+  { time: '11:08', module: 'BuildArtifactPanel.module.less', event: 'Less safe rules atomized', tone: 'success' }
 ];
 
 export const rules: RuleCard[] = [
@@ -92,10 +92,25 @@ export const rules: RuleCard[] = [
     title: 'Build aggregation',
     level: 'pass',
     summary: '多个模块最终写入同一个 assets/semantic-atomic.css。'
+  },
+  {
+    title: 'Native preprocessors',
+    level: 'pass',
+    summary: 'Vite 原生处理 Sass/Less partial、modules tokens 与资源 URL。'
   }
 ];
 
 export const debugGroups: DebugTokenGroup[] = [
+  {
+    label: 'SCSS asset compose',
+    tokenKey: 'logoMark',
+    note: '本地资源 class 及其 composes 闭包完整保留，semantic token 不附加 atomic class。'
+  },
+  {
+    label: 'Less artifact panel',
+    tokenKey: 'artifactPanel',
+    note: 'Less partial 与 additionalData 经 Vite 编译后，safe declarations 继续增强为 atomic classes。'
+  },
   {
     label: 'Metric card',
     tokenKey: 'metricCard',
@@ -116,8 +131,8 @@ export const debugGroups: DebugTokenGroup[] = [
 export const moduleSurfaces: ModuleSurface[] = [
   {
     name: 'Shell',
-    files: ['Shell.tsx', 'Shell.module.css'],
-    coverage: 'hash route nav、hero、disabled button、attribute fallback',
+    files: ['Shell.tsx', 'Shell.module.scss', '_pilot-theme.scss', 'pilot-mark.svg'],
+    coverage: 'Sass @use、additionalData、资源 composes、hash route 与 attribute fallback',
     weight: 'large',
     state: 'active'
   },
@@ -144,8 +159,8 @@ export const moduleSurfaces: ModuleSurface[] = [
   },
   {
     name: 'Build route',
-    files: ['BuildRoute.tsx', 'BuildArtifactPanel.module.css', 'DebugPanel.module.css'],
-    coverage: '产物断言、tokens 输出、深色 debug panel',
+    files: ['BuildRoute.tsx', 'BuildArtifactPanel.module.less', 'pilot-theme.less'],
+    coverage: 'Less @import、mixin、产物断言与跨语言 tokens 输出',
     weight: 'medium',
     state: 'active'
   },
@@ -169,10 +184,13 @@ export const selectorCases: SelectorCase[] = [
 ];
 
 export const artifactChecks: ArtifactCheck[] = [
-  { label: 'HTML link injection', value: 'assets/semantic-atomic.css', status: 'pass' },
-  { label: 'Global atomic asset', value: 'semantic-atomic.css', status: 'pass' },
-  { label: 'Manifest opt-in', value: 'semantic-atomic-manifest.json', status: 'pass' },
-  { label: 'Report analysis', value: 'semantic-atomic-report.json', status: 'pass' },
+  { label: 'Semantic HTML link', value: 'assets/semantic-atomic.css', status: 'pass' },
+  { label: 'Semantic atomic asset', value: 'semantic-atomic.css', status: 'pass' },
+  { label: 'Semantic manifest', value: 'semantic-atomic-manifest.json', status: 'pass' },
+  { label: 'Semantic report', value: 'semantic-atomic-report.json', status: 'pass' },
+  { label: 'Sass partial', value: '@use styles/_pilot-theme.scss', status: 'pass' },
+  { label: 'Less partial', value: '@import styles/pilot-theme.less', status: 'pass' },
+  { label: 'Local asset', value: 'assets/pilot-mark-[hash].svg', status: 'pass' },
   { label: 'Unsafe fallback', value: 'scoped preserved CSS', status: 'watch' }
 ];
 
@@ -191,5 +209,10 @@ export const scenarioNotes: ScenarioNote[] = [
     title: 'Fallback budget',
     detail: '保留少量 unsafe selector，warning 应可预期，CSS 不应被错误丢弃。',
     tone: 'warning'
+  },
+  {
+    title: 'Native preprocessor reuse',
+    detail: '真实业务模块混用 CSS、SCSS 与 Less，Vite 负责预处理和资源，GSS 只消费 scoped CSS 与 tokens。',
+    tone: 'success'
   }
 ];

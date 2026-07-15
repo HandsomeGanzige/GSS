@@ -3,7 +3,9 @@ import type { ResolvedSemanticAtomicCssOptions, SemanticAtomicCssOptions } from 
 /** 把用户配置补齐为 adapter 内部稳定配置。 */
 export function resolveOptions(options: SemanticAtomicCssOptions = {}): ResolvedSemanticAtomicCssOptions {
   return {
-    include: toArray(options.include ?? '**/*.module.css'),
+    include: toArray(
+      options.include ?? ['**/*.module.css', '**/*.module.scss', '**/*.module.less']
+    ),
     exclude: toArray(options.exclude ?? '**/node_modules/**'),
     modules: {
       localsConvention: options.modules?.localsConvention,

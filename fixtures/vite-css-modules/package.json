@@ -1,0 +1,29 @@
+{
+  "name": "@semantic-atomic-css/vite-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/run-vite.mjs dev",
+    "build": "node scripts/run-vite.mjs build --suite all --mode semantic",
+    "preview": "node scripts/run-vite.mjs preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "verify": "pnpm typecheck && node scripts/verify-static.mjs",
+    "test:visual": "node scripts/verify-visual.mjs"
+  },
+  "dependencies": {
+    "@semantic-atomic-css/vite": "workspace:*",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "less": "4.6.7",
+    "playwright": "^1.61.1",
+    "sass": "1.101.0",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.3"
+  }
+}

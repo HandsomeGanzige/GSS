@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import styles from './Shell.module.css';
+import styles from './Shell.module.scss';
 
 /** Shell 顶部导航使用的 route 描述。 */
 export type RouteLink<T extends string = string> = {
@@ -22,15 +22,19 @@ export function Shell<T extends string>({ routes, activeRoute, activeDescription
     <main className={styles.shell} data-pilot-case="app-shell">
       <header className={styles.topbar} data-density="compact">
         <div className={styles.brandCluster}>
-          <span className={styles.logoMark}>GSS</span>
+          <span className={styles.logoMark} data-pilot-case="scss-resource-logo">
+            GSS
+          </span>
           <div className={styles.brandCopy}>
-            <p className={styles.eyebrow}>Phase 4 Real Project Pilot</p>
+            <p className={styles.eyebrow}>Vite 6 Native CSS Pipeline Pilot</p>
             <h1 className={styles.title}>Semantic Ops Console</h1>
           </div>
         </div>
 
         <div className={styles.statusCluster}>
-          <span className={styles.statusPill}>Route A ready</span>
+          <span className={styles.statusPill} data-pilot-case="css-mode">
+            {__GSS_CSS_MODE__} mode
+          </span>
           <a className={styles.actionButton} href="#/build">
             Inspect build
           </a>
@@ -64,8 +68,8 @@ export function Shell<T extends string>({ routes, activeRoute, activeDescription
         </div>
         <div className={styles.heroPanel}>
           <span className={styles.panelMetric}>5 lazy routes</span>
-          <span className={styles.panelMetric}>15+ modules</span>
-          <span className={styles.panelMetric}>report opted-in</span>
+          <span className={styles.panelMetric}>CSS · SCSS · Less</span>
+          <span className={styles.panelMetric}>assets preserved</span>
         </div>
       </section>
 

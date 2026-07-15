@@ -5,27 +5,9 @@
   "type": "module",
   "packageManager": "pnpm@8.6.2",
   "scripts": {
-    "build": "corepack pnpm --filter @semantic-atomic-css/core build && corepack pnpm --filter @semantic-atomic-css/analyzer build && corepack pnpm --filter @semantic-atomic-css/vite build && corepack pnpm --filter playground-vite-css-modules-acceptance build && corepack pnpm --filter playground-vite-react-css-modules build",
-    "dev": "corepack pnpm --filter playground-vite-react-css-modules dev:semantic",
-    "dev:semantic": "corepack pnpm --filter playground-vite-react-css-modules dev:semantic",
-    "dev:native": "corepack pnpm --filter playground-vite-react-css-modules dev:native",
-    "dev:acceptance": "corepack pnpm --filter playground-vite-css-modules-acceptance dev:semantic",
-    "dev:acceptance:native": "corepack pnpm --filter playground-vite-css-modules-acceptance dev:native",
-    "test": "corepack pnpm --filter @semantic-atomic-css/core test && corepack pnpm --filter @semantic-atomic-css/analyzer test && corepack pnpm --filter @semantic-atomic-css/vite test",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "verify:core": "corepack pnpm --filter @semantic-atomic-css/core test && corepack pnpm exec tsc -p packages/core/tsconfig.json --noEmit && corepack pnpm --filter @semantic-atomic-css/core build",
-    "verify:phase1": "corepack pnpm verify:core",
-    "verify:phase3": "corepack pnpm test && corepack pnpm typecheck && corepack pnpm --filter @semantic-atomic-css/core build && corepack pnpm --filter @semantic-atomic-css/analyzer build && corepack pnpm --filter @semantic-atomic-css/vite build && corepack pnpm --filter playground-vite-css-modules-acceptance build && node scripts/verify-phase-3.mjs",
-    "verify:phase4": "corepack pnpm verify:phase3 && node scripts/verify-phase-4.mjs",
-    "verify:phase4:full": "corepack pnpm verify:phase4 && corepack pnpm verify:phase3:visual",
-    "verify:phase3:visual": "corepack pnpm --filter @semantic-atomic-css/core build && corepack pnpm --filter @semantic-atomic-css/analyzer build && corepack pnpm --filter @semantic-atomic-css/vite build && node scripts/verify-phase-3-visual.mjs"
-  },
-  "devDependencies": {
-    "@types/node": "^22.10.2",
-    "@vitejs/plugin-react": "^4.3.4",
-    "playwright": "^1.61.1",
-    "typescript": "^5.7.2",
-    "vite": "^6.0.3",
-    "vitest": "^2.1.8"
+    "build": "pnpm -r --sort --if-present run build",
+    "test": "pnpm -r --sort --if-present run test",
+    "typecheck": "pnpm -r --sort --if-present run typecheck",
+    "verify": "pnpm -r --sort --if-present run verify"
   }
 }

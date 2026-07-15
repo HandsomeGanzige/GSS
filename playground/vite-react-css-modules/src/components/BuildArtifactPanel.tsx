@@ -1,6 +1,6 @@
-import styles from './BuildArtifactPanel.module.css';
+import styles from './BuildArtifactPanel.module.less';
 
-/** build 产物检查项，用于展示 Phase 3 验收重点。 */
+/** build 产物检查项，用于展示当前 Pilot 的产物验收重点。 */
 export type ArtifactCheck = {
   label: string;
   value: string;
@@ -20,10 +20,12 @@ export function BuildArtifactPanel({ checks, selectedLabel, onSelect }: BuildArt
     <section className={styles.artifactPanel} aria-label="Build artifact checks">
       <div className={styles.panelHeader}>
         <div>
-          <p className={styles.sectionKicker}>Build output</p>
-          <h2 className={styles.sectionTitle}>Assets and default emission policy</h2>
+          <p className={styles.sectionKicker}>Build output · {__GSS_CSS_MODE__} view</p>
+          <h2 className={styles.sectionTitle}>Assets, preprocessors and emission policy</h2>
         </div>
-        <button className={styles.downloadButton}>semantic-atomic.css</button>
+        <button className={styles.downloadButton}>
+          {__GSS_CSS_MODE__ === 'semantic' ? 'semantic-atomic.css' : 'native baseline'}
+        </button>
       </div>
 
       <div className={styles.artifactList}>

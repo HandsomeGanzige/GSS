@@ -1,6 +1,8 @@
 import activityStyles from './ActivityTable.module.css';
+import artifactStyles from './BuildArtifactPanel.module.less';
 import metricStyles from './MetricsGrid.module.css';
 import pipelineStyles from './PipelineBoard.module.css';
+import shellStyles from './Shell.module.scss';
 import styles from './DebugPanel.module.css';
 
 /** Debug token 展示项，帮助确认 CSS Modules default export 的 class 字符串。 */
@@ -18,6 +20,8 @@ type DebugPanelProps = {
 };
 
 const tokenSources: Record<string, Record<string, string>> = {
+  logoMark: shellStyles,
+  artifactPanel: artifactStyles,
   metricCard: metricStyles,
   taskCard: pipelineStyles,
   row: activityStyles
@@ -30,7 +34,7 @@ export function DebugPanel({ groups, expandedKeys = [], onToggle }: DebugPanelPr
       <div className={styles.panelHeader}>
         <div>
           <p className={styles.sectionKicker}>Token debug</p>
-          <h2 className={styles.sectionTitle}>CSS Modules export strings</h2>
+          <h2 className={styles.sectionTitle}>CSS / SCSS / Less export strings</h2>
         </div>
       </div>
 

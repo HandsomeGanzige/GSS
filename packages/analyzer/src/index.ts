@@ -150,7 +150,7 @@ const shorthandLonghands: Readonly<Record<string, readonly string[]>> = {
 
 /** 构建转换效果分析入口，不读取文件也不写入产物。 */
 export function analyzeBuild(input: AnalyzeBuildInput): BuildAnalysis {
-  const sourceCss = input.modules.map((module) => module.sourceCss).join('\n\n');
+  const sourceCss = input.modules.map((module) => module.scopedCss).join('\n\n');
   const unsafeReasonDistribution = countUnsafeReasons(input.report.diagnostics);
   const highRiskFiles = createHighRiskFiles(input.modules);
   const beforeRawCssBytes = byteLength(sourceCss);

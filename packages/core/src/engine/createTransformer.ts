@@ -1,5 +1,6 @@
 import type {
   AtomicDeclaration,
+  ClassPreservationReason,
   CssTransformContext,
   DeclarationAnalysis,
   Diagnostic,
@@ -23,7 +24,11 @@ import { collectSourceClassNamesFromCss, scopeCssBlock } from '../selector/scope
 import { AtomicRegistry } from '../registry/AtomicRegistry.js';
 import { ClassMappingBuilder } from '../registry/ClassMappingBuilder.js';
 import { createDiagnostic } from '../diagnostics/createDiagnostic.js';
-import { preservedDeclarationMessage, unsafeSelectorMessage } from '../diagnostics/messages.js';
+import {
+  preservedClassMessage,
+  preservedDeclarationMessage,
+  unsafeSelectorMessage
+} from '../diagnostics/messages.js';
 import { renderAtomicCss } from '../output/renderAtomicCss.js';
 import { renderPreservedCss } from '../output/renderPreservedCss.js';
 import { createManifest } from '../output/createManifest.js';
@@ -110,7 +115,8 @@ function runTransform(
       preservedBlocks,
       currentAtomicByKey,
       diagnostics,
-      stats
+      stats,
+      input.preserveClassNames
     );
   }
 
@@ -156,7 +162,8 @@ function processRule(
   preservedBlocks: PreservedBlock[],
   currentAtomicByKey: Map<string, AtomicDeclaration>,
   diagnostics: Diagnostic[],
-  stats: { unsafeRules: number; preservedDeclarations: number; reusedAtomicDeclarations: number }
+  stats: { unsafeRules: number; preservedDeclarations: number; reusedAtomicDeclarations: number },
+  preserveClassNames: TransformCssInput['preserveClassNames']
 ): void {
   const selectorAnalysis = analyzeSelector(rule.selector);
 
@@ -170,6 +177,13 @@ function processRule(
     return;
   }
 
+  const preservationReason = preserveClassNames?.[selectorAnalysis.sourceClassName];
+
+  if (preservationReason) {
+    preserveConfiguredSafeRule(rule, scope, classMappings, preservedRules, diagnostics, stats, selectorAnalysis, preservationReason);
+    return;
+  }
+
   processSafeRule(
     rule,
     scope,
@@ -180,6 +194,49 @@ function processRule(
     stats,
     currentAtomicByKey,
     selectorAnalysis
+  );
+}
+
+/** 完整保留 adapter 标记的 safe class，避免它与 atomic CSS 在新顺序下产生 cascade 偏差。 */
+function preserveConfiguredSafeRule(
+  rule: CssRuleRecord,
+  scope: ScopeStrategy,
+  classMappings: ClassMappingBuilder,
+  preservedRules: PreservedRule[],
+  diagnostics: Diagnostic[],
+  stats: { preservedDeclarations: number },
+  selectorAnalysis: Extract<SelectorAnalysis, { kind: 'safe' }>,
+  reason: ClassPreservationReason
+): void {
+  classMappings.ensure(selectorAnalysis.sourceClassName, rule.selector);
+  const scopedSelector = scopeSelector(rule.selector, scope, {
+    id: rule.id,
+    originalSelector: rule.selector,
+    usage: 'preserved-rule'
+  });
+
+  stats.preservedDeclarations += rule.declarations.length;
+  preservedRules.push({
+    id: rule.id,
+    order: rule.order,
+    selector: rule.selector,
+    scopedSelector,
+    declarations: rule.declarations,
+    context: rule.context,
+    reason,
+    source: rule.source
+  });
+  diagnostics.push(
+    createDiagnostic({
+      code: 'preserved-class',
+      level: 'warning',
+      message: preservedClassMessage(selectorAnalysis.sourceClassName, reason),
+      id: rule.id,
+      selector: rule.selector,
+      sourceClassName: selectorAnalysis.sourceClassName,
+      reason,
+      source: rule.source
+    })
   );
 }
 

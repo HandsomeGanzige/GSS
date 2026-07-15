@@ -9,6 +9,9 @@ Status: completed
 本记录用于持续跟踪 `playground/vite-react-css-modules` 从人工观察页升级为 Phase 4 真实项目试用
 基准的过程。实施、验收、异常和指标必须随进度更新，不在结束时一次性补写。
 
+> 本文保留 Phase 4 当时的实现与指标。Phase 5 完成后的 CSS/SCSS/Less、partial、资源与原生
+> Vite 管线扩展见 [Phase 5 real-project Pilot tracking](phase-5-real-project-pilot-tracking.md)。
+
 ## 目标与非目标
 
 目标：

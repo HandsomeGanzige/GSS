@@ -1,7 +1,7 @@
 import path from 'node:path';
 import postcss from 'postcss';
 import selectorParser from 'postcss-selector-parser';
-import type { CSSModulesOptions, ResolvedConfig } from 'vite';
+import type { CSSModulesOptions } from 'vite';
 import type { ScopeStrategy, TransformClassMapping } from '@semantic-atomic-css/core';
 import type { LocalsConvention, ResolvedSemanticAtomicCssOptions } from './types.js';
 
@@ -101,17 +101,19 @@ export function augmentCssModuleTokens(
   return nextTokens;
 }
 
-/** 根据 GSS 与 Vite 配置创建传给 preprocessCSS 的 CSS Modules 配置。 */
-export function createPreprocessCssModulesOptions(
-  viteModules: ResolvedConfig['css']['modules'],
-  options: ResolvedSemanticAtomicCssOptions
-): CSSModulesOptions | false | undefined {
+/** 根据 GSS 与 Vite 配置创建写入 Vite 原生管线的 CSS Modules 配置。 */
+export function createNativeCssModulesOptions(
+  viteModules: CSSModulesOptions | false | undefined,
+  options: ResolvedSemanticAtomicCssOptions,
+  captureTokens: (id: string, tokens: CssModuleTokens) => void
+): CSSModulesOptions | false {
   if (viteModules === false && !options.modules.configured) {
     return false;
   }
 
   const modules: CSSModulesOptions =
     !options.modules.configured && typeof viteModules === 'object' && viteModules !== null ? { ...viteModules } : {};
+  const userGetJson = modules.getJSON;
 
   if (options.modules.hasLocalsConvention) {
     applyLocalsConventionOverride(modules, options.modules.localsConvention);
@@ -121,6 +123,11 @@ export function createPreprocessCssModulesOptions(
     modules.generateScopedName = options.modules.generateScopedName;
   }
 
+  modules.getJSON = (cssFileName, tokens, outputFileName): void => {
+    userGetJson?.(cssFileName, tokens, outputFileName);
+    captureTokens(cleanRequestId(cssFileName), tokens);
+  };
+
   return modules;
 }
 
@@ -128,7 +135,7 @@ export function createPreprocessCssModulesOptions(
 export function isCssModuleFile(id: string, root: string, options: ResolvedSemanticAtomicCssOptions): boolean {
   const normalized = normalizePath(id);
 
-  if (!normalized.endsWith('.module.css')) {
+  if (!/\.module\.(?:css|scss|less)$/.test(normalized)) {
     return false;
   }
 

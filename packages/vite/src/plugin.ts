@@ -1,6 +1,6 @@
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { preprocessCSS, type ModuleNode, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
+import type { ModuleNode, Plugin, PluginOption, ResolvedConfig, ViteDevServer } from 'vite';
 import {
   createTransformer,
   transformCss,
@@ -19,44 +19,63 @@ import {
   cleanRequestId,
   collectExportedClassNames,
   createCssModulesScopeStrategy,
-  createPreprocessCssModulesOptions,
+  createNativeCssModulesOptions,
   isCssModuleFile,
   type CssModuleTokens
 } from './cssModules.js';
+import { collectAssetPreserveClassNames, resolveBuildAssetReferences } from './assetReferences.js';
 import { resolveOptions } from './options.js';
 import type { ResolvedSemanticAtomicCssOptions, SemanticAtomicCssOptions } from './types.js';
 
 const virtualDevCssId = 'virtual:semantic-atomic-css/dev.css';
 const resolvedVirtualDevCssId = '\0semantic-atomic-css/dev.css';
-const resolvedModulePrefix = '\0semantic-atomic-css/module?source=';
 const buildCssFileName = 'assets/semantic-atomic.css';
 
-/** 单个 CSS Module 在 Route A 下的完整转换结果。 */
-type CssModuleTransformResult = {
+/** build adapter 内部的编译结果边界，不向 core 泄漏 Vite 语义。 */
+type CompiledCssModule = {
   id: string;
   sourceCss: string;
   scopedCss: string;
   tokens: CssModuleTokens;
+};
+
+/** 单个 CSS Module 在 Vite 原生管线下的完整转换结果。 */
+type CssModuleTransformResult = CompiledCssModule & {
   transform: TransformCssResult;
 };
 
-/** 创建 Vite adapter 插件。 */
-export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugin {
+/** 创建 Vite adapter 插件组。 */
+export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): PluginOption {
   const resolvedOptions = resolveOptions(options);
   const buildResults = new Map<string, CssModuleTransformResult>();
   const devResults = new Map<string, CssModuleTransformResult>();
+  const nativeTokensById = new Map<string, CssModuleTokens>();
   const pendingDevTransforms = new Set<Promise<void>>();
   const warnedDiagnostics = new Set<string>();
   let config: ResolvedConfig | undefined;
   let devServer: ViteDevServer | undefined;
   let buildTransformer: Transformer | undefined;
 
-  return {
-    name: 'semantic-atomic-css:vite',
-    enforce: 'pre',
+  const pipelinePlugin: Plugin = {
+    name: 'semantic-atomic-css:vite-pipeline',
+
+    config(userConfig) {
+      return {
+        css: {
+          modules: createNativeCssModulesOptions(
+            userConfig.css?.modules,
+            resolvedOptions,
+            (id, tokens) => {
+              nativeTokensById.set(normalizeFileIdentity(id), tokens);
+            }
+          )
+        }
+      };
+    },
 
     configResolved(resolvedConfig): void {
       validatePhase4Options(resolvedConfig, resolvedOptions);
+      validateNativePipelineOrder(resolvedConfig);
       config = resolvedConfig;
     },
 
@@ -66,57 +85,55 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
 
     buildStart(): void {
       buildResults.clear();
+      nativeTokensById.clear();
       pendingDevTransforms.clear();
       warnedDiagnostics.clear();
       buildTransformer = createTransformer(resolveCoreOptions(resolvedOptions, 'build'));
     },
 
-    async resolveId(id, importer): Promise<string | null> {
+    resolveId(id): string | null {
       if (id === virtualDevCssId || id === resolvedVirtualDevCssId) {
         return resolvedVirtualDevCssId;
-      }
-
-      if (id.startsWith(resolvedModulePrefix)) {
-        return id;
-      }
-
-      if (!config || !cleanRequestId(id).endsWith('.module.css')) {
-        return null;
-      }
-
-      const resolved = await this.resolve(id, importer, { skipSelf: true });
-      const file = cleanRequestId(resolved?.id ?? id);
-
-      if (isCssModuleFile(file, config.root, resolvedOptions)) {
-        return createResolvedModuleId(file);
       }
 
       return null;
     },
 
-    async load(id): Promise<{ code: string; map: null } | string | null> {
+    async load(id): Promise<string | null> {
       if (id === resolvedVirtualDevCssId) {
         return loadDevVirtualCss(devResults, pendingDevTransforms);
       }
 
-      if (!id.startsWith(resolvedModulePrefix)) {
+      return null;
+    },
+
+    async transform(scopedCss, id) {
+      const file = cleanRequestId(id);
+
+      if (!config || !isCssModuleFile(file, config.root, resolvedOptions)) {
         return null;
       }
 
-      const file = decodeResolvedModuleSource(id);
+      const tokens = nativeTokensById.get(normalizeFileIdentity(file));
 
-      if (!config) {
-        return null;
+      if (!tokens) {
+        throw new Error(
+          `[semantic-atomic-css] ${file} 未能从 Vite 原生 CSS Modules 管线获取 tokens，已停止构建以避免 silent miscompile。`
+        );
       }
 
       const isNewDevModule = config.command === 'serve' && !hasTransformResult(devResults, file);
-      const css = await fs.readFile(file, 'utf8');
+      const sourceCss = await fs.readFile(file, 'utf8');
       const result = await trackDevTransform(
         config,
         pendingDevTransforms,
-        transformCssModule({
-          id: file,
-          css,
+        transformCompiledCssModule({
+          compiled: {
+            id: file,
+            sourceCss,
+            scopedCss,
+            tokens
+          },
           config,
           options: resolvedOptions,
           buildTransformer,
@@ -124,28 +141,43 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
           devResults
         })
       );
+
+      Object.assign(tokens, result.tokens);
       emitDiagnostics(this, result.transform.diagnostics, resolvedOptions, warnedDiagnostics);
 
       if (isNewDevModule) {
         await reloadDevVirtualCssModule(devServer);
       }
 
-      return {
-        code: renderCssModuleJs(result, config.command),
-        map: null
-      };
+      return { code: '', map: null };
     },
 
     handleHotUpdate(context): [] | void {
       const file = cleanRequestId(context.file);
 
-      if (!config || !isCssModuleFile(file, config.root, resolvedOptions)) {
+      if (!config) {
         return;
       }
 
-      const transformedFile = deleteTransformResult(devResults, file) ?? file;
+      const affectedModules = collectAffectedCssModules(
+        file,
+        context.modules,
+        context.server,
+        config,
+        resolvedOptions
+      );
+
+      if (affectedModules.size === 0) {
+        return;
+      }
+
+      for (const affectedFile of affectedModules) {
+        deleteTransformResult(devResults, affectedFile);
+        nativeTokensById.delete(normalizeFileIdentity(affectedFile));
+      }
+
       pendingDevTransforms.clear();
-      invalidateDevCssModule(context.server, transformedFile, context.modules);
+      invalidateDevCssModules(context.server, affectedModules, context.modules);
       invalidateDevVirtualCssModule(context.server);
       context.server.ws.send({ type: 'full-reload' });
       return [];
@@ -160,11 +192,16 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
     },
 
     generateBundle(_outputOptions, bundle): void {
-      if (!buildTransformer || buildResults.size === 0) {
+      if (!config || !buildTransformer || buildResults.size === 0) {
         return;
       }
 
-      const css = createBuildCss(buildResults);
+      const css = resolveBuildAssetReferences(
+        createBuildCss(buildResults),
+        config,
+        buildCssFileName,
+        (referenceId) => this.getFileName(referenceId)
+      );
 
       if (css.trim().length > 0) {
         this.emitFile({
@@ -201,6 +238,26 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
       await injectCssIntoWrittenHtml(outDir, buildCssFileName);
     }
   };
+
+  const bridgePlugin: Plugin = {
+    name: 'semantic-atomic-css:vite-bridge',
+    enforce: 'post',
+
+    transform(code, id) {
+      const file = cleanRequestId(id);
+
+      if (!config || config.command !== 'serve' || !hasTransformResult(devResults, file)) {
+        return null;
+      }
+
+      return {
+        code: `import ${JSON.stringify(virtualDevCssId)};\n${code}`,
+        map: null
+      };
+    }
+  };
+
+  return [pipelinePlugin, bridgePlugin];
 }
 
 /** 在 dev 阶段登记正在执行的 CSS Module transform，供 virtual CSS 等待快照稳定。 */
@@ -253,7 +310,38 @@ function validatePhase4Options(config: ResolvedConfig, options: ResolvedSemantic
       feature: 'vite.css.modules.false',
       id: 'vite.css.modules',
       reason:
-        'Vite css.modules: false 会阻止 Route A 获取 CSS Modules tokens，请启用 css.modules 或显式配置 semanticAtomicCss({ modules: {} })。'
+        'Vite css.modules: false 会阻止原生管线产生 CSS Modules tokens，请启用 css.modules 或显式配置 semanticAtomicCss({ modules: {} })。'
+    });
+  }
+
+  if (config.css.transformer === 'lightningcss') {
+    throw createUnsupportedFeatureError({
+      feature: 'vite.css.transformer.lightningcss',
+      id: 'vite.css.transformer',
+      reason: 'Phase 5 仅验证 Vite 6 默认 PostCSS Modules 管线，暂不接管 Lightning CSS tokens。'
+    });
+  }
+}
+
+/** 校验 GSS 确实位于 Vite CSS 编译与 JS module 生成之间，避免版本升级后静默错位。 */
+function validateNativePipelineOrder(config: ResolvedConfig): void {
+  const pluginNames = config.plugins.map((plugin) => plugin.name);
+  const cssIndex = pluginNames.indexOf('vite:css');
+  const pipelineIndex = pluginNames.indexOf('semantic-atomic-css:vite-pipeline');
+  const cssPostIndex = pluginNames.indexOf('vite:css-post');
+  const bridgeIndex = pluginNames.indexOf('semantic-atomic-css:vite-bridge');
+
+  if (
+    cssIndex === -1 ||
+    pipelineIndex === -1 ||
+    cssPostIndex === -1 ||
+    bridgeIndex === -1 ||
+    !(cssIndex < pipelineIndex && pipelineIndex < cssPostIndex && cssPostIndex < bridgeIndex)
+  ) {
+    throw createUnsupportedFeatureError({
+      feature: 'vite.css-plugin-order',
+      id: 'vite.config.plugins',
+      reason: `期望 vite:css < GSS pipeline < vite:css-post < GSS bridge，实际顺序为 ${pluginNames.join(' -> ')}。`
     });
   }
 }
@@ -311,22 +399,99 @@ function normalizeFileIdentity(file: string): string {
   return process.platform === 'darwin' && resolved.startsWith('/private/') ? resolved.slice('/private'.length) : resolved;
 }
 
-/** CSS Module HMR 时让内部 JS virtual module 失效，确保 full reload 重新生成 tokens。 */
-function invalidateDevCssModule(
-  server: ViteDevServer,
+/** 从 Vite 原生 dependency graph 向上遍历，找到 partial 变更影响的所有 CSS Modules。 */
+function collectAffectedCssModules(
   file: string,
+  contextModules: ModuleNode[],
+  server: ViteDevServer,
+  config: ResolvedConfig,
+  options: ResolvedSemanticAtomicCssOptions
+): Set<string> {
+  const affectedFiles = new Set<string>();
+  const queuedModules = new Set<ModuleNode>(contextModules);
+  for (const candidate of fileIdentityCandidates(file)) {
+    const graphModules = server.moduleGraph.getModulesByFile(candidate);
+
+    if (graphModules) {
+      for (const moduleNode of graphModules) {
+        queuedModules.add(moduleNode);
+      }
+    }
+  }
+
+  if (isCssModuleFile(file, config.root, options)) {
+    affectedFiles.add(file);
+  }
+
+  const queue = [...queuedModules];
+  const visited = new Set<ModuleNode>();
+
+  while (queue.length > 0) {
+    const moduleNode = queue.shift();
+
+    if (!moduleNode || visited.has(moduleNode)) {
+      continue;
+    }
+
+    visited.add(moduleNode);
+    const candidate = moduleNode.file ?? readAbsoluteModuleId(moduleNode.id);
+
+    if (candidate && isCssModuleFile(cleanRequestId(candidate), config.root, options)) {
+      affectedFiles.add(cleanRequestId(candidate));
+      continue;
+    }
+
+    for (const importer of moduleNode.importers) {
+      // Vite 某些 additional watch file 节点会短暂保留旧 importer，只沿当前双向边遍历。
+      if (importer.importedModules.has(moduleNode)) {
+        queue.push(importer);
+      }
+    }
+  }
+
+  return affectedFiles;
+}
+
+/** CSS Module HMR 时失效原生 module nodes，确保 full reload 重新生成 tokens。 */
+function invalidateDevCssModules(
+  server: ViteDevServer,
+  files: Set<string>,
   contextModules: ModuleNode[]
 ): void {
   const modules = new Set(contextModules);
-  const directModule = server.moduleGraph.getModuleById(createResolvedModuleId(file));
 
-  if (directModule) {
-    modules.add(directModule);
+  for (const file of files) {
+    for (const candidate of fileIdentityCandidates(file)) {
+      const graphModules = server.moduleGraph.getModulesByFile(candidate);
+
+      if (graphModules) {
+        for (const moduleNode of graphModules) {
+          modules.add(moduleNode);
+        }
+      }
+    }
   }
 
   for (const moduleNode of modules) {
     server.moduleGraph.invalidateModule(moduleNode);
   }
+}
+
+/** 只把 module graph 中的绝对文件 id 当作文件路径，避免把 /src URL 误判为系统根路径。 */
+function readAbsoluteModuleId(id: string | null): string | undefined {
+  const cleaned = id ? cleanRequestId(id) : '';
+  return cleaned && path.isAbsolute(cleaned) ? cleaned : undefined;
+}
+
+/** 枚举 macOS 上 /var 与 /private/var 的等价路径，保证 Vite graph 查找与缓存身份一致。 */
+function fileIdentityCandidates(file: string): string[] {
+  const resolved = normalizeToPosix(path.resolve(file));
+
+  if (process.platform !== 'darwin') {
+    return [resolved];
+  }
+
+  return resolved.startsWith('/private/') ? [resolved, resolved.slice('/private'.length)] : [resolved, `/private${resolved}`];
 }
 
 /** CSS Module HMR 时让单一 dev CSS owner 失效，避免 full reload 前后复用旧快照。 */
@@ -351,20 +516,9 @@ async function reloadDevVirtualCssModule(server: ViteDevServer | undefined): Pro
   }
 }
 
-/** 创建内部 CSS Modules JS virtual module id。 */
-function createResolvedModuleId(id: string): string {
-  return `${resolvedModulePrefix}${encodeId(id)}`;
-}
-
-/** 从内部 CSS Modules JS virtual module id 中还原源文件路径。 */
-function decodeResolvedModuleSource(id: string): string {
-  return decodeId(id.slice(resolvedModulePrefix.length));
-}
-
-/** 转换单个 CSS Modules 文件，并维护 dev/build 状态。 */
-async function transformCssModule(input: {
-  id: string;
-  css: string;
+/** 消费构建工具已编译的 CSS Module，并维护 GSS dev/build 状态。 */
+async function transformCompiledCssModule(input: {
+  compiled: CompiledCssModule;
   config: ResolvedConfig;
   options: ResolvedSemanticAtomicCssOptions;
   buildTransformer: Transformer | undefined;
@@ -372,81 +526,38 @@ async function transformCssModule(input: {
   devResults: Map<string, CssModuleTransformResult>;
 }): Promise<CssModuleTransformResult> {
   if (input.config.command === 'build') {
-    const cached = input.buildResults.get(input.id);
+    const cached = input.buildResults.get(input.compiled.id);
 
     if (cached) {
       return cached;
     }
   }
 
-  const preprocessed = await preprocessCssModule(input.id, input.css, input.config, input.options);
-  const exportedClassNames = collectExportedClassNames(preprocessed.tokens, preprocessed.css);
+  const exportedClassNames = collectExportedClassNames(input.compiled.tokens, input.compiled.scopedCss);
   const scope = createCssModulesScopeStrategy(exportedClassNames);
   const coreInput = {
-    id: input.id,
-    css: preprocessed.css,
-    scope
+    id: input.compiled.id,
+    css: input.compiled.scopedCss,
+    scope,
+    preserveClassNames: collectAssetPreserveClassNames(input.compiled.scopedCss, input.compiled.tokens)
   };
   const transform =
     input.config.command === 'build' && input.buildTransformer
       ? input.buildTransformer.transformCss(coreInput)
       : transformCss(coreInput, resolveCoreOptions(input.options, 'serve'));
   const result: CssModuleTransformResult = {
-    id: input.id,
-    sourceCss: input.css,
-    scopedCss: preprocessed.css,
-    tokens: augmentCssModuleTokens(preprocessed.tokens, transform.classes),
+    ...input.compiled,
+    tokens: augmentCssModuleTokens(input.compiled.tokens, transform.classes),
     transform
   };
 
   if (input.config.command === 'build') {
-    input.buildResults.set(input.id, result);
+    input.buildResults.set(input.compiled.id, result);
   } else {
-    input.devResults.set(input.id, result);
+    input.devResults.set(input.compiled.id, result);
   }
 
   return result;
-}
-
-/** 调用 Vite 原生 preprocessCSS，获取 scoped CSS 和 CSS Modules tokens。 */
-async function preprocessCssModule(
-  id: string,
-  css: string,
-  config: ResolvedConfig,
-  options: ResolvedSemanticAtomicCssOptions
-): Promise<{ css: string; tokens: CssModuleTokens }> {
-  const modules = createPreprocessCssModulesOptions(config.css.modules, options);
-
-  if (modules === false) {
-    throw new Error(`[semantic-atomic-css] ${id} 无法获取 CSS Modules tokens，因为 Vite css.modules 已关闭。`);
-  }
-
-  const preprocessConfig: ResolvedConfig = {
-    ...config,
-    css: {
-      ...config.css,
-      modules
-    }
-  };
-  const result = await preprocessCSS(css, id, preprocessConfig);
-
-  if (!result.modules) {
-    throw new Error(`[semantic-atomic-css] ${id} 的 Vite preprocessCSS 未返回 CSS Modules tokens，已停止构建以避免 silent miscompile。`);
-  }
-
-  return {
-    css: result.code,
-    tokens: result.modules
-  };
-}
-
-/** 渲染替代 CSS Modules 的 JS module。 */
-function renderCssModuleJs(
-  result: CssModuleTransformResult,
-  command: ResolvedConfig['command']
-): string {
-  const cssImport = command === 'serve' ? `import ${JSON.stringify(virtualDevCssId)};\n` : '';
-  return `${cssImport}const tokens = ${JSON.stringify(result.tokens, null, 2)};\nexport default tokens;\n`;
 }
 
 /** 读取 dev virtual CSS 内容，并等待当前并发 transform 排空后再创建全局快照。 */
@@ -615,16 +726,6 @@ function indentCssBlock(css: string): string {
     .split('\n')
     .map((line) => `  ${line}`)
     .join('\n');
-}
-
-/** 编码内部 JS virtual module source，避免 id 中出现 .css 被 Vite CSS 插件误判。 */
-function encodeId(id: string): string {
-  return Buffer.from(id, 'utf8').toString('base64url');
-}
-
-/** 解码内部 JS virtual module source。 */
-function decodeId(id: string): string {
-  return Buffer.from(id, 'base64url').toString('utf8');
 }
 
 /** 根据命令补齐 core className 策略。 */

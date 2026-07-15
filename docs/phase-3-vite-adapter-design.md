@@ -23,6 +23,27 @@
 注意：当前仓库依赖为 `vite@^6.0.3`，因此第一版实现应优先按 Vite 6 文档复核 hook、CSS Modules
 和 HMR 行为。最新 Vite 文档可能包含 Rolldown 或 Vite 8 相关变化，只能作为后续升级参考。
 
+## Phase 5 当前实现（2026-07-15）
+
+Phase 3/4 的 Route B 与手动 `preprocessCSS` Route A 继续作为历史设计记录。当前代码以下列
+Phase 5 决策为准：
+
+- `semanticAtomicCss()` 返回 `PluginOption`，内含 normal pipeline 与 post bridge 两个插件。
+- pipeline 位于 Vite 6 `vite:css` 与 `vite:css-post` 之间，直接消费 Vite 已预处理、scoped
+  并处理资源的 CSS；不再手动调用 `preprocessCSS`。
+- `css.modules.getJSON` 包装器保留用户 callback，捕获 Vite token 对象，core 结果原地追加到
+  该对象，因此默认 export 和 ICSS 仍由 Vite 生成。
+- pipeline transform 向 `vite:css-post` 返回空 CSS，阻止原 CSS Modules 重复输出；post bridge 只在 dev
+  前置 shared CSS owner import。
+- 默认后缀为 `.module.css`、`.module.scss`、`.module.less`，普通预处理器文件不接管。
+- Sass/Less partial HMR 消费 Vite module graph 并使用 full reload。Vite 暂存的旧 additional-watch 边
+  会导致保守多重验证一个模块，但不会复用 stale CSS。
+- `url()` 关联 class 通过 core class preservation 完整 fallback；build 在 generate 阶段解析本地
+  Vite asset reference。`publicDir` 内部占位符和自定义 `renderBuiltUrl` 当前 fail fast。
+
+详细结论与验收见 `docs/phase-5-css-modules-preprocessor-plan.md` 和
+`docs/phase-5-css-modules-preprocessor-acceptance.md`。
+
 ## 当前事实基线
 
 已确认决策：
@@ -33,12 +54,11 @@
 - core 不负责 CSS Modules tokens、Vite 生命周期、文件读取写入、virtual module、HMR 或 asset emit。
 - `createTransformer()` 当前是 append-only build collector，不支持同一 `id` 更新或失效。
 - `packages/vite` 已恢复为 `@semantic-atomic-css/vite`。
-- `playground/vite-css-modules-acceptance` 已作为自动验收 fixture 接入 `semanticAtomicCss()`，用于验证核心
-  React + Vite + CSS Modules 语义。
+- `fixtures/vite-css-modules` 是统一自动验收 workspace，`base` 与 `preprocessor` suites
+  分别覆盖基础 CSS Modules 和 SCSS/Less/资源语义。
 - `playground/vite-react-css-modules` 已接入 `semanticAtomicCss()`，用于人工观察较大业务场景。
-- `pnpm verify:phase1` 当前是 `pnpm verify:core` 的兼容别名，不再验证旧 Vite adapter 产物。
-- `pnpm verify:phase3` 是当前 Vite adapter 验收命令。
-- `pnpm verify:phase3:visual` 是当前 semantic/native computed style 对照验收命令。
+- 阶段命令已退役；当前静态门禁为 `pnpm verify`，visual 入口为
+  `pnpm --filter @semantic-atomic-css/vite-fixture test:visual`。
 
 设计约束：
 
@@ -627,11 +647,11 @@ pnpm --filter @semantic-atomic-css/core test
 pnpm --filter @semantic-atomic-css/vite test
 pnpm typecheck
 pnpm build
-pnpm verify:phase3
-pnpm verify:phase3:visual
+pnpm verify
+pnpm --filter @semantic-atomic-css/vite-fixture test:visual
 ```
 
-注意：`verify:phase3` 已新增，当前验收细节见 `docs/phase-3-acceptance.md`。
+历史 Phase 3 验收细节见 `docs/phase-3-acceptance.md`。
 
 ## 风险清单
 

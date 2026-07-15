@@ -17,7 +17,9 @@
   ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "test": "vitest run --config vitest.config.ts"
+    "test": "vitest run --config vitest.config.ts",
+    "typecheck": "tsc -p tsconfig.check.json",
+    "verify": "pnpm test && pnpm typecheck && pnpm build"
   },
   "dependencies": {
     "@semantic-atomic-css/core": "workspace:*"

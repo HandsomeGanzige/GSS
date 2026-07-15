@@ -6,6 +6,7 @@ export type {
   AtomicDeclaration,
   AtomicKeyInput,
   AtomicManifestEntry,
+  ClassPreservationReason,
   ClassManifestEntry,
   CssTransformContext,
   DeclarationAnalysis,

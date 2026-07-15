@@ -1,0 +1,23 @@
+@import './tokens.less';
+
+.panel {
+  display: grid;
+  gap: @panel-gap;
+  color: @panel-text;
+  background: @panel-surface;
+  border-radius: @fixture-runtime-radius;
+
+  &:active {
+    color: #1e40af;
+  }
+}
+
+.panel .child {
+  font-weight: 700;
+}
+
+@supports (display: grid) {
+  .panel {
+    grid-template-columns: 1fr;
+  }
+}
