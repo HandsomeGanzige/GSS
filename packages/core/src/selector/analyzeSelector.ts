@@ -1,10 +1,24 @@
+/**
+ * Safe selector 判定与稳定 unsafe reason 分类模块。
+ *
+ * @remarks
+ * 只接受单 source class 和最多一个白名单 pseudo class。解析失败或包含结构关系、global、tag、
+ * id、attribute、pseudo element 等结构时返回 unsafe 分支，不尝试猜测等价转换。
+ *
+ * @module core/selector/analyzeSelector
+ */
 import selectorParser from 'postcss-selector-parser';
 import type { SelectorAnalysis, UnsafeSelectorReason } from '../public/types.js';
 import { collectClassNames, isInsideGlobal } from './collectClassNames.js';
 
 const supportedPseudoClasses = new Set([':hover', ':focus', ':active', ':disabled', ':focus-visible']);
 
-/** 分析 selector 是否满足 v1 safe selector 约束。 */
+/**
+ * 分析 selector 是否满足 v1 safe selector 约束。
+ *
+ * @param selector - 标准 CSS selector 文本。
+ * @returns safe 分支中的唯一 source class/pseudo，或带稳定 primary reason 的 unsafe 分支。
+ */
 export function analyzeSelector(selector: string): SelectorAnalysis {
   let root: selectorParser.Root;
 
@@ -58,7 +72,12 @@ export function analyzeSelector(selector: string): SelectorAnalysis {
   };
 }
 
-/** 收集 selector 中所有明确 unsafe reason，供 primary reason 和 details 使用。 */
+/**
+ * 收集 selector 中所有可证明的 unsafe reason。
+ *
+ * @param selector - 已解析且唯一的 selector AST。
+ * @returns 去重后的 reason 集合，保留 AST 遍历首次发现顺序。
+ */
 function collectUnsafeDetails(selector: selectorParser.Selector): UnsafeSelectorReason[] {
   const details = new Set<UnsafeSelectorReason>();
   let pseudoClassCount = 0;
@@ -109,14 +128,24 @@ function collectUnsafeDetails(selector: selectorParser.Selector): UnsafeSelector
   return [...details];
 }
 
-/** 当多 class selector 同时包含 combinator 时，优先输出结构关系 reason。 */
+/**
+ * 查找应优先展示的 combinator reason。
+ *
+ * @param details - 当前 selector 的全部 unsafe reasons。
+ * @returns 第一个结构关系 reason；不存在时返回 `undefined`。
+ */
 function firstCombinatorReason(details: UnsafeSelectorReason[]): UnsafeSelectorReason | undefined {
   return details.find((reason) =>
     ['descendant-selector', 'child-selector', 'adjacent-selector', 'sibling-selector'].includes(reason)
   );
 }
 
-/** 把 combinator 映射为更具体的 unsafe reason。 */
+/**
+ * 把 selector combinator 映射为稳定 unsafe reason。
+ *
+ * @param value - selector parser 提供的 combinator 文本。
+ * @returns child、adjacent、sibling 或默认 descendant reason。
+ */
 function combinatorReason(value: string): UnsafeSelectorReason {
   const trimmed = value.trim();
 
@@ -135,7 +164,12 @@ function combinatorReason(value: string): UnsafeSelectorReason {
   return 'descendant-selector';
 }
 
-/** 选择最适合作为 diagnostic 主原因的 reason。 */
+/**
+ * 按稳定优先级选择 diagnostic 主原因。
+ *
+ * @param details - selector 的全部 unsafe reasons。
+ * @returns 最适合治理聚合的 primary reason；空集合降级为 `unknown-selector`。
+ */
 function choosePrimaryReason(details: UnsafeSelectorReason[]): UnsafeSelectorReason {
   const priority: UnsafeSelectorReason[] = [
     'descendant-selector',
@@ -155,7 +189,14 @@ function choosePrimaryReason(details: UnsafeSelectorReason[]): UnsafeSelectorRea
   return priority.find((reason) => details.includes(reason)) ?? details[0] ?? 'unknown-selector';
 }
 
-/** 创建 unsafe selector 分支，并补齐 class name 收集结果。 */
+/**
+ * 创建 unsafe selector 分支。
+ *
+ * @param selector - 原 selector 文本。
+ * @param reason - 稳定 primary reason。
+ * @param details - 可选的全部 reason 证据。
+ * @returns 补齐 source/global class 集合的 unsafe analysis。
+ */
 function createUnsafe(
   selector: string,
   reason: UnsafeSelectorReason,
@@ -173,7 +214,12 @@ function createUnsafe(
   };
 }
 
-/** 在 selector 解析失败时返回空 class name 集合，避免 diagnostic 过程二次抛错。 */
+/**
+ * 在 diagnostic 路径中保守收集 class names。
+ *
+ * @param selector - 可能无法解析的 selector 文本。
+ * @returns 成功时返回分类后的 class names；失败时返回两个空数组。
+ */
 function safeCollectClassNames(selector: string): { sourceClassNames: string[]; globalClassNames: string[] } {
   try {
     return collectClassNames(selector);

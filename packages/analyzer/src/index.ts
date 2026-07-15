@@ -1,3 +1,13 @@
+/**
+ * GSS 构建结果的纯内存风险、收益和体积分析模块。
+ *
+ * @remarks
+ * analyzer 只消费 core manifest/report 与 adapter 提供的构建快照，不读取文件、不依赖 Vite，
+ * 也不会在缺少 usage evidence 时猜测不同 DOM class 的共现关系。分析结果用于 report 和 Pilot
+ * 决策，不会改写 CSS。
+ *
+ * @packageDocumentation
+ */
 import { brotliCompressSync, gzipSync } from 'node:zlib';
 import type {
   CssTransformContext,
@@ -6,7 +16,13 @@ import type {
   TransformReport
 } from '@semantic-atomic-css/core';
 
-/** 单个 CSS Module 提供给 analyzer 的构建期信息。 */
+/**
+ * 单个 CSS Module 提供给 analyzer 的构建期快照。
+ *
+ * @remarks
+ * 体积基线使用 Vite 原生管线生成的 `scopedCss`，而不是可能包含 Sass/Less 语法的 `sourceCss`。
+ * `sourceCss` 当前作为 adapter 构建证据保留，不参与体积计算。
+ */
 export type AnalyzerModuleInput = {
   id: string;
   sourceCss: string;
@@ -16,7 +32,13 @@ export type AnalyzerModuleInput = {
   diagnostics: Diagnostic[];
 };
 
-/** analyzer 的构建后分析输入。 */
+/**
+ * analyzer 的完整构建后输入。
+ *
+ * @remarks
+ * 调用方应保证 report、manifest、modules 和 outputCss 来自同一次稳定构建快照，否则风险和体积
+ * 指标没有可比性。modules 顺序不应承担语义；需要稳定输出的分析会在内部排序。
+ */
 export type AnalyzeBuildInput = {
   report: TransformReport;
   manifest: TransformManifest;
@@ -37,7 +59,13 @@ export type AnalyzerUnsupportedFeature = {
 /** 试用健康度状态，用于快速判断是否适合继续真实项目试用。 */
 export type TrialHealthStatus = 'ready' | 'risky' | 'blocked';
 
-/** analyzer 输出的完整结构化分析结果。 */
+/**
+ * analyzer 输出的完整结构化分析结果。
+ *
+ * @remarks
+ * `health` 是试用决策摘要，`risk` 保留可追踪证据，`benefit` 描述 atomic 复用，`size` 同时提供
+ * raw、gzip、brotli 和 class string 估算。消费者应优先读取结构化字段，不解析 reasons 文案。
+ */
 export type BuildAnalysis = {
   health: {
     status: TrialHealthStatus;
@@ -148,7 +176,17 @@ const shorthandLonghands: Readonly<Record<string, readonly string[]>> = {
   gap: ['row-gap', 'column-gap']
 };
 
-/** 构建转换效果分析入口，不读取文件也不写入产物。 */
+/**
+ * 分析一次稳定构建的风险、收益、体积和可证明 declaration 冲突。
+ *
+ * @remarks
+ * 函数是无状态的，不读取文件也不写入产物。同属性和 shorthand/longhand 冲突只在同一 semantic
+ * class、相同 pseudo/media/supports 和 important 层级内报告；缺少 usage evidence 时不会推断跨 class
+ * 冲突。gzip 与 brotli 指标使用 Node.js 同步压缩 API，适合构建结束阶段调用。
+ *
+ * @param input - 同一次构建产生的 core report/manifest、模块快照、最终 CSS 和可选保护失败项。
+ * @returns 可序列化的 {@link BuildAnalysis}，输入对象不会被修改。
+ */
 export function analyzeBuild(input: AnalyzeBuildInput): BuildAnalysis {
   const sourceCss = input.modules.map((module) => module.scopedCss).join('\n\n');
   const unsafeReasonDistribution = countUnsafeReasons(input.report.diagnostics);
@@ -198,7 +236,12 @@ export function analyzeBuild(input: AnalyzeBuildInput): BuildAnalysis {
   };
 }
 
-/** 从 manifest class 到 atomic declaration 的映射中提取可证明的 class 内属性冲突。 */
+/**
+ * 从 manifest 提取可证明的 class 内属性冲突。
+ *
+ * @param manifest - 与当前构建 report 对应的 core manifest。
+ * @returns 按文件与 source class 稳定排序的 declaration conflicts。
+ */
 function createDeclarationConflicts(manifest: TransformManifest): DeclarationConflict[] {
   const atomicByClassName = new Map(Object.values(manifest.atomic).map((entry) => [entry.className, entry]));
   const conflicts: DeclarationConflict[] = [];
@@ -261,7 +304,12 @@ function createDeclarationConflicts(manifest: TransformManifest): DeclarationCon
   return conflicts;
 }
 
-/** 用无向图连通分量合并同一组 shorthand / longhand 竞争，避免成对重复报告。 */
+/**
+ * 把两两属性竞争合并为无向图连通分量。
+ *
+ * @param declarations - 同一 class、context 和 important 层级内的 declarations。
+ * @returns 至少包含一条冲突边的 declaration groups；孤立 declaration 不输出。
+ */
 function collectConflictComponents<T extends { property: string; value: string }>(declarations: T[]): T[][] {
   const adjacency = declarations.map(() => new Set<number>());
 
@@ -314,7 +362,13 @@ function collectConflictComponents<T extends { property: string; value: string }
   return components;
 }
 
-/** 判断两个属性是否会写入同一 CSS 属性位，未列入关系表时保守地返回 false。 */
+/**
+ * 判断两个属性是否会竞争同一 CSS 属性位。
+ *
+ * @param left - 已归一化的小写属性名。
+ * @param right - 已归一化的小写属性名。
+ * @returns 同属性或已登记 shorthand/longhand 关系返回 `true`；未知关系保守返回 `false`。
+ */
 function propertiesConflict(left: string, right: string): boolean {
   if (left === right) {
     return true;
@@ -323,12 +377,23 @@ function propertiesConflict(left: string, right: string): boolean {
   return shorthandLonghands[left]?.includes(right) === true || shorthandLonghands[right]?.includes(left) === true;
 }
 
-/** 为 conflict 分组生成不受对象属性顺序影响的 cascade 上下文 key。 */
+/**
+ * 生成 declaration conflict 分组 key。
+ *
+ * @param context - pseudo/media/supports cascade 上下文。
+ * @param important - declaration 是否位于 important 层级。
+ * @returns 不依赖对象属性插入顺序的稳定文本 key。
+ */
 function createConflictContextKey(context: CssTransformContext, important: boolean): string {
   return [context.pseudo ?? '', context.media ?? '', context.supports ?? '', important ? 'important' : 'normal'].join('\0');
 }
 
-/** 统计 declaration conflict 规模，文件和 class 数量都使用稳定唯一 key 去重。 */
+/**
+ * 汇总 declaration conflict 规模。
+ *
+ * @param conflicts - 已去重的 conflict records。
+ * @returns 按 kind、文件和 source class 统计的摘要。
+ */
 function createDeclarationConflictSummary(conflicts: DeclarationConflict[]): DeclarationConflictSummary {
   return {
     total: conflicts.length,
@@ -339,7 +404,13 @@ function createDeclarationConflictSummary(conflicts: DeclarationConflict[]): Dec
   };
 }
 
-/** 使 standalone analyzer 输入不依赖 adapter 预先排序也能产生稳定结果。 */
+/**
+ * 比较 manifest class entries。
+ *
+ * @param left - 左侧 class entry。
+ * @param right - 右侧 class entry。
+ * @returns 先按 id、再按 source class 的稳定字典序。
+ */
 function compareManifestClass(
   left: TransformManifest['classes'][string],
   right: TransformManifest['classes'][string]
@@ -347,12 +418,23 @@ function compareManifestClass(
   return compareText(left.id, right.id) || compareText(left.sourceClassName, right.sourceClassName);
 }
 
-/** 使用不依赖 locale 的字典序比较文本。 */
+/**
+ * 使用不依赖运行环境 locale 的字典序比较文本。
+ *
+ * @param left - 左侧文本。
+ * @param right - 右侧文本。
+ * @returns 标准负数、零或正数 comparator 结果。
+ */
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-/** 统计 unsafe selector reason 分布。 */
+/**
+ * 统计 unsafe selector reason 分布。
+ *
+ * @param diagnostics - core diagnostics。
+ * @returns reason 到出现次数的 record；忽略非 unsafe 或缺失 reason 的项。
+ */
 function countUnsafeReasons(diagnostics: Diagnostic[]): Record<string, number> {
   const counts: Record<string, number> = {};
 
@@ -367,7 +449,12 @@ function countUnsafeReasons(diagnostics: Diagnostic[]): Record<string, number> {
   return counts;
 }
 
-/** 生成高风险文件列表，优先展示 unsafe 多且 preserved CSS 多的模块。 */
+/**
+ * 创建高风险文件摘要。
+ *
+ * @param modules - 当前构建的模块快照。
+ * @returns 最多十个存在 unsafe/preserved 信号的模块，优先 unsafe 数量再按 preserved bytes 排序。
+ */
 function createHighRiskFiles(modules: AnalyzerModuleInput[]): HighRiskFile[] {
   return modules
     .map((module) => {
@@ -390,13 +477,23 @@ function createHighRiskFiles(modules: AnalyzerModuleInput[]): HighRiskFile[] {
     .slice(0, 10);
 }
 
-/** 根据复用数量和 atomic declaration 数量计算复用率。 */
+/**
+ * 计算 atomic declaration 复用率。
+ *
+ * @param report - core 聚合 report。
+ * @returns 四位小数比例；没有 declaration 时返回 0。
+ */
 function createReuseRatio(report: TransformReport): number {
   const total = report.summary.atomicDeclarations + report.summary.reusedAtomicDeclarations;
   return total === 0 ? 0 : roundRatio(report.summary.reusedAtomicDeclarations / total);
 }
 
-/** 创建真实项目试用健康度摘要。 */
+/**
+ * 创建真实项目试用健康度摘要。
+ *
+ * @param input - unsupported、fallback、体积和 conflict 风险信号。
+ * @returns unsupported 存在时 blocked；其他风险存在时 risky；否则 ready。
+ */
 function createHealth(input: {
   unsupportedFeatures: AnalyzerUnsupportedFeature[];
   unsafeRules: number;
@@ -446,17 +543,33 @@ function createHealth(input: {
   };
 }
 
-/** 使用 UTF-8 计算字符串字节数。 */
+/**
+ * 计算 UTF-8 字节数。
+ *
+ * @param value - 要测量的 CSS 文本。
+ * @returns Node Buffer 计算的 UTF-8 字节长度。
+ */
 function byteLength(value: string): number {
   return Buffer.byteLength(value, 'utf8');
 }
 
-/** 计算 gzip 或 brotli 后的字节数。 */
+/**
+ * 计算 CSS 压缩后字节数。
+ *
+ * @param value - 要压缩的 CSS 文本。
+ * @param format - gzip 或 brotli。
+ * @returns Node 同步压缩结果字节长度。
+ */
 function compressedLength(value: string, format: 'gzip' | 'brotli'): number {
   return format === 'gzip' ? gzipSync(value).byteLength : brotliCompressSync(value).byteLength;
 }
 
-/** 把比例稳定到四位小数，避免 JSON report 产生无意义浮点噪声。 */
+/**
+ * 把比例稳定到四位小数。
+ *
+ * @param value - 原始浮点比例。
+ * @returns 四位小数精度的数值。
+ */
 function roundRatio(value: number): number {
   return Math.round(value * 10000) / 10000;
 }

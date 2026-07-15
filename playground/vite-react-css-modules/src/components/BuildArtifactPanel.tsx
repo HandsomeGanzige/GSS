@@ -14,7 +14,15 @@ type BuildArtifactPanelProps = {
   onSelect?: (check: ArtifactCheck) => void;
 };
 
-/** 渲染 build 输出检查面板。 */
+/**
+ * 渲染 build 输出检查面板，并将选中行为交给上层路由管理。
+ *
+ * @param props - 组件属性。
+ * @param props.checks - 可选择的构建产物检查项。
+ * @param props.selectedLabel - 当前选中项标签。
+ * @param props.onSelect - 用户选择检查项时的回调。
+ * @returns 可交互的构建产物检查面板。
+ */
 export function BuildArtifactPanel({ checks, selectedLabel, onSelect }: BuildArtifactPanelProps) {
   return (
     <section className={styles.artifactPanel} aria-label="Build artifact checks">

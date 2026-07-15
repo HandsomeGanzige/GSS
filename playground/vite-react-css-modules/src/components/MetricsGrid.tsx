@@ -14,7 +14,13 @@ type MetricsGridProps = {
   metrics: MetricItem[];
 };
 
-/** 渲染 KPI 指标网格。 */
+/**
+ * 渲染 KPI 指标网格。
+ *
+ * @param props - 组件属性。
+ * @param props.metrics - 按展示顺序排列的指标数据。
+ * @returns 带趋势状态的指标卡片网格。
+ */
 export function MetricsGrid({ metrics }: MetricsGridProps) {
   return (
     <section className={styles.metricSection} aria-label="Semantic atomic metrics">

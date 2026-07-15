@@ -1,3 +1,8 @@
+/**
+ * Core transform 默认策略与用户选项归一化模块。
+ *
+ * @module core/policies/defaultOptions
+ */
 import type { AtomicClassNameOptions, TransformCssOptions } from '../public/types.js';
 
 /** pipeline 内部使用的已补齐 transform options。 */
@@ -12,7 +17,12 @@ export const defaultClassNameOptions: Required<AtomicClassNameOptions> = {
   prefix: '_'
 };
 
-/** 合并 transform options，确保每次 pipeline 都有完整默认值。 */
+/**
+ * 把可选用户配置解析为完整内部策略。
+ *
+ * @param options - core public transform options。
+ * @returns 不含可选字段的 resolved options。
+ */
 export function resolveTransformOptions(options: TransformCssOptions = {}): ResolvedTransformOptions {
   return {
     preserveResolvedClass: options.preserveResolvedClass ?? true,

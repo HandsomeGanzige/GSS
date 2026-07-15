@@ -119,7 +119,11 @@ describe('analyzeBuild', () => {
   });
 });
 
-/** 创建同一 class 同时含有重复属性和 shorthand / longhand 的 manifest。 */
+/**
+ * 创建同一 semantic class 同时含有重复属性和 shorthand/longhand 的 manifest。
+ *
+ * @returns 可触发 analyzer declaration conflict 聚合的最小 manifest。
+ */
 function createConflictManifest(): AnalyzeBuildInput['manifest'] {
   return {
     atomic: {
@@ -140,7 +144,11 @@ function createConflictManifest(): AnalyzeBuildInput['manifest'] {
   };
 }
 
-/** 创建值不同但 cascade 上下文或 semantic class 不同的 manifest。 */
+/**
+ * 创建声明值不同、但 cascade 上下文或 semantic class 相互隔离的 manifest。
+ *
+ * @returns 用于证明 analyzer 不会跨隔离边界误报冲突的 manifest。
+ */
 function createIsolatedManifest(): AnalyzeBuildInput['manifest'] {
   return {
     atomic: {
@@ -168,7 +176,16 @@ function createIsolatedManifest(): AnalyzeBuildInput['manifest'] {
   };
 }
 
-/** 创建 analyzer conflict fixture 使用的最小 atomic manifest entry。 */
+/**
+ * 创建 analyzer conflict fixture 使用的最小 atomic manifest entry。
+ *
+ * @param className - atomic class 名称。
+ * @param property - CSS declaration 属性名。
+ * @param value - CSS declaration 值。
+ * @param context - declaration 所属 pseudo、media 与 supports 上下文。
+ * @param important - declaration 是否带有 `!important`。
+ * @returns 可直接写入 manifest.atomic 的条目。
+ */
 function createAtomicEntry(
   className: string,
   property: string,
@@ -196,7 +213,11 @@ function createAtomicEntry(
   };
 }
 
-/** 创建覆盖 analyzer 主要聚合维度的输入 fixture。 */
+/**
+ * 创建覆盖 analyzer 体积、复用、风险和诊断聚合维度的输入 fixture。
+ *
+ * @returns 稳定且不依赖文件系统的 analyzer 输入。
+ */
 function createInput(): AnalyzeBuildInput {
   return {
     report: {

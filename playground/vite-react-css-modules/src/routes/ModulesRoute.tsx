@@ -8,7 +8,11 @@ import styles from './ModulesRoute.module.css';
 /** Modules route 支持的状态筛选。 */
 type SurfaceFilter = 'all' | ModuleSurface['state'];
 
-/** Modules route 展示更细的文件、组件和 CSS Modules 覆盖矩阵。 */
+/**
+ * 展示文件、组件和 CSS Modules 覆盖矩阵。
+ *
+ * @returns 支持搜索、状态筛选与详情选择的 Modules 路由。
+ */
 export function ModulesRoute() {
   const [query, setQuery] = useState('');
   const [surfaceFilter, setSurfaceFilter] = useState<SurfaceFilter>('all');

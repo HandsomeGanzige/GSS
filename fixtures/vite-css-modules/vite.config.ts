@@ -23,7 +23,13 @@ export default defineConfig(() => {
   };
 });
 
-/** semantic 模式启用 adapter，native 模式只保留 Vite 与 React。 */
+/**
+ * 根据 CSS 模式创建 fixture 插件列表。
+ *
+ * @param cssMode - semantic 模式启用 adapter，native 模式仅保留 React 插件。
+ * @param preprocessor - 是否开启 manifest/report 以验收预处理器输出。
+ * @returns 交给 Vite 的插件列表；adapter 始终位于 React 插件之前。
+ */
 function createPlugins(cssMode: FixtureCssMode, preprocessor: boolean): PluginOption[] {
   if (cssMode === 'native') {
     return [react()];
@@ -46,7 +52,12 @@ function createPlugins(cssMode: FixtureCssMode, preprocessor: boolean): PluginOp
   ];
 }
 
-/** 只在 preprocessor suite 中开启 Sass/Less 与资源验收所需配置。 */
+/**
+ * 创建 Sass/Less 与资源验收所需的 Vite CSS 配置。
+ *
+ * @returns 只包含 css 字段的预处理器配置片段。
+ * @remarks scoped name 与 localsConvention 是 native/semantic 对照成立的共同输入，不应在 adapter 中重复实现。
+ */
 function createPreprocessorConfig(): Pick<UserConfig, 'css'> {
   return {
     css: {
@@ -66,14 +77,26 @@ function createPreprocessorConfig(): Pick<UserConfig, 'css'> {
   };
 }
 
-/** 未指定时使用基础 suite，非法值直接失败避免跑错验收。 */
+/**
+ * 解析 fixture suite，未指定时使用基础场景。
+ *
+ * @param value - 环境变量提供的 suite 值。
+ * @returns 已验证的 fixture suite。
+ * @throws 当值不属于 base 或 preprocessor 时抛出，避免静默跑错验收。
+ */
 function resolveSuite(value: string | undefined): FixtureSuite {
   if (value === undefined || value === 'base') return 'base';
   if (value === 'preprocessor') return 'preprocessor';
   throw new Error(`不支持的 fixture suite: ${value}`);
 }
 
-/** 未指定时使用 semantic，非法值直接失败。 */
+/**
+ * 解析 fixture CSS 模式，未指定时使用 semantic。
+ *
+ * @param value - 环境变量提供的 CSS 模式。
+ * @returns 已验证的 semantic 或 native 模式。
+ * @throws 当值不受支持时抛出，避免误把非法模式当作对照结果。
+ */
 function resolveCssMode(value: string | undefined): FixtureCssMode {
   if (value === undefined || value === 'semantic') return 'semantic';
   if (value === 'native') return 'native';

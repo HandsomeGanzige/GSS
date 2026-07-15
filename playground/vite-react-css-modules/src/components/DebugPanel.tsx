@@ -27,7 +27,15 @@ const tokenSources: Record<string, Record<string, string>> = {
   row: activityStyles
 };
 
-/** 渲染 tokens 输出面板，用于人工检查 semantic scoped class 与 atomic classes。 */
+/**
+ * 渲染 tokens 输出面板，用于人工检查 semantic scoped class 与 atomic classes。
+ *
+ * @param props - 组件属性。
+ * @param props.groups - 按模块组织的 token 调试数据。
+ * @param props.expandedKeys - 当前展开的 token key。
+ * @param props.onToggle - 请求切换 token 展开状态的回调。
+ * @returns 支持受控展开状态的 token 调试面板。
+ */
 export function DebugPanel({ groups, expandedKeys = [], onToggle }: DebugPanelProps) {
   return (
     <section className={styles.debugPanel} aria-label="CSS Modules token debug">

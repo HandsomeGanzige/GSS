@@ -4,7 +4,11 @@ import styles from './SettingsRoute.module.css';
 /** Settings route 支持的界面密度。 */
 type InterfaceDensity = 'comfortable' | 'compact';
 
-/** 渲染运行门禁设置，覆盖条件 class、表单校验和 disabled 状态。 */
+/**
+ * 渲染运行门禁设置，覆盖条件 class、表单校验和 disabled 状态。
+ *
+ * @returns 包含本地校验、密度切换与保存状态的 Settings 路由。
+ */
 export function SettingsRoute() {
   const [density, setDensity] = useState<InterfaceDensity>('comfortable');
   const [email, setEmail] = useState('');

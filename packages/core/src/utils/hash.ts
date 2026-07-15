@@ -1,4 +1,16 @@
-/** 使用 FNV-1a 生成稳定短 hash，避免 core 依赖 Node crypto 或浏览器 API。 */
+/**
+ * 无 Node crypto 依赖的稳定短 hash 工具。
+ *
+ * @module core/utils/hash
+ */
+
+/**
+ * 使用 FNV-1a 生成稳定短 hash。
+ *
+ * @param input - 要 hash 的文本。
+ * @param length - 输出字符上限，默认 8。
+ * @returns base-36、左侧补零并截断后的稳定字符串。
+ */
 export function hashString(input: string, length = 8): string {
   let hash = 0x811c9dc5;
 

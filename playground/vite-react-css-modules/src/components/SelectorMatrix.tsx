@@ -13,7 +13,13 @@ type SelectorMatrixProps = {
   cases: SelectorCase[];
 };
 
-/** 渲染 selector 安全性覆盖矩阵。 */
+/**
+ * 渲染 selector 安全性覆盖矩阵。
+ *
+ * @param props - 组件属性。
+ * @param props.cases - safe 与 fallback selector 用例。
+ * @returns 按处理模式标识的 selector 用例矩阵。
+ */
 export function SelectorMatrix({ cases }: SelectorMatrixProps) {
   return (
     <section className={styles.selectorPanel} aria-label="Selector coverage">

@@ -6,7 +6,13 @@ type PlaygroundCssMode = 'semantic' | 'native';
 
 const cssMode = resolveCssMode(process.env.GSS_PLAYGROUND_CSS_MODE);
 
-/** 根据环境变量创建 playground 使用的 Vite 插件列表。 */
+/**
+ * 根据 CSS 模式创建 playground 使用的 Vite 插件列表。
+ *
+ * @param mode - semantic adapter 模式或 native 对照模式。
+ * @returns 按正确执行顺序排列的 Vite 插件列表。
+ * @remarks 仅在消费边界归一化 workspace 中可能不同来源的 Vite PluginOption 类型。
+ */
 function createPlugins(mode: PlaygroundCssMode): PluginOption[] {
   if (mode === 'native') {
     return [react()];
@@ -22,7 +28,12 @@ function createPlugins(mode: PlaygroundCssMode): PluginOption[] {
   return [semanticPlugin, react()];
 }
 
-/** 解析 dev 指令传入的 CSS 模式，未知值保守回退到 semantic 模式。 */
+/**
+ * 解析 dev 指令传入的 CSS 模式。
+ *
+ * @param value - 环境变量中的候选模式。
+ * @returns native 或默认的 semantic 模式；未知值保守回退到 semantic。
+ */
 function resolveCssMode(value: string | undefined): PlaygroundCssMode {
   return value === 'native' ? 'native' : 'semantic';
 }
