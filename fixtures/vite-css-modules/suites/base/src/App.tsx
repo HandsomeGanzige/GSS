@@ -3,7 +3,11 @@ import duplicateStyles from './cases/DuplicateCase.module.css';
 import fallbackStyles from './cases/FallbackCase.module.css';
 import interactionStyles from './cases/InteractionCase.module.css';
 
-/** 渲染精简验收用例页，集中覆盖 GSS adapter 的高风险语义点。 */
+/**
+ * 渲染精简验收用例页，集中覆盖 GSS adapter 的高风险语义点。
+ *
+ * @returns 包含 cascade、响应式、交互态与 fallback 场景的 React 元素。
+ */
 export function App() {
   return (
     <main className="acceptance-root" data-gss-root>

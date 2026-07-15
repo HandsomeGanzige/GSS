@@ -10,7 +10,11 @@ type SelectorModeFilter = 'all' | 'safe' | 'fallback';
 /** 诊断等级筛选。 */
 type RuleLevelFilter = 'all' | 'pass' | 'warning';
 
-/** Diagnostics route 聚焦 selector safe/fallback 覆盖。 */
+/**
+ * 展示 selector safe/fallback 覆盖及可确认的诊断规则。
+ *
+ * @returns 支持模式与等级筛选的 Diagnostics 路由。
+ */
 export function DiagnosticsRoute() {
   const [modeFilter, setModeFilter] = useState<SelectorModeFilter>('all');
   const [levelFilter, setLevelFilter] = useState<RuleLevelFilter>('all');

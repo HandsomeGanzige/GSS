@@ -14,7 +14,11 @@ type ActivityFilter = 'all' | 'success' | 'warning' | 'risk';
 const periods: MetricPeriod[] = ['24h', '7d', '30d'];
 const activityFilters: ActivityFilter[] = ['all', 'success', 'warning', 'risk'];
 
-/** Overview route 展示整体业务仪表盘和主要 adapter 信号。 */
+/**
+ * 展示整体业务仪表盘和主要 adapter 信号。
+ *
+ * @returns 支持时间周期与活动状态筛选的 Overview 路由。
+ */
 export function OverviewRoute() {
   const [period, setPeriod] = useState<MetricPeriod>('24h');
   const [activityFilter, setActivityFilter] = useState<ActivityFilter>('all');

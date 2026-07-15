@@ -298,7 +298,12 @@ describe('semanticAtomicCss dev plugin', () => {
   });
 });
 
-/** 创建位于 Sass 依赖搜索路径下的 dev partial fixture。 */
+/**
+ * 创建位于 Sass 依赖搜索路径下的 dev partial fixture。
+ *
+ * @returns fixture 根目录、partial 文件及两个消费模块的绝对路径。
+ * @remarks 使用 fixture 已安装的 Sass，避免测试辅助依赖泄漏到 adapter 生产包。
+ */
 async function createPreprocessorDevFixture(): Promise<{
   root: string;
   partialFile: string;
@@ -320,7 +325,15 @@ async function createPreprocessorDevFixture(): Promise<{
   return { root, partialFile, alphaFile, betaFile };
 }
 
-/** 使用 Vite 当前 graph 节点调用 pipeline HMR hook。 */
+/**
+ * 使用 Vite 当前 module graph 节点调用 pipeline HMR hook。
+ *
+ * @param plugin - 持有 handleHotUpdate hook 的 pipeline 插件。
+ * @param server - 提供 module graph 与 websocket 的 Vite dev server。
+ * @param file - 发生变化的绝对文件路径。
+ * @returns 无返回值；hook Promise 由测试通过 mock 调用链观察。
+ * @throws 当插件未暴露可调用的 handleHotUpdate hook 时抛出。
+ */
 function invokeHotUpdate(plugin: Plugin, server: ViteDevServer, file: string): void {
   const handleHotUpdate = plugin.handleHotUpdate;
 
@@ -339,7 +352,13 @@ function invokeHotUpdate(plugin: Plugin, server: ViteDevServer, file: string): v
   });
 }
 
-/** 创建只用于 transformRequest 的 Vite dev server。 */
+/**
+ * 创建只用于 transformRequest 的隔离 Vite dev server。
+ *
+ * @param root - 临时 fixture 根目录。
+ * @param plugin - 要加载的插件配置，默认创建 GSS adapter。
+ * @returns 已启动且关闭 websocket 热更新通道的 Vite dev server。
+ */
 async function createViteServer(root: string, plugin: PluginOption = semanticAtomicCss()): Promise<ViteDevServer> {
   return createServer({
     root: await realpath(root),
@@ -349,7 +368,13 @@ async function createViteServer(root: string, plugin: PluginOption = semanticAto
   });
 }
 
-/** 从公开 PluginOption 返回值中取出持有 HMR 和 virtual CSS hook 的 pipeline 插件。 */
+/**
+ * 从公开 PluginOption 中取出持有 HMR 与 virtual CSS hook 的 pipeline 插件。
+ *
+ * @param pluginOption - `semanticAtomicCss` 返回的 Vite PluginOption。
+ * @returns adapter 的 pipeline 插件。
+ * @throws 当插件结构不符合预期或找不到 pipeline 插件时抛出。
+ */
 function readPipelinePlugin(pluginOption: PluginOption): Plugin {
   if (!Array.isArray(pluginOption)) {
     throw new Error('semanticAtomicCss 未返回预期的插件数组。');
@@ -366,7 +391,13 @@ function readPipelinePlugin(pluginOption: PluginOption): Plugin {
   return plugin;
 }
 
-/** 从 CSS Module JS 中读取 virtual CSS import。 */
+/**
+ * 从 CSS Module JS 输出中读取 virtual CSS import id。
+ *
+ * @param code - Vite transformRequest 返回的模块代码。
+ * @returns 匹配到的 virtual CSS import id。
+ * @throws 当模块代码不存在或未包含 virtual CSS import 时抛出。
+ */
 function readCssImport(code: string | undefined): string {
   const cssImport = code?.match(/import\s+"([^"]+)"/)?.[1];
 
@@ -377,14 +408,29 @@ function readCssImport(code: string | undefined): string {
   return cssImport;
 }
 
-/** 通过 Vite dev server 读取 virtual CSS transform 结果。 */
+/**
+ * 通过 Vite dev server 读取 virtual CSS transform 结果。
+ *
+ * @param server - 当前 Vite dev server。
+ * @param cssImport - CSS Module JS 中导入的 virtual CSS id。
+ * @returns 经过 Vite CSS 管线转换后的 virtual CSS 代码。
+ * @throws 当 virtual module 无法解析或 transform 结果缺少代码时抛出。
+ */
 async function loadVirtualCss(server: ViteDevServer, cssImport: string): Promise<string> {
   const resolvedCssId = cssImport.replace(/^\/@id\/__x00__/, '\0');
   const cssResult = await server.transformRequest(resolvedCssId);
   return cssResult?.code ?? '';
 }
 
-/** 绕过 Vite transform 缓存读取插件 raw virtual CSS，用于验证 devResults 是否已失效。 */
+/**
+ * 绕过 Vite transform 缓存读取插件 raw virtual CSS。
+ *
+ * @param plugin - adapter pipeline 插件。
+ * @param cssImport - CSS Module JS 中导入的 virtual CSS id。
+ * @returns 插件 load hook 当前生成的原始 virtual CSS。
+ * @throws 当插件缺少 load hook、virtual id 无法解析或返回值不是字符串时抛出。
+ * @remarks 该路径专门验证 devResults 是否已失效，不代表 Vite 的正常消费流程。
+ */
 async function loadRawVirtualCss(plugin: Plugin, cssImport: string): Promise<string> {
   const load = plugin.load;
 
@@ -407,12 +453,25 @@ async function loadRawVirtualCss(plugin: Plugin, cssImport: string): Promise<str
   return '';
 }
 
-/** 移除 Vite 为已失效模块追加的 HMR 时间戳，只比较 shared owner 的稳定模块身份。 */
+/**
+ * 移除 Vite 为失效模块追加的 HMR 时间戳。
+ *
+ * @param id - 可能包含 `t` 查询参数的模块 id。
+ * @returns 保留其他查询参数、但移除 HMR 时间戳的稳定模块 id。
+ * @remarks 仅用于比较 shared owner 的模块身份，不用于改写生产请求。
+ */
 function stripTimestampQuery(id: string): string {
   return id.replace(/\?t=\d+$/, '');
 }
 
-/** 统计固定片段出现次数，用于确认 dev 聚合 CSS 已去重。 */
+/**
+ * 统计固定片段在字符串中的非重叠出现次数。
+ *
+ * @param source - 被检查的完整字符串。
+ * @param needle - 要统计的非空固定片段。
+ * @returns 片段出现次数，用于确认 dev 聚合 CSS 已去重。
+ * @remarks 调用方必须传入非空 needle，否则游标无法前进。
+ */
 function countOccurrences(source: string, needle: string): number {
   let count = 0;
   let index = source.indexOf(needle);

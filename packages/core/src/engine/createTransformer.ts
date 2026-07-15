@@ -1,3 +1,12 @@
+/**
+ * Core transform pipeline 与 append-only 聚合生命周期实现。
+ *
+ * @remarks
+ * 本模块协调 parse、IR、selector/declaration analysis、registry、fallback、manifest 和 report，
+ * 但不引入文件系统或构建工具语义。
+ *
+ * @module core/engine/createTransformer
+ */
 import type {
   AtomicDeclaration,
   ClassPreservationReason,
@@ -37,7 +46,31 @@ import { mergeReports } from '../output/mergeReport.js';
 import { resolveTransformOptions, type ResolvedTransformOptions } from '../policies/defaultOptions.js';
 import { byteLength } from '../utils/bytes.js';
 
-/** 创建有状态 transformer，负责跨文件 atomic registry 与聚合 report。 */
+/**
+ * 创建一次 append-only build 使用的有状态 transformer。
+ *
+ * @remarks
+ * transformer 在多次 `transformCss` 调用之间复用 atomic registry，并聚合 manifest 与 report。
+ * 单次返回值始终只描述当前输入；聚合视图必须通过 `getAtomicCss`、`getManifest` 和 `getReport`
+ * 获取。当前 interface 不支持同一 id 的更新、删除或失效，因此不得直接作为 dev/HMR 缓存使用。
+ *
+ * @param options - 在 transformer 生命周期内保持不变的 class name 与 semantic class 保留策略。
+ * @returns 可执行转换并读取聚合快照的 {@link Transformer}。
+ * @throws 调用方提供的 scope strategy 抛出的异常，以及非 CSS parse error 的意外实现异常。
+ *
+ * @example
+ * ```ts
+ * const transformer = createTransformer({
+ *   className: { strategy: 'hash', prefix: '_' }
+ * });
+ *
+ * transformer.transformCss(firstInput);
+ * transformer.transformCss(secondInput);
+ *
+ * const css = transformer.getAtomicCss();
+ * const report = transformer.getReport();
+ * ```
+ */
 export function createTransformer(options: TransformCssOptions = {}): Transformer {
   const resolvedOptions = resolveTransformOptions(options);
   const registry = new AtomicRegistry(resolvedOptions.className);
@@ -45,6 +78,12 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
   let latestClassManifest: TransformManifest['classes'] = {};
 
   return {
+    /**
+     * 转换并追加一个输入。
+     *
+     * @param input - 标准 CSS 与 scope evidence。
+     * @returns 只描述当前输入的 transform snapshot。
+     */
     transformCss(input: TransformCssInput): TransformCssResult {
       const result = runTransform(input, registry, resolvedOptions);
       reports.push(result.report);
@@ -52,10 +91,20 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
       return result;
     },
 
+    /**
+     * 读取聚合 atomic CSS。
+     *
+     * @returns registry 当前全部 declaration 的 CSS 快照。
+     */
     getAtomicCss(): string {
       return renderAtomicCss(registry.list());
     },
 
+    /**
+     * 读取聚合 report。
+     *
+     * @returns 基于当前 reports 和 registry 重新计算的治理快照。
+     */
     getReport(): TransformReport {
       const report = mergeReports(reports);
       const atomicCss = renderAtomicCss(registry.list());
@@ -70,6 +119,11 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
       return report;
     },
 
+    /**
+     * 读取聚合 manifest。
+     *
+     * @returns atomic registry 与最新 class entries 的防御性快照。
+     */
     getManifest(): TransformManifest {
       return {
         atomic: createManifest('', registry.list(), {}).atomic,
@@ -79,7 +133,14 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
   };
 }
 
-/** 执行单次 transform pipeline。 */
+/**
+ * 执行单次 transform pipeline。
+ *
+ * @param input - 当前标准 CSS 输入。
+ * @param registry - transformer 生命周期共享的 atomic registry。
+ * @param options - 已补齐且固定的 transform 策略。
+ * @returns 当前输入的完整 transform snapshot。
+ */
 function runTransform(
   input: TransformCssInput,
   registry: AtomicRegistry,
@@ -152,7 +213,20 @@ function runTransform(
   };
 }
 
-/** 处理单条 rule，根据 selector/declaration 分析结果选择 atomize 或 preserved。 */
+/**
+ * 处理单条 rule，并选择 atomize 或 preserved 路径。
+ *
+ * @param rule - 当前 rule IR。
+ * @param scope - adapter class scope strategy。
+ * @param registry - 共享 atomic registry。
+ * @param classMappings - 当前输入 mapping builder。
+ * @param preservedRules - 当前输入 fallback rules。
+ * @param preservedBlocks - 当前输入 fallback blocks。
+ * @param currentAtomicByKey - 当前输入使用到的 atomic snapshot。
+ * @param diagnostics - 当前输入 diagnostics。
+ * @param stats - 当前输入可变统计。
+ * @param preserveClassNames - adapter 提供的 class 级保留证据。
+ */
 function processRule(
   rule: CssRuleRecord,
   scope: ScopeStrategy,
@@ -197,7 +271,18 @@ function processRule(
   );
 }
 
-/** 完整保留 adapter 标记的 safe class，避免它与 atomic CSS 在新顺序下产生 cascade 偏差。 */
+/**
+ * 完整保留 adapter 标记的 safe class。
+ *
+ * @param rule - 当前 safe rule。
+ * @param scope - class resolver。
+ * @param classMappings - 当前 mapping builder。
+ * @param preservedRules - fallback 输出集合。
+ * @param diagnostics - diagnostic 输出集合。
+ * @param stats - preserved declaration 计数。
+ * @param selectorAnalysis - safe selector evidence。
+ * @param reason - adapter 提供的 class preservation reason。
+ */
 function preserveConfiguredSafeRule(
   rule: CssRuleRecord,
   scope: ScopeStrategy,
@@ -240,7 +325,23 @@ function preserveConfiguredSafeRule(
   );
 }
 
-/** 处理 safe rule，允许 atomizable 与 preserved declaration 混合存在。 */
+/**
+ * 处理可导出的 safe rule。
+ *
+ * @remarks
+ * 同一 rule 内 atomizable declaration 进入 registry；custom property 等 declaration 仍按原位置证据
+ * 进入 preserved output，class mapping 保持 declaration 首次出现顺序。
+ *
+ * @param rule - 当前 safe rule。
+ * @param scope - class resolver/export evidence。
+ * @param registry - 共享 atomic registry。
+ * @param classMappings - 当前 mapping builder。
+ * @param preservedRules - fallback 输出集合。
+ * @param diagnostics - diagnostic 输出集合。
+ * @param stats - 当前输入统计。
+ * @param currentAtomicByKey - 当前输入 atomic snapshot。
+ * @param selectorAnalysis - safe selector evidence。
+ */
 function processSafeRule(
   rule: CssRuleRecord,
   scope: ScopeStrategy,
@@ -294,7 +395,14 @@ function processSafeRule(
   }
 }
 
-/** 判断 safe class 是否能通过 adapter 导出到真实 DOM class string。 */
+/**
+ * 判断 safe class 是否能进入真实 DOM class string。
+ *
+ * @param rule - 当前 rule，用于构造 export evidence context。
+ * @param scope - adapter scope strategy。
+ * @param sourceClassName - 唯一 source class。
+ * @returns adapter 未提供判断时默认 `true`。
+ */
 function shouldTransformSafeClass(rule: CssRuleRecord, scope: ScopeStrategy, sourceClassName: string): boolean {
   return (
     scope.shouldExportClassName?.(sourceClassName, {
@@ -305,7 +413,16 @@ function shouldTransformSafeClass(rule: CssRuleRecord, scope: ScopeStrategy, sou
   );
 }
 
-/** 保留无法导出到 tokens 的 safe rule，避免生成不会命中 DOM 的 atomic CSS。 */
+/**
+ * 保留无法导出到 tokens 的 safe rule。
+ *
+ * @param rule - 当前 rule。
+ * @param scope - class resolver。
+ * @param preservedRules - fallback 输出集合。
+ * @param diagnostics - diagnostic 输出集合。
+ * @param stats - unsafe/preserved 计数。
+ * @param selectorAnalysis - safe selector evidence。
+ */
 function preserveNonExportedSafeRule(
   rule: CssRuleRecord,
   scope: ScopeStrategy,
@@ -347,7 +464,17 @@ function preserveNonExportedSafeRule(
   );
 }
 
-/** 保留 safe rule 中无法 atomize 的 declaration。 */
+/**
+ * 保留 safe rule 中无法 atomize 的单条 declaration。
+ *
+ * @param rule - declaration 所属 rule。
+ * @param scope - class resolver。
+ * @param preservedRules - fallback 输出集合。
+ * @param diagnostics - diagnostic 输出集合。
+ * @param stats - preserved declaration 计数。
+ * @param declarationAnalysis - preserved declaration 与原因。
+ * @param selectorAnalysis - safe selector evidence。
+ */
 function preserveDeclaration(
   rule: CssRuleRecord,
   scope: ScopeStrategy,
@@ -391,7 +518,18 @@ function preserveDeclaration(
   }
 }
 
-/** 保留 unsafe rule，并对其中 source class 记录 unsafe reason。 */
+/**
+ * 保留 unsafe rule 并记录 class evidence。
+ *
+ * @param rule - 当前 unsafe rule。
+ * @param scope - class resolver。
+ * @param classMappings - 当前 mapping builder。
+ * @param preservedRules - fallback 输出集合。
+ * @param diagnostics - diagnostic 输出集合。
+ * @param stats - unsafe/preserved 计数。
+ * @param reason - primary unsafe reason。
+ * @param selectorAnalysis - 可选的完整 unsafe selector evidence。
+ */
 function preserveUnsafeRule(
   rule: CssRuleRecord,
   scope: ScopeStrategy,
@@ -438,7 +576,17 @@ function preserveUnsafeRule(
   );
 }
 
-/** 保留包含 nested node 的整条 rule，避免只保留外层 declaration 导致 fallback 丢失。 */
+/**
+ * 完整保留包含 nested node 的 rule。
+ *
+ * @param rule - 包含 nested node 的 rule IR。
+ * @param scope - class resolver。
+ * @param classMappings - 当前 mapping builder。
+ * @param preservedBlocks - fallback block 输出集合。
+ * @param diagnostics - diagnostic 输出集合。
+ * @param stats - unsafe/preserved 计数。
+ * @param selectorAnalysis - 外层 selector evidence。
+ */
 function preserveNestedRule(
   rule: CssRuleRecord,
   scope: ScopeStrategy,
@@ -481,7 +629,12 @@ function preserveNestedRule(
   );
 }
 
-/** 记录当前输入使用到的 atomic declaration 快照，避免单次 result 泄漏全局 registry。 */
+/**
+ * 记录当前输入使用到的 atomic declaration。
+ *
+ * @param currentAtomicByKey - 当前输入 key 到 declaration 的快照。
+ * @param input - registry 返回值、declaration、context 和当前 source。
+ */
 function addCurrentAtomic(
   currentAtomicByKey: Map<string, AtomicDeclaration>,
   input: {
@@ -510,7 +663,13 @@ function addCurrentAtomic(
   });
 }
 
-/** nested fallback 需要记录整块 CSS 里出现的 source class，解析失败时退回外层 selector 结果。 */
+/**
+ * 收集 nested fallback block 中的 source classes。
+ *
+ * @param rule - nested rule IR。
+ * @param selectorAnalysis - 外层 selector evidence。
+ * @returns block 解析成功时的全部 source classes；失败或为空时退回外层结果。
+ */
 function collectNestedSourceClassNames(rule: CssRuleRecord, selectorAnalysis: SelectorAnalysis): string[] {
   try {
     const sourceClassNames = collectSourceClassNamesFromCss(rule.css);
@@ -525,7 +684,14 @@ function collectNestedSourceClassNames(rule: CssRuleRecord, selectorAnalysis: Se
   return selectorAnalysis.sourceClassNames;
 }
 
-/** 对 unsupported at-rule preserved block 执行 selector scoping，并补齐 class mapping fallback hook。 */
+/**
+ * Scope unsupported at-rule preserved block。
+ *
+ * @param block - AST 收集阶段保留的 block。
+ * @param scope - adapter class resolver。
+ * @param classMappings - 当前 mapping builder。
+ * @returns scoped block；解析或 scoping 失败时返回保留原 CSS 的副本。
+ */
 function scopePreservedBlock(
   block: PreservedBlock,
   scope: ScopeStrategy,
@@ -553,7 +719,13 @@ function scopePreservedBlock(
   }
 }
 
-/** 生成 parse error 等无法进入 pipeline 时的空结果。 */
+/**
+ * 创建无法进入 transform pipeline 时的空结果。
+ *
+ * @param input - 原始 CSS 输入。
+ * @param diagnostics - parse 等前置阶段 diagnostics。
+ * @returns CSS、mapping 和 manifest 为空但 report 保留 before size 的 snapshot。
+ */
 function createEmptyResult(input: TransformCssInput, diagnostics: Diagnostic[]): TransformCssResult {
   const report = createReport({
     beforeCss: input.css,
@@ -585,7 +757,13 @@ function createEmptyResult(input: TransformCssInput, diagnostics: Diagnostic[]):
   };
 }
 
-/** 合并 class manifest，后写入的 class entry 覆盖同 key 的旧 entry。 */
+/**
+ * 合并 class manifest snapshots。
+ *
+ * @param left - 已聚合 entries。
+ * @param right - 当前输入 entries。
+ * @returns 后写同 key 覆盖并完成防御性克隆的 manifest classes。
+ */
 function mergeClassManifest(
   left: TransformManifest['classes'],
   right: TransformManifest['classes']
@@ -596,7 +774,12 @@ function mergeClassManifest(
   });
 }
 
-/** 克隆 class manifest，避免 getManifest 调用方持有内部引用。 */
+/**
+ * 深度克隆 class manifest 的数组字段。
+ *
+ * @param classes - 内部 class manifest。
+ * @returns 不共享 atomicClassNames/unsafeReasons 数组的副本。
+ */
 function cloneClassManifest(classes: TransformManifest['classes']): TransformManifest['classes'] {
   const cloned: TransformManifest['classes'] = {};
 

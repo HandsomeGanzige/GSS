@@ -1,3 +1,12 @@
+/**
+ * Vite compiled CSS 中资源 class 的保守识别与 build URL 还原模块。
+ *
+ * @remarks
+ * 资源引用涉及 Vite 延迟占位符和最终文件名，无法安全进入稳定 atomic key，因此相关 class 及
+ * composes 闭包必须整类保留。
+ *
+ * @module vite/assetReferences
+ */
 import path from 'node:path';
 import postcss from 'postcss';
 import selectorParser from 'postcss-selector-parser';
@@ -12,6 +21,10 @@ const vitePublicAssetReferencePattern = /__VITE_PUBLIC_ASSET__([a-z\d]{8})__/g;
 /**
  * 找出包含 url() 的 selector class，并通过原生 tokens 扩展 composes 闭包。
  * 这里宁可降低 atomization rate，也不让 dev/build 的资源内联差异进入 atomic key。
+ *
+ * @param css - Vite compiled scoped CSS。
+ * @param tokens - Vite 原生 CSS Modules tokens。
+ * @returns source class 到 `asset-reference` reason 的稳定只读 record。
  */
 export function collectAssetPreserveClassNames(
   css: string,
@@ -48,7 +61,16 @@ export function collectAssetPreserveClassNames(
   );
 }
 
-/** 在 Rollup 已分配最终文件名后，解析 Vite 留在聚合 CSS 中的本地资源引用。 */
+/**
+ * 解析聚合 CSS 中的 Vite build asset placeholders。
+ *
+ * @param css - generateBundle 阶段的聚合 CSS。
+ * @param config - Vite resolved config，用于 base/renderBuiltUrl 保护。
+ * @param cssFileName - 聚合 CSS 的最终输出路径。
+ * @param getFileName - Rollup reference id 到 emitted file name 的 resolver。
+ * @returns 所有本地 placeholder 已转换为最终 URL 的 CSS。
+ * @throws publicDir placeholder、自定义 renderBuiltUrl 或残留 placeholder 无法安全还原时抛错。
+ */
 export function resolveBuildAssetReferences(
   css: string,
   config: ResolvedConfig,
@@ -94,7 +116,12 @@ export function resolveBuildAssetReferences(
   return resolvedCss;
 }
 
-/** 判断 declaration value 是否包含结构化 url() 函数。 */
+/**
+ * 判断 declaration value 是否包含结构化 `url()`。
+ *
+ * @param value - declaration value。
+ * @returns value parser 找到 url function 时为 `true`。
+ */
 function containsUrlFunction(value: string): boolean {
   let found = false;
 
@@ -110,7 +137,12 @@ function containsUrlFunction(value: string): boolean {
   return found;
 }
 
-/** 从 selector AST 收集 class；解析失败的 rule 仍由 core unsafe fallback 保留。 */
+/**
+ * 从 selector AST 收集 class names。
+ *
+ * @param selector - 当前 rule selector。
+ * @param classNames - 写入目标集合。
+ */
 function collectSelectorClassNames(selector: string, classNames: Set<string>): void {
   try {
     const root = selectorParser().astSync(selector);
@@ -122,7 +154,13 @@ function collectSelectorClassNames(selector: string, classNames: Set<string>): v
   }
 }
 
-/** 同一 token string 中的 class 会同时出现在 DOM，因此资源保留必须做传递闭包。 */
+/**
+ * 扩展资源 class 的 composes 传递闭包。
+ *
+ * @param assetClassNames - 原地扩展的资源 class 集合。
+ * @param exportedClassNames - 已确认会进入 DOM 的 class 集合。
+ * @param tokens - Vite tokens，单个 value 中的 classes 被视为共现。
+ */
 function expandComposedClassClosure(
   assetClassNames: Set<string>,
   exportedClassNames: Set<string>,
@@ -153,7 +191,14 @@ function expandComposedClassClosure(
   }
 }
 
-/** 按 Vite 默认 base 规则生成聚合 CSS 中的资源 URL。 */
+/**
+ * 按 Vite base 规则生成聚合 CSS 中的资源 URL。
+ *
+ * @param assetFileName - Rollup emitted asset 路径。
+ * @param cssFileName - 聚合 CSS asset 路径。
+ * @param base - Vite resolved base。
+ * @returns 相对或 base-prefixed URL。
+ */
 function createOutputAssetUrl(assetFileName: string, cssFileName: string, base: string): string {
   if (base === '' || base === './') {
     const relative = path.posix.relative(path.posix.dirname(cssFileName), assetFileName);
@@ -163,12 +208,24 @@ function createOutputAssetUrl(assetFileName: string, cssFileName: string, base: 
   return `${base.endsWith('/') ? base : `${base}/`}${assetFileName.replace(/^\/+/, '')}`;
 }
 
-/** 创建可在 CI 中稳定识别的资源边界错误。 */
+/**
+ * 创建结构化文本格式的资源边界错误。
+ *
+ * @param feature - 稳定 unsupported feature id。
+ * @param reason - 面向维护者的失败原因。
+ * @returns 带统一前缀、feature 和 id 的 Error。
+ */
 function createAssetError(feature: string, reason: string): Error {
   return new Error(`[semantic-atomic-css] unsupported-feature feature=${feature} id=semantic-atomic.css reason=${reason}`);
 }
 
-/** 使用不依赖 locale 的字典序比较文本。 */
+/**
+ * 使用不依赖 locale 的字典序比较文本。
+ *
+ * @param left - 左侧文本。
+ * @param right - 右侧文本。
+ * @returns 标准 comparator 结果。
+ */
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }

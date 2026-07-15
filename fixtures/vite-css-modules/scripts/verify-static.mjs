@@ -14,7 +14,12 @@ const suiteRoots = {
   preprocessor: path.join(fixtureRoot, 'suites/preprocessor')
 };
 
-/** 运行统一 Vite fixture 的静态黑盒验收。 */
+/**
+ * 运行统一 Vite fixture 的静态黑盒验收，并始终清理临时构建目录。
+ *
+ * @returns {Promise<void>} 所有构建及断言通过后解决。
+ * @throws {Error} 当构建失败或任一验收断言不成立时抛出。
+ */
 async function main() {
   const tempRoot = await mkdtemp(path.join(tmpdir(), 'gss-vite-fixture-'));
   const outputs = {
@@ -48,7 +53,14 @@ async function main() {
   }
 }
 
-/** 使用真实 Vite 管线构建单个 suite/mode。 */
+/**
+ * 使用真实 Vite 管线构建单个 suite/mode。
+ *
+ * @param {'base' | 'preprocessor'} suite - 要构建的 fixture 场景。
+ * @param {'semantic' | 'native'} mode - adapter 增强或原生对照模式。
+ * @param {string} outDir - 隔离的构建输出目录。
+ * @returns {Promise<void>} Vite 构建完成后解决。
+ */
 async function runFixtureBuild(suite, mode, outDir) {
   const semantic = mode === 'semantic';
   const preprocessor = suite === 'preprocessor';
@@ -93,7 +105,13 @@ async function runFixtureBuild(suite, mode, outDir) {
   });
 }
 
-/** 校验基础 suite 的 atomic、fallback 与默认输出边界。 */
+/**
+ * 校验基础 suite 的 atomic、fallback 与默认输出边界。
+ *
+ * @param {string} outDir - semantic 构建输出目录。
+ * @returns {Promise<void>} 所有基础场景断言通过后解决。
+ * @throws {Error} 当产物缺失或内容不符合验收边界时抛出。
+ */
 async function verifyBaseSemanticBuild(outDir) {
   const cssFile = path.join(outDir, 'assets/semantic-atomic.css');
   await assertExists(path.join(outDir, 'index.html'));
@@ -127,7 +145,13 @@ async function verifyBaseSemanticBuild(outDir) {
   await assertNotExists(path.join(outDir, 'semantic-atomic-report.json'));
 }
 
-/** 校验 base native 对照不产生 GSS 产物。 */
+/**
+ * 校验 base native 对照不产生 GSS 专属产物。
+ *
+ * @param {string} outDir - native 构建输出目录。
+ * @returns {Promise<void>} 对照产物断言通过后解决。
+ * @throws {Error} 当 native 构建包含 GSS 产物或缺少原生 CSS 时抛出。
+ */
 async function verifyBaseNativeBuild(outDir) {
   await assertNotExists(path.join(outDir, 'assets/semantic-atomic.css'));
   await assertNotExists(path.join(outDir, 'semantic-atomic-manifest.json'));
@@ -136,7 +160,13 @@ async function verifyBaseNativeBuild(outDir) {
   assertIncludes(css, 'grid-template-columns', 'base native CSS 应保留 Vite 编译结果');
 }
 
-/** 校验预处理器 suite 的 tokens、资源、fallback 和 report。 */
+/**
+ * 校验预处理器 suite 的 tokens、资源、fallback、manifest 与 report。
+ *
+ * @param {string} outDir - preprocessor semantic 构建输出目录。
+ * @returns {Promise<void>} 所有预处理器场景断言通过后解决。
+ * @throws {Error} 当预处理、资源替换或报告产物不符合预期时抛出。
+ */
 async function verifyPreprocessorSemanticBuild(outDir) {
   const cssFile = path.join(outDir, 'assets/semantic-atomic.css');
   const manifestFile = path.join(outDir, 'semantic-atomic-manifest.json');
@@ -179,7 +209,13 @@ async function verifyPreprocessorSemanticBuild(outDir) {
   assert(assetClass && assetClass.atomicClassNames.length === 0, '资源 class 的 manifest atomicClassNames 应为空');
 }
 
-/** 校验 preprocessor native 对照不产生 GSS 产物。 */
+/**
+ * 校验 preprocessor native 对照保留 Vite scoped CSS 且不产生 GSS 产物。
+ *
+ * @param {string} outDir - preprocessor native 构建输出目录。
+ * @returns {Promise<void>} 对照产物断言通过后解决。
+ * @throws {Error} 当原生 scoped CSS 缺失或出现 GSS 产物时抛出。
+ */
 async function verifyPreprocessorNativeBuild(outDir) {
   await assertNotExists(path.join(outDir, 'assets/semantic-atomic.css'));
   await assertNotExists(path.join(outDir, 'semantic-atomic-manifest.json'));
@@ -189,7 +225,15 @@ async function verifyPreprocessorNativeBuild(outDir) {
   assertIncludes(css, '.fixture_Panel-module__panel', 'native CSS 应包含 Vite scoped Less');
 }
 
-/** 比较同一 suite 连续两次 semantic build 的核心产物。 */
+/**
+ * 比较同一 suite 连续两次 semantic build 的核心产物，验证输出可复现性。
+ *
+ * @param {'base' | 'preprocessor'} suite - 当前比较的 fixture 场景。
+ * @param {string} leftDir - 第一次构建输出目录。
+ * @param {string} rightDir - 第二次构建输出目录。
+ * @returns {Promise<void>} 所有稳定性断言通过后解决。
+ * @throws {Error} 当 CSS、tokens、manifest 或 report 哈希不一致时抛出。
+ */
 async function verifyStableBuilds(suite, leftDir, rightDir) {
   const relativeFiles = ['assets/semantic-atomic.css'];
 
@@ -212,7 +256,13 @@ async function verifyStableBuilds(suite, leftDir, rightDir) {
   assert(hash(leftJs) === hash(rightJs), `连续构建的 CSS Modules JS tokens 不稳定: ${suite}`);
 }
 
-/** 验证 Sass import 错误保留 Vite/Sass 的原始位置信息。 */
+/**
+ * 验证 Sass import 错误保留 Vite/Sass 的原始位置信息。
+ *
+ * @param {string} tempRoot - 用于创建错误 fixture 的临时根目录。
+ * @returns {Promise<void>} 错误边界断言通过后解决。
+ * @throws {Error} 当构建意外成功或错误信息丢失文件定位时抛出。
+ */
 async function verifyPreprocessorErrorBoundary(tempRoot) {
   const missingRoot = path.join(tempRoot, 'missing-import');
   const srcDir = path.join(missingRoot, 'src');
@@ -243,7 +293,12 @@ async function verifyPreprocessorErrorBoundary(tempRoot) {
   assertIncludes(message, 'Missing.module.scss', 'Sass missing import 错误应包含源文件');
 }
 
-/** 确认测试工具属于 fixture，不泄漏到 adapter 生产依赖。 */
+/**
+ * 确认测试工具只属于 fixture，不泄漏到 adapter 生产依赖。
+ *
+ * @returns {Promise<void>} 依赖边界断言通过后解决。
+ * @throws {Error} 当 adapter 声明测试专用依赖，或 fixture 缺少验收依赖时抛出。
+ */
 async function verifyDependencyBoundary() {
   const adapterPackage = JSON.parse(await readFile(path.join(repositoryRoot, 'packages/vite/package.json'), 'utf8'));
   const fixturePackage = JSON.parse(await readFile(path.join(fixtureRoot, 'package.json'), 'utf8'));
@@ -254,7 +309,13 @@ async function verifyDependencyBoundary() {
   assert(fixturePackage.devDependencies?.less === '4.6.7', 'fixture 应固定 Less 验收版本');
 }
 
-/** 按文件名稳定顺序读取指定类型的 build assets。 */
+/**
+ * 按文件名稳定顺序读取并拼接指定类型的 build assets。
+ *
+ * @param {string} dir - build assets 所在目录。
+ * @param {string} extension - 要读取的文件扩展名。
+ * @returns {Promise<string>} 以换行符连接的 asset 内容。
+ */
 async function readAssets(dir, extension) {
   const entries = (await readdir(dir, { withFileTypes: true })).filter(
     (entry) => entry.isFile() && entry.name.endsWith(extension)
@@ -268,10 +329,24 @@ async function readAssets(dir, extension) {
   return chunks.join('\n');
 }
 
+/**
+ * 断言文件或目录存在。
+ *
+ * @param {string} file - 要检查的路径。
+ * @returns {Promise<void>} 路径可访问时解决。
+ * @throws {Error} 当路径不存在或不可访问时抛出。
+ */
 async function assertExists(file) {
   await access(file);
 }
 
+/**
+ * 断言文件或目录不存在。
+ *
+ * @param {string} file - 要检查的路径。
+ * @returns {Promise<void>} 路径不存在时解决。
+ * @throws {Error} 当路径仍可访问或检查失败时抛出。
+ */
 async function assertNotExists(file) {
   try {
     await access(file);
@@ -282,24 +357,65 @@ async function assertNotExists(file) {
   throw new Error(`不应存在产物: ${path.relative(repositoryRoot, file)}`);
 }
 
+/**
+ * 断言字符串包含指定片段。
+ *
+ * @param {string} value - 被检查的完整字符串。
+ * @param {string} expected - 必须出现的片段。
+ * @param {string} message - 断言失败时使用的说明。
+ * @returns {void}
+ * @throws {Error} 当目标片段不存在时抛出。
+ */
 function assertIncludes(value, expected, message) {
   assert(value.includes(expected), message);
 }
 
+/**
+ * 断言字符串不包含指定片段。
+ *
+ * @param {string} value - 被检查的完整字符串。
+ * @param {string} expected - 不允许出现的片段。
+ * @param {string} message - 断言失败时使用的说明。
+ * @returns {void}
+ * @throws {Error} 当目标片段存在时抛出。
+ */
 function assertDoesNotInclude(value, expected, message) {
   assert(!value.includes(expected), message);
 }
 
+/**
+ * 断言字符串匹配给定正则表达式。
+ *
+ * @param {string} value - 被检查的字符串。
+ * @param {RegExp} pattern - 必须匹配的表达式。
+ * @param {string} message - 断言失败时使用的说明。
+ * @returns {void}
+ * @throws {Error} 当字符串不匹配表达式时抛出。
+ */
 function assertMatches(value, pattern, message) {
   assert(pattern.test(value), message);
 }
 
+/**
+ * 执行静态验收的通用条件断言。
+ *
+ * @param {unknown} condition - 需要成立的条件。
+ * @param {string} message - 条件不成立时使用的错误信息。
+ * @returns {void}
+ * @throws {Error} 当条件为假值时抛出。
+ */
 function assert(condition, message) {
   if (!condition) {
     throw new Error(message);
   }
 }
 
+/**
+ * 计算内容的 SHA-256 哈希，用于比较构建产物稳定性。
+ *
+ * @param {string | NodeJS.ArrayBufferView} value - 要计算摘要的文本或二进制内容。
+ * @returns {string} 十六进制 SHA-256 摘要。
+ */
 function hash(value) {
   return createHash('sha256').update(value).digest('hex');
 }

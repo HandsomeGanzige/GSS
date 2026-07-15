@@ -1,6 +1,16 @@
+/**
+ * Append-only transformer report 聚合模块。
+ *
+ * @module core/output/mergeReport
+ */
 import type { TransformReport } from '../public/types.js';
 
-/** 合并多个 report，用于有状态 transformer 输出聚合治理数据。 */
+/**
+ * 合并多个单输入 report。
+ *
+ * @param reports - 按 transform 调用顺序收集的 reports。
+ * @returns 合计文件/class/fallback 指标并拼接 diagnostics 的新 report。
+ */
 export function mergeReports(reports: TransformReport[]): TransformReport {
   const summary = reports.reduce(
     (current, report) => {

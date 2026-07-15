@@ -16,7 +16,17 @@ type ShellProps<T extends string = string> = {
   children: ReactNode;
 };
 
-/** 提供 playground 的页面框架、顶部状态栏和说明区域。 */
+/**
+ * 提供 playground 的页面框架、导航、顶部状态栏和说明区域。
+ *
+ * @typeParam T - 路由 id 的字符串字面量类型。
+ * @param props - 组件属性。
+ * @param props.routes - 可导航的路由元数据。
+ * @param props.activeRoute - 当前激活的路由 id。
+ * @param props.activeDescription - 当前路由说明。
+ * @param props.children - 当前路由渲染内容。
+ * @returns 共享的 playground 页面框架。
+ */
 export function Shell<T extends string>({ routes, activeRoute, activeDescription, children }: ShellProps<T>) {
   return (
     <main className={styles.shell} data-pilot-case="app-shell">

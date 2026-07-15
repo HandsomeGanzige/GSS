@@ -1,7 +1,17 @@
+/**
+ * 单次 transform 治理指标与体积估算模块。
+ *
+ * @module core/output/createReport
+ */
 import type { Diagnostic, TransformClassMapping, TransformReport } from '../public/types.js';
 import { byteLength } from '../utils/bytes.js';
 
-/** 创建单次 transform 的 report，聚合基础治理指标和 size 估算。 */
+/**
+ * 创建单次 transform report。
+ *
+ * @param input - 转换前后 CSS、class mappings、diagnostics 与 pipeline 计数。
+ * @returns 文件数固定为 1 的结构化 report 和 UTF-8 体积估算。
+ */
 export function createReport(input: {
   beforeCss: string;
   atomicCss: string;
@@ -41,7 +51,12 @@ export function createReport(input: {
   };
 }
 
-/** 估算 suggested class string 相比 resolved class 的字节增量。 */
+/**
+ * 估算 class token 增长。
+ *
+ * @param classes - 当前输入的 class mappings。
+ * @returns suggested class string 相对 resolved class 的非负 UTF-8 字节增量总和。
+ */
 function estimateClassStringIncrease(classes: Record<string, TransformClassMapping>): number {
   return Object.values(classes).reduce((total, mapping) => {
     return total + Math.max(0, byteLength(mapping.suggestedClassName) - byteLength(mapping.resolvedClassName));

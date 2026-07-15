@@ -13,7 +13,13 @@ type ActivityTableProps = {
   rows: ActivityRow[];
 };
 
-/** 渲染模块活动表格，用非 table 元素模拟密集业务列表。 */
+/**
+ * 渲染模块活动表格，用非 table 元素模拟密集业务列表。
+ *
+ * @param props - 组件属性。
+ * @param props.rows - 按展示顺序排列的活动记录。
+ * @returns 活动列表及每条记录的状态标识。
+ */
 export function ActivityTable({ rows }: ActivityTableProps) {
   return (
     <section className={styles.activityPanel} aria-label="Module activity">

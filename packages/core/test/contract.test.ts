@@ -36,9 +36,21 @@ describe('core behavior contract', () => {
 
   it('scope strategy 决定 resolved class、preserved selector 和 class export', () => {
     const scope: ScopeStrategy = {
+      /**
+       * 为测试输入生成稳定的 resolved class。
+       *
+       * @param className - core 当前处理的 source class。
+       * @returns 带 `resolved_` 前缀的测试 class。
+       */
       resolveClassName(className) {
         return `resolved_${className}`;
       },
+      /**
+       * 限制测试导出边界，使 private class 只参与 CSS 转换而不进入 class exports。
+       *
+       * @param className - core 当前判断的 source class。
+       * @returns class 是否应进入 tokens 与 manifest 的导出边界。
+       */
       shouldExportClassName(className) {
         return className !== 'private';
       }

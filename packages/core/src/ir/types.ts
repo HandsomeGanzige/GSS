@@ -1,3 +1,11 @@
+/**
+ * Core AST collection 与 transform pipeline 之间的内部 IR 类型。
+ *
+ * @remarks
+ * IR 隔离 PostCSS node，保留源码顺序、位置、原 CSS 和 fallback reason，避免后续 pass 依赖 parser。
+ *
+ * @module core/ir/types
+ */
 import type {
   ClassPreservationReason,
   CssTransformContext,

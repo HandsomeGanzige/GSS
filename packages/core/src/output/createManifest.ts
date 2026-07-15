@@ -1,6 +1,18 @@
+/**
+ * Atomic/class mapping 到机器可读 manifest 的投影模块。
+ *
+ * @module core/output/createManifest
+ */
 import type { AtomicDeclaration, TransformClassMapping, TransformManifest } from '../public/types.js';
 
-/** 基于 atomic registry 和 class mappings 创建机器可读 manifest。 */
+/**
+ * 创建当前输入或聚合 registry 的 manifest。
+ *
+ * @param id - class manifest key 使用的来源 id；只创建 atomic 部分时可以传空字符串。
+ * @param atomic - 要写入 atomic 反查索引的 declarations。
+ * @param classes - 当前输入的 source class mappings。
+ * @returns 不共享输入数组或嵌套对象引用的 manifest。
+ */
 export function createManifest(
   id: string,
   atomic: AtomicDeclaration[],

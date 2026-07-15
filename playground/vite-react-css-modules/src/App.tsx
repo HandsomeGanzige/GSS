@@ -20,12 +20,21 @@ const routes: RouteLink<RouteId>[] = [
   { id: 'settings', label: 'Settings', description: '运行门禁设置' }
 ];
 
-/** 渲染多路由 playground，使用 hash route 避免引入额外依赖。 */
+/**
+ * 渲染多路由 playground，使用 hash route 避免引入额外路由依赖。
+ *
+ * @returns 包含共享 Shell 与当前业务路由的 React 元素。
+ */
 export function App() {
   const [activeRoute, setActiveRoute] = useState<RouteId>(() => readHashRoute());
   const activeMeta = useMemo(() => routes.find((route) => route.id === activeRoute) ?? routes[0], [activeRoute]);
 
   useEffect(() => {
+    /**
+     * 将浏览器 hash 变化同步到当前路由状态。
+     *
+     * @returns 无返回值。
+     */
     const handleHashChange = () => setActiveRoute(readHashRoute());
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
@@ -46,7 +55,12 @@ export function App() {
   );
 }
 
-/** 根据当前路由渲染对应业务视图。 */
+/**
+ * 根据当前路由渲染对应业务视图。
+ *
+ * @param route - 已验证的 playground 路由 id。
+ * @returns 对应路由的 React 元素。
+ */
 function renderRoute(route: RouteId) {
   switch (route) {
     case 'modules':
@@ -63,7 +77,11 @@ function renderRoute(route: RouteId) {
   }
 }
 
-/** 从 location.hash 中读取当前 route，并对未知 route 回退到 overview。 */
+/**
+ * 从 location.hash 中读取当前 route，并对未知值回退到 overview。
+ *
+ * @returns 当前有效路由 id。
+ */
 function readHashRoute(): RouteId {
   if (typeof window === 'undefined') {
     return 'overview';
@@ -73,7 +91,12 @@ function readHashRoute(): RouteId {
   return isRouteId(route) ? route : 'overview';
 }
 
-/** 判断字符串是否是 playground 支持的 route id。 */
+/**
+ * 判断字符串是否是 playground 支持的 route id。
+ *
+ * @param value - 从外部 URL 读取的候选值。
+ * @returns 候选值是否属于静态路由表，同时为 TypeScript 提供类型收窄。
+ */
 function isRouteId(value: string): value is RouteId {
   return routes.some((route) => route.id === value);
 }

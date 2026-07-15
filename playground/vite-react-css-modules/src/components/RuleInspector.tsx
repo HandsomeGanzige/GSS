@@ -12,7 +12,13 @@ type RuleInspectorProps = {
   rules: RuleCard[];
 };
 
-/** 渲染规则检查面板，帮助肉眼确认本 playground 覆盖的选择器类别。 */
+/**
+ * 渲染规则检查面板，帮助人工确认 playground 覆盖的选择器类别。
+ *
+ * @param props - 组件属性。
+ * @param props.rules - 要展示的规则检查结果。
+ * @returns 按诊断等级呈现的规则列表。
+ */
 export function RuleInspector({ rules }: RuleInspectorProps) {
   return (
     <section className={styles.inspector} aria-label="Rule inspector">

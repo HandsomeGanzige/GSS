@@ -6,7 +6,12 @@ const fixtureRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const suites = new Set(['base', 'preprocessor']);
 const modes = new Set(['semantic', 'native']);
 
-/** 为统一 fixture 提供简单、可验证的 Vite 命令入口。 */
+/**
+ * 解析命令行参数并执行 fixture 的 Vite 操作。
+ *
+ * @returns {Promise<void>} 所有选定操作成功结束后解决。
+ * @throws {Error} 当操作、suite、mode 非法，或 Vite 子进程执行失败时抛出。
+ */
 async function main() {
   const [action = 'dev', ...args] = process.argv.slice(2);
   const options = parseOptions(args);
@@ -29,7 +34,13 @@ async function main() {
   await runVite(action, options.suite, options.mode, options.passthrough);
 }
 
-/** 解析 suite/mode，其余参数原样传给 Vite CLI。 */
+/**
+ * 解析 suite 与 CSS mode，并保留需要透传给 Vite CLI 的参数。
+ *
+ * @param {string[]} args - 不包含操作名的命令行参数。
+ * @returns {{ suite: string, mode: string, passthrough: string[] }} 规范化后的 fixture 参数。
+ * @throws {Error} 当 suite 或 mode 不在支持列表中时抛出。
+ */
 function parseOptions(args) {
   let suite = 'base';
   let mode = 'semantic';
@@ -62,7 +73,16 @@ function parseOptions(args) {
   return { suite, mode, passthrough };
 }
 
-/** 启动单个 suite/mode，build/preview 使用隔离的默认产物目录。 */
+/**
+ * 启动单个 suite/mode；build 与 preview 默认使用隔离产物目录。
+ *
+ * @param {string} action - Vite 操作，支持 dev、build 或 preview。
+ * @param {string} suite - 要运行的 fixture suite。
+ * @param {string} mode - CSS 输出模式。
+ * @param {string[]} passthrough - 原样传递给 Vite CLI 的附加参数。
+ * @returns {Promise<void>} 子进程以成功状态退出后解决。
+ * @throws {Error} 当子进程无法启动、被信号终止或返回非零状态时抛出。
+ */
 async function runVite(action, suite, mode, passthrough) {
   const args = action === 'dev' ? [] : [action];
   const hasOutDir = passthrough.includes('--outDir');

@@ -2,7 +2,11 @@ import baseStyles from './cases/Base.module.css';
 import scssStyles from './cases/Theme.module.scss';
 import lessStyles from './cases/Panel.module.less';
 
-/** 渲染稳定的预处理器、资源与 partial 回归场景。 */
+/**
+ * 渲染稳定的预处理器、资源与 partial 回归场景。
+ *
+ * @returns 包含 SCSS、Less、资源引用与 partial 依赖场景的 React 元素。
+ */
 export function App() {
   return (
     <main className={baseStyles.shell}>

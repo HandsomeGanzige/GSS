@@ -1,3 +1,12 @@
+/**
+ * GSS Vite plugin group 的 composition root 与 dev/build 生命周期实现。
+ *
+ * @remarks
+ * pipeline plugin 位于 Vite CSS 编译和 css-post 之间；bridge plugin 只在 dev 注入 shared CSS owner。
+ * 所有构建工具状态都保持在单个 plugin factory 闭包内，并在 buildStart 按生命周期重置。
+ *
+ * @module vite/plugin
+ */
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { ModuleNode, Plugin, PluginOption, ResolvedConfig, ViteDevServer } from 'vite';
@@ -44,7 +53,36 @@ type CssModuleTransformResult = CompiledCssModule & {
   transform: TransformCssResult;
 };
 
-/** 创建 Vite adapter 插件组。 */
+/**
+ * 创建接入 Vite 6 原生 CSS Modules 管线的 GSS 插件组。
+ *
+ * @remarks
+ * 返回的 pipeline plugin 位于 `vite:css` 与 `vite:css-post` 之间，消费 Vite 已完成 scoping 和预处理的
+ * CSS；bridge plugin 在 dev 中把 shared virtual CSS owner 注入原生 JS module。build 阶段会聚合稳定
+ * 排序的 atomic/preserved CSS，并按配置输出 manifest 和带 analyzer 数据的 report。
+ *
+ * 当前不支持 named exports、strict mode、Lightning CSS transformer 和脱离 Vite 原生 tokens 的运行方式；
+ * 这些配置会显式失败以避免 silent miscompile。普通 CSS 不会被拦截。
+ *
+ * @param options - 文件匹配、CSS Modules 继承、core、manifest/report 和 diagnostics 配置。
+ * @returns 应直接加入 `plugins` 数组的 Vite plugin group。
+ * @throws Vite 管线顺序不兼容、原生 tokens 缺失、资源引用无法安全还原或启用未支持配置时抛出错误。
+ *
+ * @example
+ * ```ts
+ * import { defineConfig } from 'vite';
+ * import { semanticAtomicCss } from '@semantic-atomic-css/vite';
+ *
+ * export default defineConfig({
+ *   plugins: [
+ *     semanticAtomicCss({
+ *       manifest: { enabled: true },
+ *       report: { enabled: true }
+ *     })
+ *   ]
+ * });
+ * ```
+ */
 export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): PluginOption {
   const resolvedOptions = resolveOptions(options);
   const buildResults = new Map<string, CssModuleTransformResult>();
@@ -59,6 +97,12 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
   const pipelinePlugin: Plugin = {
     name: 'semantic-atomic-css:vite-pipeline',
 
+    /**
+     * 把 tokens capture callback 注入 Vite 原生 CSS Modules 配置。
+     *
+     * @param userConfig - 尚未 resolved 的 Vite 用户配置。
+     * @returns 只覆盖 `css.modules` 的 partial config。
+     */
     config(userConfig) {
       return {
         css: {
@@ -73,16 +117,33 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
       };
     },
 
+    /**
+     * 校验已解析配置和 plugin 顺序，并保存当前生命周期配置。
+     *
+     * @param resolvedConfig - Vite 最终 resolved config。
+     * @throws 未支持配置或原生 CSS pipeline 顺序不兼容时抛错。
+     */
     configResolved(resolvedConfig): void {
       validatePhase4Options(resolvedConfig, resolvedOptions);
       validateNativePipelineOrder(resolvedConfig);
       config = resolvedConfig;
     },
 
+    /**
+     * 保存 dev server，供 shared CSS reload 与 HMR graph 失效使用。
+     *
+     * @param server - 当前 Vite dev server。
+     */
     configureServer(server): void {
       devServer = server;
     },
 
+    /**
+     * 初始化一次 build 的可变状态。
+     *
+     * @remarks
+     * 每次 build 都创建新的 append-only core transformer，避免跨 build 泄漏 registry。
+     */
     buildStart(): void {
       buildResults.clear();
       nativeTokensById.clear();
@@ -91,6 +152,12 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
       buildTransformer = createTransformer(resolveCoreOptions(resolvedOptions, 'build'));
     },
 
+    /**
+     * 解析 shared dev CSS virtual module id。
+     *
+     * @param id - Vite 请求 id。
+     * @returns 命中公开或内部 id 时返回内部 id，否则返回 `null`。
+     */
     resolveId(id): string | null {
       if (id === virtualDevCssId || id === resolvedVirtualDevCssId) {
         return resolvedVirtualDevCssId;
@@ -99,6 +166,12 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
       return null;
     },
 
+    /**
+     * 加载 shared dev CSS virtual module。
+     *
+     * @param id - 已解析 module id。
+     * @returns 当前 dev snapshot CSS；非目标 id 返回 `null`。
+     */
     async load(id): Promise<string | null> {
       if (id === resolvedVirtualDevCssId) {
         return loadDevVirtualCss(devResults, pendingDevTransforms);
@@ -107,6 +180,14 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
       return null;
     },
 
+    /**
+     * 消费 Vite 已编译的 CSS Module 并增强其原生 tokens。
+     *
+     * @param scopedCss - `vite:css` 产生的 compiled scoped CSS。
+     * @param id - 当前 Vite module id。
+     * @returns 空 code 以阻止 scoped CSS 重复进入 Vite 原生 CSS asset；非目标文件返回 `null`。
+     * @throws 无法取得原生 tokens 或 core/asset pipeline 失败时抛错。
+     */
     async transform(scopedCss, id) {
       const file = cleanRequestId(id);
 
@@ -152,6 +233,12 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
       return { code: '', map: null };
     },
 
+    /**
+     * 失效 CSS Module 及预处理器依赖影响的 dev snapshot。
+     *
+     * @param context - Vite hot update context。
+     * @returns 命中受影响 CSS Modules 时返回空 module 数组并触发 full reload，否则返回 `void`。
+     */
     handleHotUpdate(context): [] | void {
       const file = cleanRequestId(context.file);
 
@@ -183,6 +270,12 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
       return [];
     },
 
+    /**
+     * 在 build HTML transform 阶段注入聚合 CSS link。
+     *
+     * @param html - 当前 HTML source。
+     * @returns 未产生 build CSS 时原样返回，否则返回包含 link 的 HTML。
+     */
     transformIndexHtml(html): string {
       if (!config || config.command !== 'build' || buildResults.size === 0) {
         return html;
@@ -191,6 +284,13 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
       return injectCssLinkIntoHtmlSource(html, buildCssFileName);
     },
 
+    /**
+     * 生成聚合 CSS、manifest 和 report assets。
+     *
+     * @param _outputOptions - 当前 Rollup output options；本实现不读取。
+     * @param bundle - 可注入 HTML link 的当前 bundle。
+     * @throws 资源 placeholder 无法安全解析时终止 build。
+     */
     generateBundle(_outputOptions, bundle): void {
       if (!config || !buildTransformer || buildResults.size === 0) {
         return;
@@ -229,6 +329,13 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
       }
     },
 
+    /**
+     * 对已写盘 HTML 执行 CSS link 兜底注入。
+     *
+     * @param outputOptions - 用于确定最终 outDir 的 Rollup output options。
+     * @returns 所有 HTML 文件处理完成后的 Promise。
+     * @throws 目录遍历或文件读写失败时透传文件系统异常。
+     */
     async writeBundle(outputOptions): Promise<void> {
       if (!config || !buildTransformer || buildResults.size === 0) {
         return;
@@ -243,6 +350,13 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
     name: 'semantic-atomic-css:vite-bridge',
     enforce: 'post',
 
+    /**
+     * 在 dev CSS Module JS 中导入 shared virtual CSS owner。
+     *
+     * @param code - `vite:css-post` 生成的原生 JS module。
+     * @param id - 当前 module id。
+     * @returns 已登记 dev result 时返回增加 import 的代码，否则返回 `null`。
+     */
     transform(code, id) {
       const file = cleanRequestId(id);
 
@@ -260,7 +374,14 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
   return [pipelinePlugin, bridgePlugin];
 }
 
-/** 在 dev 阶段登记正在执行的 CSS Module transform，供 virtual CSS 等待快照稳定。 */
+/**
+ * 在 dev 阶段登记正在执行的 CSS Module transform。
+ *
+ * @param config - 当前 Vite resolved config。
+ * @param pendingDevTransforms - shared snapshot 等待的 pending 集合。
+ * @param transform - 实际 transform promise。
+ * @returns 原 transform 的结果或异常；build 模式不登记 pending。
+ */
 async function trackDevTransform(
   config: ResolvedConfig,
   pendingDevTransforms: Set<Promise<void>>,
@@ -283,10 +404,20 @@ async function trackDevTransform(
   }
 }
 
-/** 兼容早期命名的插件工厂别名。 */
+/**
+ * `semanticAtomicCss` 的早期命名兼容别名。
+ *
+ * @deprecated 请改用 {@link semanticAtomicCss}；该别名只为已有调用方保留。
+ */
 export const semanticAtomicCssPlugin = semanticAtomicCss;
 
-/** 校验 Phase 4 尚未实现或无法安全继承的配置。 */
+/**
+ * 校验尚未实现或无法安全继承的配置。
+ *
+ * @param config - Vite resolved config。
+ * @param options - GSS resolved options。
+ * @throws strict、named exports、禁用原生 modules 或 Lightning CSS 等边界命中时抛错。
+ */
 function validatePhase4Options(config: ResolvedConfig, options: ResolvedSemanticAtomicCssOptions): void {
   if (options.diagnostics.strict) {
     throw createUnsupportedFeatureError({
@@ -323,7 +454,12 @@ function validatePhase4Options(config: ResolvedConfig, options: ResolvedSemantic
   }
 }
 
-/** 校验 GSS 确实位于 Vite CSS 编译与 JS module 生成之间，避免版本升级后静默错位。 */
+/**
+ * 校验 GSS plugins 位于要求的 Vite CSS pipeline 位置。
+ *
+ * @param config - 包含最终 plugins 顺序的 Vite resolved config。
+ * @throws 缺失目标 plugin 或顺序不是 css、pipeline、css-post、bridge 时抛错。
+ */
 function validateNativePipelineOrder(config: ResolvedConfig): void {
   const pluginNames = config.plugins.map((plugin) => plugin.name);
   const cssIndex = pluginNames.indexOf('vite:css');
@@ -346,14 +482,25 @@ function validateNativePipelineOrder(config: ResolvedConfig): void {
   }
 }
 
-/** 创建配置保护使用的结构化错误消息，便于 CI 日志解析。 */
+/**
+ * 创建配置保护使用的结构化错误。
+ *
+ * @param input - 稳定 feature/id 和面向维护者的 reason。
+ * @returns 带统一 unsupported-feature 文本格式的 Error。
+ */
 function createUnsupportedFeatureError(input: { feature: string; id: string; reason: string }): Error {
   return new Error(
     `[semantic-atomic-css] unsupported-feature feature=${input.feature} id=${input.id} reason=${input.reason}`
   );
 }
 
-/** 判断当前 Route A 是否会从 Vite 原生 css.modules 继承 namedExports。 */
+/**
+ * 判断 Route A 是否会继承 Vite named exports。
+ *
+ * @param config - Vite resolved config。
+ * @param options - GSS resolved options。
+ * @returns GSS 未显式覆盖 modules 且 Vite 开启 namedExports 时为 `true`。
+ */
 function inheritsViteNamedExports(config: ResolvedConfig, options: ResolvedSemanticAtomicCssOptions): boolean {
   const modules = config.css.modules as ({ namedExports?: boolean } & Record<string, unknown>) | false | undefined;
 
@@ -365,7 +512,13 @@ function inheritsViteNamedExports(config: ResolvedConfig, options: ResolvedSeman
   );
 }
 
-/** 删除指定文件的 transform 结果，并返回真实缓存键以便同步失效 Vite module graph。 */
+/**
+ * 删除文件对应的 transform result。
+ *
+ * @param results - dev/build result cache。
+ * @param file - 可能使用系统路径别名的文件 id。
+ * @returns 实际删除的缓存键；未命中时返回 `undefined`。
+ */
 function deleteTransformResult(results: Map<string, CssModuleTransformResult>, file: string): string | undefined {
   if (results.delete(file)) {
     return file;
@@ -383,7 +536,13 @@ function deleteTransformResult(results: Map<string, CssModuleTransformResult>, f
   return undefined;
 }
 
-/** 判断指定文件是否已有 transform 结果，并兼容 macOS /var 与 /private/var 路径别名。 */
+/**
+ * 判断文件是否已有 transform result。
+ *
+ * @param results - result cache。
+ * @param file - 可能使用系统路径别名的文件 id。
+ * @returns 直接或规范化身份命中时为 `true`。
+ */
 function hasTransformResult(results: Map<string, CssModuleTransformResult>, file: string): boolean {
   if (results.has(file)) {
     return true;
@@ -393,13 +552,27 @@ function hasTransformResult(results: Map<string, CssModuleTransformResult>, file
   return [...results.keys()].some((key) => normalizeFileIdentity(key) === target);
 }
 
-/** 归一化文件身份，避免同一文件因系统路径别名无法命中缓存。 */
+/**
+ * 归一化文件身份。
+ *
+ * @param file - 文件系统路径。
+ * @returns 绝对 POSIX 路径；macOS 上去除等价的 `/private` 前缀。
+ */
 function normalizeFileIdentity(file: string): string {
   const resolved = normalizeToPosix(path.resolve(file));
   return process.platform === 'darwin' && resolved.startsWith('/private/') ? resolved.slice('/private'.length) : resolved;
 }
 
-/** 从 Vite 原生 dependency graph 向上遍历，找到 partial 变更影响的所有 CSS Modules。 */
+/**
+ * 从 Vite dependency graph 向上收集受影响 CSS Modules。
+ *
+ * @param file - 本次变化的文件。
+ * @param contextModules - Vite 已关联的 hot update modules。
+ * @param server - 当前 dev server。
+ * @param config - Vite resolved config。
+ * @param options - GSS resolved file filters。
+ * @returns 需要清理 tokens/result 并重新 transform 的文件集合。
+ */
 function collectAffectedCssModules(
   file: string,
   contextModules: ModuleNode[],
@@ -452,7 +625,13 @@ function collectAffectedCssModules(
   return affectedFiles;
 }
 
-/** CSS Module HMR 时失效原生 module nodes，确保 full reload 重新生成 tokens。 */
+/**
+ * 失效受影响的 Vite module graph nodes。
+ *
+ * @param server - 当前 dev server。
+ * @param files - 受影响 CSS Module 文件。
+ * @param contextModules - hot update 已提供的 graph nodes。
+ */
 function invalidateDevCssModules(
   server: ViteDevServer,
   files: Set<string>,
@@ -477,13 +656,23 @@ function invalidateDevCssModules(
   }
 }
 
-/** 只把 module graph 中的绝对文件 id 当作文件路径，避免把 /src URL 误判为系统根路径。 */
+/**
+ * 从 module id 读取可信绝对文件路径。
+ *
+ * @param id - Vite module node id。
+ * @returns 清理 query 后仍为绝对路径的 id，否则返回 `undefined`。
+ */
 function readAbsoluteModuleId(id: string | null): string | undefined {
   const cleaned = id ? cleanRequestId(id) : '';
   return cleaned && path.isAbsolute(cleaned) ? cleaned : undefined;
 }
 
-/** 枚举 macOS 上 /var 与 /private/var 的等价路径，保证 Vite graph 查找与缓存身份一致。 */
+/**
+ * 枚举文件在 Vite graph 中可能使用的身份。
+ *
+ * @param file - 文件系统路径。
+ * @returns 非 macOS 只有绝对路径；macOS 同时包含 `/var` 与 `/private/var` 形式。
+ */
 function fileIdentityCandidates(file: string): string[] {
   const resolved = normalizeToPosix(path.resolve(file));
 
@@ -494,7 +683,11 @@ function fileIdentityCandidates(file: string): string[] {
   return resolved.startsWith('/private/') ? [resolved, resolved.slice('/private'.length)] : [resolved, `/private${resolved}`];
 }
 
-/** CSS Module HMR 时让单一 dev CSS owner 失效，避免 full reload 前后复用旧快照。 */
+/**
+ * 失效 shared dev CSS virtual module。
+ *
+ * @param server - 当前 dev server。
+ */
 function invalidateDevVirtualCssModule(server: ViteDevServer): void {
   const moduleNode = server.moduleGraph.getModuleById(resolvedVirtualDevCssId);
 
@@ -503,7 +696,12 @@ function invalidateDevVirtualCssModule(server: ViteDevServer): void {
   }
 }
 
-/** 新 CSS Module 首次登记后刷新已加载的 shared CSS owner，使浏览器取得最新全局快照。 */
+/**
+ * 首次登记新 CSS Module 后刷新 shared CSS owner。
+ *
+ * @param server - 当前 dev server；尚未配置 server 时安全跳过。
+ * @returns reload 完成后的 Promise。
+ */
 async function reloadDevVirtualCssModule(server: ViteDevServer | undefined): Promise<void> {
   if (!server) {
     return;
@@ -516,7 +714,12 @@ async function reloadDevVirtualCssModule(server: ViteDevServer | undefined): Pro
   }
 }
 
-/** 消费构建工具已编译的 CSS Module，并维护 GSS dev/build 状态。 */
+/**
+ * 转换单个 Vite compiled CSS Module。
+ *
+ * @param input - compiled CSS/tokens、resolved config/options 以及 dev/build stores。
+ * @returns tokens 已追加 atomic classes 的完整 module result。
+ */
 async function transformCompiledCssModule(input: {
   compiled: CompiledCssModule;
   config: ResolvedConfig;
@@ -560,7 +763,13 @@ async function transformCompiledCssModule(input: {
   return result;
 }
 
-/** 读取 dev virtual CSS 内容，并等待当前并发 transform 排空后再创建全局快照。 */
+/**
+ * 读取 shared dev CSS。
+ *
+ * @param devResults - 当前已提交的 module results。
+ * @param pendingDevTransforms - 当前正在执行的 dev transforms。
+ * @returns 等待短暂稳定后创建的全局 CSS snapshot。
+ */
 async function loadDevVirtualCss(
   devResults: Map<string, CssModuleTransformResult>,
   pendingDevTransforms: Set<Promise<void>>
@@ -569,7 +778,16 @@ async function loadDevVirtualCss(
   return createDevCss(devResults);
 }
 
-/** 等待当前 dev CSS Module transform 队列短暂排空，避免 virtual CSS 拿到 partial snapshot。 */
+/**
+ * 等待当前 dev transform 队列短暂排空。
+ *
+ * @remarks
+ * 最长等待约一秒；达到 deadline 后会直接 resolve，不抛错。调用方随后使用当时已提交的 results
+ * 创建 snapshot，因此该 deadline 是现有 dev 一致性模型的重要限制。
+ *
+ * @param pendingDevTransforms - trackDevTransform 管理的 pending promises。
+ * @returns 队列排空或 deadline 到达后的 Promise。
+ */
 async function waitForDevTransformIdle(pendingDevTransforms: Set<Promise<void>>): Promise<void> {
   const deadline = Date.now() + 1_000;
 
@@ -584,19 +802,34 @@ async function waitForDevTransformIdle(pendingDevTransforms: Set<Promise<void>>)
   } while (pendingDevTransforms.size > 0 && Date.now() < deadline);
 }
 
-/** 创建 dev 阶段由单一 virtual CSS owner 持有的全局快照，避免多个 style tag 重复注入 atomic class。 */
+/**
+ * 创建 dev 阶段的全局 CSS snapshot。
+ *
+ * @param devResults - 当前已提交的 module results。
+ * @returns 去重 atomic CSS 后拼接各模块 preserved CSS 的文本。
+ */
 function createDevCss(devResults: Map<string, CssModuleTransformResult>): string {
   const atomic = createDevAtomicCss(devResults);
   const preservedCss = [...devResults.values()].map((result) => result.transform.css.preserved);
   return joinCss([atomic, ...preservedCss]);
 }
 
-/** 聚合当前 dev 已知模块的 atomic declaration，并按 atomic key 去重。 */
+/**
+ * 创建 dev atomic CSS。
+ *
+ * @param devResults - 当前已提交的 module results。
+ * @returns 按 key 去重并执行 adapter cascade 排序后的 CSS。
+ */
 function createDevAtomicCss(devResults: Map<string, CssModuleTransformResult>): string {
   return renderAtomicDeclarations(collectAtomicDeclarations(devResults.values()));
 }
 
-/** 聚合多个模块的 atomic declaration，并按 atomic key 保留首次登记项。 */
+/**
+ * 聚合多个 module results 的 atomic declarations。
+ *
+ * @param results - dev/build module result iterable。
+ * @returns 按遍历首次出现顺序、以 atomic key 去重的 declarations。
+ */
 function collectAtomicDeclarations(results: Iterable<CssModuleTransformResult>): AtomicDeclaration[] {
   const declarations = new Map<string, AtomicDeclaration>();
 
@@ -611,12 +844,22 @@ function collectAtomicDeclarations(results: Iterable<CssModuleTransformResult>):
   return [...declarations.values()];
 }
 
-/** 渲染 adapter 内部聚合出来的 atomic declarations，并让条件上下文位于基础规则之后。 */
+/**
+ * 渲染 adapter 聚合的 atomic declarations。
+ *
+ * @param declarations - 尚未执行 adapter 级 cascade 排序的 declarations。
+ * @returns 基础规则优先、条件规则随后并以空行分隔的 CSS。
+ */
 function renderAtomicDeclarations(declarations: AtomicDeclaration[]): string {
   return orderAtomicDeclarations(declarations).map((declaration) => renderAtomicDeclaration(declaration)).join('\n\n');
 }
 
-/** 稳定分区基础与条件规则，避免复用的媒体 key 早于后续模块基础规则而失效。 */
+/**
+ * 稳定分区并排序 atomic declarations。
+ *
+ * @param declarations - 按首次登记顺序去重的 declarations。
+ * @returns 基础规则在前、条件规则在后，简单宽度断点按已验证覆盖顺序排列的新数组。
+ */
 function orderAtomicDeclarations(declarations: AtomicDeclaration[]): AtomicDeclaration[] {
   const base: AtomicDeclaration[] = [];
   const contextual: Array<{ declaration: AtomicDeclaration; order: number }> = [];
@@ -632,7 +875,12 @@ function orderAtomicDeclarations(declarations: AtomicDeclaration[]): AtomicDecla
   return [...base, ...orderSimpleWidthBreakpoints(contextual).map((entry) => entry.declaration)];
 }
 
-/** 只替换同类简单宽度条件的原槽位，避免复杂条件混排时产生不稳定 comparator。 */
+/**
+ * 在原条件槽位内重排简单宽度断点。
+ *
+ * @param entries - 带首次登记序号的条件 declarations。
+ * @returns max/min width 分别按覆盖顺序替换原槽位，复杂条件保持原相对位置。
+ */
 function orderSimpleWidthBreakpoints(
   entries: Array<{ declaration: AtomicDeclaration; order: number }>
 ): Array<{ declaration: AtomicDeclaration; order: number }> {
@@ -660,7 +908,14 @@ function orderSimpleWidthBreakpoints(
   });
 }
 
-/** 比较同一种简单宽度条件，确保窄屏或高断点规则在后方覆盖。 */
+/**
+ * 比较同类简单宽度 breakpoint entries。
+ *
+ * @param left - 左侧 declaration 与原顺序。
+ * @param right - 右侧 declaration 与原顺序。
+ * @param kind - min 或 max width。
+ * @returns max-width 从大到小、min-width 从小到大，同值按原顺序。
+ */
 function compareSimpleWidthEntries(
   left: { declaration: AtomicDeclaration; order: number },
   right: { declaration: AtomicDeclaration; order: number },
@@ -672,7 +927,12 @@ function compareSimpleWidthEntries(
   return distance || left.order - right.order;
 }
 
-/** 解析 MVP 常用的单一 min/max-width px 媒体条件，其他表达式不参与重排。 */
+/**
+ * 解析已验证的简单宽度媒体条件。
+ *
+ * @param media - media params，不含 `@media`。
+ * @returns 单一 min/max-width px 的 kind/pixels；其他表达式返回 `undefined`。
+ */
 function readSimpleWidthBreakpoint(media: string | undefined): { kind: 'min' | 'max'; pixels: number } | undefined {
   const match = media?.match(/^\(\s*(min|max)-width\s*:\s*(\d+(?:\.\d+)?)px\s*\)$/i);
 
@@ -686,14 +946,25 @@ function readSimpleWidthBreakpoint(media: string | undefined): { kind: 'min' | '
   };
 }
 
-/** 渲染单条 atomic declaration，并恢复其 @media/@supports 上下文。 */
+/**
+ * 渲染单条 atomic declaration。
+ *
+ * @param declaration - 带 class、declaration 和 context 的 atomic record。
+ * @returns 恢复 pseudo、supports 和 media 的 CSS。
+ */
 function renderAtomicDeclaration(declaration: AtomicDeclaration): string {
   const selector = `.${declaration.className}${declaration.context.pseudo ?? ''}`;
   const rule = renderCssRule(selector, declaration.declaration);
   return wrapAtomicAtRules(rule, declaration);
 }
 
-/** 渲染单 declaration CSS rule，输出格式与 core renderRule 保持一致。 */
+/**
+ * 渲染单 declaration CSS rule。
+ *
+ * @param selector - atomic selector。
+ * @param declaration - 要输出的 declaration metadata。
+ * @returns 与 core renderRule 格式一致的 rule。
+ */
 function renderCssRule(
   selector: string,
   declaration: AtomicDeclaration['declaration']
@@ -705,7 +976,13 @@ function renderCssRule(
   ].join('\n');
 }
 
-/** 按 core 约定先包 @supports，再包 @media，保证上下文语义稳定。 */
+/**
+ * 按 core 约定包装 atomic 条件上下文。
+ *
+ * @param css - 已渲染 atomic rule。
+ * @param declaration - 提供 supports/media context 的 atomic record。
+ * @returns 先 supports、后 media 包装的 CSS。
+ */
 function wrapAtomicAtRules(css: string, declaration: AtomicDeclaration): string {
   let output = css;
 
@@ -720,7 +997,12 @@ function wrapAtomicAtRules(css: string, declaration: AtomicDeclaration): string 
   return output;
 }
 
-/** 给 CSS block 增加两空格缩进。 */
+/**
+ * 给多行 CSS block 增加两空格缩进。
+ *
+ * @param css - 任意多行 CSS。
+ * @returns 每行前置两个空格的文本。
+ */
 function indentCssBlock(css: string): string {
   return css
     .split('\n')
@@ -728,7 +1010,13 @@ function indentCssBlock(css: string): string {
     .join('\n');
 }
 
-/** 根据命令补齐 core className 策略。 */
+/**
+ * 根据 Vite command 补齐 core class name 策略。
+ *
+ * @param options - GSS resolved options。
+ * @param command - Vite serve 或 build command。
+ * @returns build 默认 hash、serve 默认 readable 的 core options。
+ */
 function resolveCoreOptions(
   options: ResolvedSemanticAtomicCssOptions,
   command: ResolvedConfig['command']
@@ -742,7 +1030,12 @@ function resolveCoreOptions(
   };
 }
 
-/** 创建 build 阶段全局聚合 CSS，并使用稳定 source id 顺序消除并发 transform 漂移。 */
+/**
+ * 创建 build 阶段全局聚合 CSS。
+ *
+ * @param buildResults - 当前 build module results。
+ * @returns 按稳定 source id 聚合的 atomic 与 preserved CSS。
+ */
 function createBuildCss(buildResults: Map<string, CssModuleTransformResult>): string {
   const results = getStableBuildResults(buildResults);
   const atomicCss = renderAtomicDeclarations(collectAtomicDeclarations(results));
@@ -750,7 +1043,12 @@ function createBuildCss(buildResults: Map<string, CssModuleTransformResult>): st
   return joinCss([atomicCss, ...preservedCss]);
 }
 
-/** 按规范化 source id 排序 build 结果，保证 CSS、fallback 与 analysis 使用同一稳定顺序。 */
+/**
+ * 稳定排序 build results。
+ *
+ * @param buildResults - 可能按异步完成顺序写入的 result map。
+ * @returns 按规范化 source id 排序的新数组。
+ */
 function getStableBuildResults(
   buildResults: Map<string, CssModuleTransformResult>
 ): CssModuleTransformResult[] {
@@ -761,7 +1059,14 @@ function getStableBuildResults(
   });
 }
 
-/** 创建 build JSON report，并附加 Phase 4 analyzer 结构化分析。 */
+/**
+ * 创建 build report 与 analyzer analysis。
+ *
+ * @param transformer - 当前 build 的 core transformer。
+ * @param buildResults - 当前 build module results。
+ * @param outputCss - 资源 placeholder 已解析的最终 CSS。
+ * @returns 可直接 JSON 序列化的稳定 report。
+ */
 function createBuildReport(
   transformer: Transformer,
   buildResults: Map<string, CssModuleTransformResult>,
@@ -789,7 +1094,12 @@ function createBuildReport(
   };
 }
 
-/** 规范化 report diagnostics 顺序，避免并发 transform 完成顺序进入 JSON 产物。 */
+/**
+ * 规范化 report diagnostics 顺序。
+ *
+ * @param report - core 聚合 report。
+ * @returns diagnostics 按 source location 和稳定字段排序的新 report。
+ */
 function stabilizeReport(report: TransformReport): TransformReport {
   return {
     ...report,
@@ -811,7 +1121,12 @@ function stabilizeReport(report: TransformReport): TransformReport {
   };
 }
 
-/** 规范化 manifest 键和 source 数组，并为共享 atomic declaration 选择稳定主来源。 */
+/**
+ * 规范化 manifest 持久化顺序。
+ *
+ * @param manifest - core 聚合 manifest。
+ * @returns keys、sources、unsafe reasons 均稳定排序且无共享数组引用的 manifest。
+ */
 function stabilizeManifest(manifest: TransformManifest): TransformManifest {
   const atomic = Object.fromEntries(
     Object.entries(manifest.atomic)
@@ -848,7 +1163,13 @@ function stabilizeManifest(manifest: TransformManifest): TransformManifest {
   return { atomic, classes };
 }
 
-/** 按规范化文件、行和列比较 source location。 */
+/**
+ * 比较 source locations。
+ *
+ * @param left - 左侧 id/line/column。
+ * @param right - 右侧 id/line/column。
+ * @returns 先规范化 id、再行列的 comparator 结果。
+ */
 function compareSourceLocation(
   left: { id: string; line?: number; column?: number },
   right: { id: string; line?: number; column?: number }
@@ -860,12 +1181,23 @@ function compareSourceLocation(
   );
 }
 
-/** 使用不依赖 locale 的字典序比较文本。 */
+/**
+ * 使用不依赖 locale 的字典序比较文本。
+ *
+ * @param left - 左侧文本。
+ * @param right - 右侧文本。
+ * @returns 标准 comparator 结果。
+ */
 function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-/** 拼接 CSS 片段并保持空片段不输出。 */
+/**
+ * 拼接非空 CSS chunks。
+ *
+ * @param chunks - atomic/preserved CSS 片段。
+ * @returns trim 后以空行分隔的 CSS。
+ */
 function joinCss(chunks: string[]): string {
   return chunks
     .map((chunk) => chunk.trim())
@@ -873,7 +1205,12 @@ function joinCss(chunks: string[]): string {
     .join('\n\n');
 }
 
-/** 把全局 CSS asset 注入 Vite 生成的 HTML。 */
+/**
+ * 把全局 CSS asset link 注入 bundle HTML assets。
+ *
+ * @param bundle - generateBundle 当前 bundle。
+ * @param cssFileName - 聚合 CSS asset 文件名。
+ */
 function injectCssIntoHtml(bundle: Record<string, unknown>, cssFileName: string): void {
   for (const asset of Object.values(bundle)) {
     if (!isHtmlAsset(asset)) {
@@ -890,7 +1227,14 @@ function injectCssIntoHtml(bundle: Record<string, unknown>, cssFileName: string)
   }
 }
 
-/** 构建写盘后兜底注入全局 CSS link，适配 Vite HTML asset 生成顺序。 */
+/**
+ * 对写盘后的 HTML 执行 CSS link 兜底注入。
+ *
+ * @param outDir - build 输出目录。
+ * @param cssFileName - 聚合 CSS asset 文件名。
+ * @returns 所有 HTML 文件读写完成后的 Promise。
+ * @throws 目录遍历或文件读写失败时透传异常。
+ */
 async function injectCssIntoWrittenHtml(outDir: string, cssFileName: string): Promise<void> {
   const htmlFiles = await findHtmlFiles(outDir);
 
@@ -908,7 +1252,13 @@ async function injectCssIntoWrittenHtml(outDir: string, cssFileName: string): Pr
   }
 }
 
-/** 向 HTML 字符串注入全局 CSS link。 */
+/**
+ * 向 HTML source 注入全局 CSS link。
+ *
+ * @param source - HTML 文本。
+ * @param href - 相对当前 HTML 的 CSS href。
+ * @returns 已存在 href 时原样返回；否则优先插入 `</head>` 前。
+ */
 function injectCssLinkIntoHtmlSource(source: string, href: string): string {
   const link = `<link rel="stylesheet" href="${href}">`;
 
@@ -919,7 +1269,13 @@ function injectCssLinkIntoHtmlSource(source: string, href: string): string {
   return source.includes('</head>') ? source.replace(/\s*<\/head>/, `\n    ${link}\n  </head>`) : `${link}\n${source}`;
 }
 
-/** 递归查找 build 输出中的 HTML 文件。 */
+/**
+ * 递归查找 build 输出中的 HTML 文件。
+ *
+ * @param dir - 当前遍历目录。
+ * @returns 当前目录树中所有 `.html` 文件路径。
+ * @throws 目录读取失败时透传文件系统异常。
+ */
 async function findHtmlFiles(dir: string): Promise<string[]> {
   const entries = await fs.readdir(dir, { withFileTypes: true });
   const files: string[] = [];
@@ -940,7 +1296,12 @@ async function findHtmlFiles(dir: string): Promise<string[]> {
   return files;
 }
 
-/** 判断 bundle 条目是否是可修改的 HTML asset。 */
+/**
+ * 判断 bundle 条目是否是可修改 HTML asset。
+ *
+ * @param value - 未知 bundle entry。
+ * @returns entry 是 string-source HTML asset 时收窄类型。
+ */
 function isHtmlAsset(value: unknown): value is { type: 'asset'; fileName: string; source: string } {
   return (
     typeof value === 'object' &&
@@ -955,27 +1316,58 @@ function isHtmlAsset(value: unknown): value is { type: 'asset'; fileName: string
   );
 }
 
-/** 计算 HTML 到 CSS asset 的相对 href。 */
+/**
+ * 计算 HTML 到 CSS asset 的相对 href。
+ *
+ * @param htmlFileName - bundle 内 HTML 路径。
+ * @param cssFileName - bundle 内 CSS 路径。
+ * @returns 从 HTML 所在目录到 CSS 的 POSIX relative path。
+ */
 function createHtmlRelativeHref(htmlFileName: string, cssFileName: string): string {
   const htmlDir = path.posix.dirname(htmlFileName);
   return path.posix.relative(htmlDir === '.' ? '' : htmlDir, cssFileName);
 }
 
-/** 把系统路径转换成 POSIX 路径。 */
+/**
+ * 把系统路径转换为 POSIX 文本。
+ *
+ * @param value - 任意系统路径。
+ * @returns 反斜杠替换为正斜杠的文本。
+ */
 function normalizeToPosix(value: string): string {
   return value.replace(/\\/g, '/');
 }
 
-/** 等待一小段时间，用于 dev 队列排空和测试环境事件循环让步。 */
+/**
+ * 创建事件循环延迟。
+ *
+ * @param ms - 等待毫秒数。
+ * @returns 指定 timer 完成后的 Promise。
+ */
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
 }
 
-/** 输出 core diagnostics，并在同一次 dev/build 生命周期内去重。 */
+/**
+ * 把 core diagnostics 输出为 Vite warnings。
+ *
+ * @param context - 提供 Vite `warn` 的 plugin context。
+ * @param diagnostics - 当前 transform diagnostics。
+ * @param options - diagnostics 配置。
+ * @param warnedDiagnostics - 当前生命周期去重集合。
+ */
 function emitDiagnostics(
-  context: { warn(warning: string): void },
+  context: {
+    /**
+     * 把格式化后的 compiler diagnostic 交给 Vite warning 通道。
+     *
+     * @param warning - 包含 source id、code、reason 与位置的 warning 文本。
+     * @returns 无返回值。
+     */
+    warn(warning: string): void;
+  },
   diagnostics: Diagnostic[],
   options: ResolvedSemanticAtomicCssOptions,
   warnedDiagnostics: Set<string>
@@ -996,7 +1388,12 @@ function emitDiagnostics(
   }
 }
 
-/** 格式化 adapter 交给 Vite 展示的 warning。 */
+/**
+ * 格式化 Vite warning。
+ *
+ * @param diagnostic - core 结构化 diagnostic。
+ * @returns 包含 id、位置、code、reason、selector 和 message 的单行文本。
+ */
 function formatDiagnostic(diagnostic: Diagnostic): string {
   const location =
     diagnostic.source?.line !== undefined ? `:${diagnostic.source.line}:${diagnostic.source.column ?? 1}` : '';

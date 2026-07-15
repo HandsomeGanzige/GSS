@@ -1,17 +1,38 @@
+/**
+ * Atomic declaration 的全局复用、顺序、来源和 class collision registry。
+ *
+ * @module core/registry/AtomicRegistry
+ */
 import type { AtomicClassNameOptions, AtomicDeclaration, AtomicKeyInput, SourceLocation } from '../public/types.js';
 import { createAtomicClassName } from '../atomizer/createAtomicClassName.js';
 import { createAtomicKey } from '../atomizer/createAtomicKey.js';
 import { hashString } from '../utils/hash.js';
 
-/** 维护 atomic declaration 的复用、顺序、来源和 class name collision。 */
+/**
+ * 维护一次 transformer 生命周期中的 atomic declaration registry。
+ *
+ * @remarks
+ * Map 插入顺序就是默认输出顺序。registry 不支持删除或失效，且所有 getter 都返回防御性副本。
+ */
 export class AtomicRegistry {
   private readonly declarationsByKey = new Map<string, AtomicDeclaration>();
   private readonly keyByClassName = new Map<string, string>();
   private totalRegisterCount = 0;
 
+  /**
+   * 创建空 registry。
+   *
+   * @param classNameOptions - 生命周期内固定且已补齐的 class name 生成选项。
+   */
   constructor(private readonly classNameOptions: Required<AtomicClassNameOptions>) {}
 
-  /** 注册 declaration，已存在时复用 class name 并补充来源。 */
+  /**
+   * 注册或复用一条 atomic declaration。
+   *
+   * @param input - declaration 与完整 atomic context。
+   * @param source - 当前使用位置；存在时追加到 declaration sources。
+   * @returns 稳定 key/class name，以及本次是否命中已有 declaration。
+   */
   register(input: AtomicKeyInput, source?: SourceLocation): { key: string; className: string; reused: boolean } {
     const key = createAtomicKey(input);
     const existing = this.declarationsByKey.get(key);
@@ -48,17 +69,31 @@ export class AtomicRegistry {
     };
   }
 
-  /** 返回按首次注册顺序排列的 atomic declarations。 */
+  /**
+   * 读取全部 atomic declarations。
+   *
+   * @returns 按首次注册顺序排列的防御性副本。
+   */
   list(): AtomicDeclaration[] {
     return [...this.declarationsByKey.values()].map((declaration) => cloneAtomicDeclaration(declaration));
   }
 
-  /** 返回 registry 级别的复用次数。 */
+  /**
+   * 计算 registry 级别的复用次数。
+   *
+   * @returns 总注册次数减去唯一 key 数量。
+   */
   getReusedCount(): number {
     return this.totalRegisterCount - this.declarationsByKey.size;
   }
 
-  /** 生成未被不同 key 占用的 class name。 */
+  /**
+   * 生成未被其他 key 占用的 class name。
+   *
+   * @param input - atomic class name 候选值的语义输入。
+   * @param key - 当前 declaration 的稳定 key。
+   * @returns 可登记的唯一 class name；碰撞时追加由 key 派生的稳定 suffix。
+   */
   private createAvailableClassName(input: AtomicKeyInput, key: string): string {
     const baseClassName = createAtomicClassName(input, this.classNameOptions);
     let candidate = baseClassName;
@@ -73,7 +108,12 @@ export class AtomicRegistry {
   }
 }
 
-/** 克隆 atomic declaration，避免外部持有 registry 内部可变 sources 引用。 */
+/**
+ * 深度克隆 atomic declaration 的可变结构。
+ *
+ * @param declaration - registry 内部 declaration。
+ * @returns 不共享 declaration、context 或 sources 引用的副本。
+ */
 function cloneAtomicDeclaration(declaration: AtomicDeclaration): AtomicDeclaration {
   return {
     key: declaration.key,

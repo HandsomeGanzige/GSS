@@ -9,7 +9,11 @@ import styles from './BuildRoute.module.css';
 /** Build route 支持的环境模式。 */
 type BuildEnvironment = 'development' | 'production';
 
-/** Build route 展示产物验收项和 CSS Modules tokens 输出。 */
+/**
+ * 展示产物验收项、预处理器覆盖矩阵和 CSS Modules tokens 输出。
+ *
+ * @returns 支持环境切换、产物选择和 token 展开的 Build 路由。
+ */
 export function BuildRoute() {
   const [environment, setEnvironment] = useState<BuildEnvironment>('production');
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactCheck | undefined>(artifactChecks[0]);

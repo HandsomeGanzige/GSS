@@ -576,7 +576,13 @@ type TestRunBuildOptions = {
   preprocessorOptions?: CSSOptions['preprocessorOptions'];
 };
 
-/** 创建最小 Vite build fixture。 */
+/**
+ * 创建最小 Vite build fixture，并登记到测试清理列表。
+ *
+ * @param css - 写入 fixture CSS Module 的源码。
+ * @param options - 可选的入口与附加文件配置。
+ * @returns 临时 fixture 根目录。
+ */
 async function createBuildFixture(css: string, options: BuildFixtureOptions = {}): Promise<string> {
   const root = await mkdtemp(join(process.cwd(), '.tmp-vite-build-'));
   const srcDir = join(root, 'src');
@@ -602,7 +608,12 @@ async function createBuildFixture(css: string, options: BuildFixtureOptions = {}
   return root;
 }
 
-/** 在已安装 Sass/Less 的专用 fixture 目录下创建隔离构建根。 */
+/**
+ * 在已安装 Sass/Less 的专用 fixture 目录下创建隔离构建根。
+ *
+ * @returns 可直接交给 Vite build 的临时 preprocessor fixture 根目录。
+ * @remarks 复用 fixture 的依赖安装，避免预处理器依赖泄漏到 adapter 生产包。
+ */
 async function createPreprocessorBuildFixture(): Promise<string> {
   const fixtureDir = join(process.cwd(), '../../fixtures/vite-css-modules');
   const root = await mkdtemp(join(fixtureDir, '.tmp-vite-test-'));
@@ -646,7 +657,15 @@ async function createPreprocessorBuildFixture(): Promise<string> {
   return root;
 }
 
-/** 运行带 GSS adapter 的 Vite build。 */
+/**
+ * 运行带 GSS adapter 的 Vite build。
+ *
+ * @param root - 临时 fixture 根目录。
+ * @param options - adapter 配置。
+ * @param cssModules - Vite CSS Modules 配置，传 false 时显式禁用。
+ * @param buildOptions - 测试需要覆盖的 Vite build 选项。
+ * @returns 构建完成后解决。
+ */
 async function runBuild(
   root: string,
   options: Parameters<typeof semanticAtomicCss>[0] = {},
@@ -674,7 +693,13 @@ async function runBuild(
   });
 }
 
-/** 读取 build 输出目录中指定后缀的 asset 内容。 */
+/**
+ * 按目录遍历顺序读取 build 输出中指定后缀的 asset 内容。
+ *
+ * @param dir - build assets 目录。
+ * @param extension - 要读取的文件扩展名。
+ * @returns 以换行符拼接的 asset 内容。
+ */
 async function readBuiltAssets(dir: string, extension: string): Promise<string> {
   const entries = await readdir(dir, { withFileTypes: true });
   const chunks: string[] = [];
@@ -688,7 +713,14 @@ async function readBuiltAssets(dir: string, extension: string): Promise<string> 
   return chunks.join('\n');
 }
 
-/** 读取 build 输出目录中指定后缀且排除给定文件名的 asset 内容。 */
+/**
+ * 读取指定后缀的 build assets，并排除插件拥有的独立产物。
+ *
+ * @param dir - build assets 目录。
+ * @param extension - 要读取的文件扩展名。
+ * @param excludedNames - 不应参与拼接的 asset 文件名集合。
+ * @returns 以换行符拼接的剩余 asset 内容。
+ */
 async function readBuiltAssetsExcept(dir: string, extension: string, excludedNames: Set<string>): Promise<string> {
   const entries = await readdir(dir, { withFileTypes: true });
   const chunks: string[] = [];

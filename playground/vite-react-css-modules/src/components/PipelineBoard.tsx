@@ -23,7 +23,15 @@ type PipelineBoardProps = {
   onSelectStage?: (title: string) => void;
 };
 
-/** 渲染转换流水线看板，覆盖多列布局、hover 和 unsafe descendant fallback。 */
+/**
+ * 渲染转换流水线看板，覆盖多列布局、hover 和 unsafe descendant fallback。
+ *
+ * @param props - 组件属性。
+ * @param props.stages - 按执行顺序排列的转换阶段。
+ * @param props.selectedStage - 当前选中的阶段名称。
+ * @param props.onSelectStage - 用户选择阶段时的回调。
+ * @returns 可交互的流水线阶段看板。
+ */
 export function PipelineBoard({ stages, selectedStage, onSelectStage }: PipelineBoardProps) {
   return (
     <section className={styles.board} aria-label="Semantic transform pipeline">

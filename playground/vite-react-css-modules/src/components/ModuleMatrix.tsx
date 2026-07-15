@@ -16,7 +16,15 @@ type ModuleMatrixProps = {
   onSelect?: (surface: ModuleSurface) => void;
 };
 
-/** 渲染路由和组件文件矩阵。 */
+/**
+ * 渲染路由和组件文件矩阵，并高亮当前选中模块。
+ *
+ * @param props - 组件属性。
+ * @param props.surfaces - 要展示的模块覆盖面。
+ * @param props.selectedName - 当前选中的模块名称。
+ * @param props.onSelect - 用户选择模块时的回调。
+ * @returns 可交互的模块覆盖矩阵。
+ */
 export function ModuleMatrix({ surfaces, selectedName, onSelect }: ModuleMatrixProps) {
   return (
     <section className={styles.matrixPanel} aria-label="Module matrix">

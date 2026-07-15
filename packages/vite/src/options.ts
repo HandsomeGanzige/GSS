@@ -1,6 +1,16 @@
+/**
+ * Vite adapter public options 的默认值与内部归一化模块。
+ *
+ * @module vite/options
+ */
 import type { ResolvedSemanticAtomicCssOptions, SemanticAtomicCssOptions } from './types.js';
 
-/** 把用户配置补齐为 adapter 内部稳定配置。 */
+/**
+ * 把用户配置补齐为 adapter 内部稳定配置。
+ *
+ * @param options - 用户传入的公开配置。
+ * @returns 所有默认值和“是否显式配置”证据均已补齐的内部配置。
+ */
 export function resolveOptions(options: SemanticAtomicCssOptions = {}): ResolvedSemanticAtomicCssOptions {
   return {
     include: toArray(
@@ -34,7 +44,12 @@ export function resolveOptions(options: SemanticAtomicCssOptions = {}): Resolved
   };
 }
 
-/** 把单值或数组配置统一为数组。 */
+/**
+ * 把单值或数组配置统一为新数组。
+ *
+ * @param value - 单个 glob 或 glob 数组。
+ * @returns 不共享调用方数组引用的字符串数组。
+ */
 function toArray(value: string | string[]): string[] {
   return Array.isArray(value) ? value : [value];
 }

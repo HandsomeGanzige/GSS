@@ -122,6 +122,12 @@ describe('cssModules native pipeline helpers', () => {
       {
         localsConvention: 'camelCaseOnly',
         generateScopedName: 'native_[local]',
+        /**
+         * 记录用户 CSS Modules 回调收到的 source id。
+         *
+         * @param id - Vite 传入的 CSS Module id。
+         * @returns 无返回值；调用结果通过 userCaptured 数组断言。
+         */
         getJSON(id) {
           userCaptured.push(id);
         }
