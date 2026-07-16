@@ -15,9 +15,18 @@ Phase 2 的工作原则是：
 
 ## 2026-07-15 Workspace 测试分层更新
 
-当前生产包仍只有 `packages/core`、`packages/analyzer` 和 `packages/vite`。真实 Vite 消费方验收
-已收敛到独立的 `fixtures/vite-css-modules` workspace，它不是生产 adapter 包；
-`playground/vite-react-css-modules` 只承担人工 Pilot，不进入自动门禁。
+当前生产包为 `packages/core`、`packages/analyzer`、`packages/vite` 和 `packages/rsbuild`。真实构建工具
+消费方验收分别收敛到 `fixtures/vite-css-modules` 与 `fixtures/rsbuild-css-modules` workspace，fixture
+不是生产 adapter 包；
+`playground/vite-react-css-modules` 与 `playground/rsbuild-react-css-modules` 分别承担两个 adapter 的中型
+人工 Pilot，不进入自动门禁。
+
+两个 adapter 的依赖方向均为 `adapter -> core/analyzer`，互不依赖：Vite 使用其 CSS plugin seam；
+Rsbuild 使用公开 loader `importModule`、css-loader array export 和 Rspack asset hooks。Rsbuild build 保持
+原生 extraction；dev 切换到官方 style injection 维持模块图，并将目标模块快照注册到单一共享 style
+owner，按稳定 source order 输出且按 atomic key 去重。这既避免 Rspack 2.1 extraction 的嵌套
+`importModule` 增量编译 panic，也避免逐模块重复注入同名原子类改变 cascade。两者都不复制
+CSS Modules、ICSS、预处理器或资源编译实现。
 
 包内自行定义 build/test/typecheck/verify，根 `package.json` 只通过 workspace 递归提供
 `pnpm build`、`pnpm test`、`pnpm typecheck` 和 `pnpm verify` 四个仓库级入口。

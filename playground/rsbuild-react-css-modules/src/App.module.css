@@ -1,0 +1,12 @@
+.routePending {
+  display: grid;
+  grid-column: 1 / -1;
+  place-items: center;
+  min-height: 240px;
+  color: #334155;
+  background: #ffffff;
+  border: 1px solid #d8dee9;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 800;
+}

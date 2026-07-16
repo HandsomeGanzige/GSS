@@ -1,0 +1,261 @@
+@use '../styles/pilot-theme' as theme;
+
+.shell {
+  min-height: 100vh;
+  padding: $pilot-runtime-shell-padding;
+  color: theme.$ink;
+  background: theme.$shell-background;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  width: min(100%, theme.$content-width);
+  margin: 0 auto 28px;
+  padding: 14px 16px;
+  @include theme.surface;
+
+  &[data-density='compact'] {
+    box-shadow: 0 10px 24px rgb(15 23 42 / 8%);
+  }
+}
+
+.brandCluster {
+  display: flex;
+  align-items: center;
+  gap: calc(theme.$brand-gap + $pilot-runtime-gap);
+  min-width: 0;
+}
+
+.logoAsset {
+  background: theme.$brand url('../assets/pilot-mark.svg') center / cover no-repeat;
+}
+
+.logoMark {
+  composes: logoAsset;
+  display: inline-grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  color: #ffffff;
+  border-radius: theme.$radius;
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+
+.brandCopy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.eyebrow {
+  margin: 0;
+  color: #be123c;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  color: theme.$ink;
+  font-size: 20px;
+  line-height: 1.2;
+  letter-spacing: 0;
+}
+
+.statusCluster {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.statusPill {
+  padding: 7px 10px;
+  color: #065f46;
+  background: #d1fae5;
+  border-radius: theme.$radius;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.actionButton {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  color: theme.$ink;
+  background: theme.$surface;
+  border: 1px solid #cbd5e1;
+  border-radius: theme.$radius;
+  font-size: 13px;
+  font-weight: 700;
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover {
+    background: #f8fafc;
+  }
+
+  &:focus-visible {
+    @include theme.focus-outline;
+  }
+
+  &:disabled {
+    color: #94a3b8;
+    cursor: not-allowed;
+    background: #f1f5f9;
+  }
+}
+
+.routeNav {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  width: min(100%, theme.$content-width);
+  margin: 0 auto 24px;
+}
+
+.navItem {
+  display: grid;
+  gap: 4px;
+  min-height: 74px;
+  padding: 12px;
+  color: #334155;
+  text-decoration: none;
+  @include theme.surface;
+
+  &:hover {
+    background: #f8fafc;
+  }
+
+  &:focus-visible {
+    @include theme.focus-outline;
+  }
+}
+
+.activeNavItem {
+  color: theme.$brand;
+  background: theme.$brand-soft;
+  border-color: #5eead4;
+}
+
+.navLabel {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.navDescription {
+  color: theme.$muted;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 360px;
+  gap: 24px;
+  width: min(100%, theme.$content-width);
+  margin: 0 auto 24px;
+  padding: 28px;
+  background: #0f172a;
+  border-radius: theme.$radius;
+}
+
+.heroText {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+}
+
+.sectionLabel {
+  margin: 0;
+  color: #67e8f9;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.heroTitle {
+  max-width: 760px;
+  margin: 0;
+  color: #ffffff;
+  font-size: 36px;
+  line-height: 1.1;
+  letter-spacing: 0;
+}
+
+.heroCopy {
+  max-width: 760px;
+  margin: 0;
+  color: #cbd5e1;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.heroPanel {
+  display: grid;
+  align-content: center;
+  gap: 12px;
+  padding: 18px;
+  background: theme.$surface;
+  border-radius: theme.$radius;
+}
+
+.panelMetric {
+  padding: 12px;
+  color: #0f172a;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: theme.$radius;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.contentGrid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 18px;
+  width: min(100%, theme.$content-width);
+  margin: 0 auto;
+}
+
+@media (max-width: 900px) {
+  .topbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .routeNav {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .hero {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .shell {
+    padding: 18px;
+  }
+
+  .hero {
+    padding: 20px;
+  }
+
+  .heroTitle {
+    font-size: 28px;
+  }
+
+  .routeNav {
+    grid-template-columns: 1fr;
+  }
+}

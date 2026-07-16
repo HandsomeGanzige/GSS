@@ -1,0 +1,12 @@
+@use './tokens' as tokens;
+
+.hero {
+  color: tokens.$accent;
+  background-color: tokens.$surface;
+  background-image: url('./mark.svg?scss#hero');
+}
+
+.safe-scss {
+  color: tokens.$accent;
+  padding: tokens.$partial-padding + $fixture-runtime-gap;
+}

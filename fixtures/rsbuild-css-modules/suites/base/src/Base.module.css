@@ -1,0 +1,76 @@
+@value accent: #146ef5;
+
+.shell {
+  --shell-gap: 12px;
+  display: grid;
+  gap: var(--shell-gap);
+  padding: 16px;
+}
+
+.assetButton {
+  composes: shared from './Shared.module.css';
+  color: white;
+  background-color: accent;
+  background-image: url('./mark.svg?phase6#mark');
+}
+
+.publicAsset {
+  min-height: 24px;
+  background-image: url('/phase6-public.svg');
+}
+
+.hoverButton {
+  color: #1d4ed8;
+  background-color: #eff6ff;
+}
+
+.hoverButton:hover {
+  color: #ffffff;
+  background-color: #1d4ed8;
+}
+
+.hoverButton:focus-visible {
+  outline: 3px solid #99f6e4;
+}
+
+.disabledButton:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.cascadeBox {
+  border: 4px solid #fecaca;
+  border-left-color: #0f766e;
+  color: #334155;
+  color: #0f172a;
+}
+
+.importantBox {
+  color: #1d4ed8 !important;
+  color: #991b1b !important;
+}
+
+.dashed-token {
+  background-color: #ecfdf5;
+  color: #047857;
+}
+
+.unsafeParent span {
+  box-shadow: 0 12px 22px rgb(15 23 42 / 12%);
+}
+
+@media (max-width: 640px) {
+  .shell {
+    padding: 8px;
+  }
+}
+
+@supports (display: grid) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+}
+
+:export {
+  phaseLabel: phase-six;
+}

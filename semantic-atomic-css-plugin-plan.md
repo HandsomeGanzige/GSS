@@ -397,9 +397,14 @@ packages/
 
   playground/
     vite-react-css-modules/
+    rsbuild-react-css-modules/
 
   fixtures/
     vite-css-modules/
+      suites/
+        base/
+        preprocessor/
+    rsbuild-css-modules/
       suites/
         base/
         preprocessor/
@@ -446,12 +451,13 @@ core 可以保持为通用 CSS transform engine，但这只是架构边界，不
 
 #### rsbuild adapter
 
-后续阶段接入 Rsbuild / Rspack 的 CSS Modules 构建流程：
+接入 Rsbuild 2.1 / Rspack 的 CSS Modules 构建流程：
 
 - 复用 core
-- 通过 Rsbuild plugin 生命周期处理 `.module.css`
-- 必要时使用 Rspack loader / plugin 生成 CSS Modules tokens
-- 不把普通 CSS 自动转换作为默认目标
+- 通过 Rsbuild plugin 生命周期和公开 loader `importModule` 消费 css-loader array rows 与最终 locals
+- build 复用原生 extraction；dev 复用官方 style injection 维护模块图，并由单一共享 style owner 输出目标样式
+- 由 Rspack 继续负责 CSS Modules、预处理器、资源和 dependency graph
+- 不把普通 CSS 自动转换作为默认目标，也不提供 raw Rspack 公共入口
 
 ---
 
@@ -1689,6 +1695,22 @@ fixtures/
 
 ### 21.6 阶段六：Rsbuild / Rspack CSS Modules 支持
 
+状态更新（2026-07-15）：Phase 6 已完成实现与自动验收。Batch 0 通过 Rspack 公开 loader
+`importModule` 和 css-loader array export 得到 Route A `go`；生产入口为
+`@semantic-atomic-css/rsbuild`，真实验收入口为 `@semantic-atomic-css/rsbuild-fixture`。
+
+build 保持 Rsbuild 默认 extraction；dev 仅在 `dev` action 下切换到官方 `output.injectStyles`，避免
+Rspack 2.1 extraction 嵌套 `importModule` 的增量编译 panic。目标模块的转换快照由单一共享 style owner
+按稳定 source order 输出并按 atomic key 去重，避免后加载模块重复同名原子类改变 cascade。详细边界和
+验证结果见 acceptance。
+
+详细方案、研究与推进记录：
+
+- `docs/phase-6-rsbuild-rspack-adapter-plan.md`
+- `docs/phase-6-rsbuild-rspack-research.md`
+- `docs/phase-6-rsbuild-rspack-adapter-tracking.md`
+- `docs/phase-6-rsbuild-rspack-adapter-acceptance.md`
+
 任务：
 
 ```txt
@@ -1761,11 +1783,9 @@ fixtures/
 ### 23.1 第一优先级
 
 ```txt
-1. 准备 Phase 4 真实项目试用稳固规划文档
-2. 将 CSS Modules only 产品边界沉淀到 README、AGENTS 和阶段文档
-3. 设计暂不支持 CSS Modules 语义的检测和失败策略
-4. 设计 report / size report 的构建工具无关共享能力
-5. 补充对应 acceptance fixture 和验收命令规划
+1. 维护 Phase 6 锁定版本和真实 fixture 门禁
+2. 进入 Phase 7 验证器、调试体验与 source map 方案设计
+3. 在独立任务中评估 Rsbuild 其他版本与 multi-environment 扩展
 ```
 
 ---
@@ -1773,11 +1793,9 @@ fixtures/
 ### 23.2 第二优先级
 
 ```txt
-1. 评估 CSS Modules adapter 共享包边界
-2. 收敛 named exports、strict mode、composes 等后续兼容策略
-3. 扩展 unsafe reason 分布、fallback 占比和压缩体积报告
-4. 强化 computed style verifier 的高风险 CSS Modules 场景
-5. 校准较大 playground 与精简 acceptance fixture 的职责边界
+1. 收口中型 Rsbuild Pilot 已发现的 ICSS token 歧义，并继续观察多 entry/lazy route
+2. 评估 CSS source map 与 named exports 的独立兼容方案
+3. 第二 adapter 已证明相同契约后，再以重复代码证据评估小型 adapter tools 抽取
 ```
 
 ---
@@ -1788,8 +1806,8 @@ fixtures/
 1. 普通全局 CSS 自动 atomic 化
 2. aggressive atomization
 3. Less / Sass 非 CSS Modules 输入
-4. Rsbuild / Rspack adapter 实现
-5. CSS-only HMR 和完整 source map
+4. 独立 raw Rspack adapter 与非 web target
+5. named exports、strict mode、CSS-only HMR 和完整 source map
 ```
 
 ---
@@ -1835,8 +1853,9 @@ CSS Modules only + Safe Atomization + Preserve Semantic Class + Unsafe CSS Fallb
 阶段二：Vite CSS Modules 插件
 阶段三：CSS Modules 兼容与 computed style verifier
 阶段四：真实项目试用稳固与 report 能力
-阶段五：CSS Modules 预处理器与 Rsbuild / Rspack adapter
-阶段六：样式治理与可视化分析工具
+阶段五：Vite CSS Modules 预处理器支持
+阶段六：Rsbuild / Rspack CSS Modules adapter
+阶段七：验证器、调试体验与可视化分析工具
 ```
 
 一句话总结：
