@@ -128,6 +128,7 @@ async function captureCases(page, suite) {
         ['devCascade', '#dev-cascade', ['color']],
         ['important', '#important-box', ['color']],
         ['dashed', '#dashed-token', ['color', 'backgroundColor']],
+        ['icssCollision', '#icss-collision', ['color', 'padding']],
         ['fallback', '#unsafe-child', ['boxShadow']]
       ]
     : [
@@ -225,6 +226,10 @@ function assertTokenCompatibility(semantic, native, label) {
   };
   walk(semantic.eager, native.eager, 'eager');
   if (native.lazy) walk(semantic.lazy, native.lazy, 'lazy');
+  if (native.eager?.collisionLabel) {
+    assert(semantic.eager.collision === native.eager.collision, `${label}.eager.collision 同值歧义应保持 native class token`);
+    assert(semantic.eager.collisionLabel === native.eager.collisionLabel, `${label}.eager.collisionLabel 非 class export 应保持原值`);
+  }
   assert(augmented > 0, `${label} 至少一个 token 应追加 atomic class`);
 }
 

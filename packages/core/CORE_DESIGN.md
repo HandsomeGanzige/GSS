@@ -31,7 +31,8 @@ Phase 2 core v1 已实现以下能力：
 - nested rule 不参与 atomize，当前整体 scoped preserved，并输出 `nested-rule` diagnostic。
 - parse error 不向外抛出，返回 `parse-error` diagnostic 和空 CSS 结果。
 - `TransformCssInput.preserveClassNames` 允许 adapter 按稳定原因保守保留整个 class。
-  Phase 5 首个原因为 `asset-reference`，用于避免构建工具的延迟资源 URL 进入 atomic key。
+  `asset-reference` 用于避免构建工具的延迟资源 URL 进入 atomic key；`ambiguous-export-value` 用于
+  构建工具只能证明多个 CSS Modules export 同值、却无法区分 class 与 ICSS value 的场景。
 
 当前明确不实现：
 

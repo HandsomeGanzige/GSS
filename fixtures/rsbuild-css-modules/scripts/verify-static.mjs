@@ -82,6 +82,7 @@ async function verifyBaseSemantic(outDir) {
   assertIncludes(nativeCss, '--shell-gap:12px', 'custom property 应保留为 scoped fallback');
   assertIncludes(nativeCss, '.fixture_Base-module__unsafeParent span', 'unsafe descendant 应保留');
   assertIncludes(nativeCss, '.fixture_Base-module__assetButton', '资源 class 应整体保留');
+  assertIncludes(nativeCss, '.fixture_Base-module__collision', '同值 ICSS class 应整体保留');
   assertIncludes(nativeCss, 'url(/static/svg/mark.', '资源应使用 Rspack 最终发布路径');
   assertIncludes(nativeCss, 'url(/phase6-public.svg)', 'publicDir URL 应保留原生绝对路径');
   assertIncludes(await readFile(path.join(outDir, 'phase6-public.svg'), 'utf8'), '<svg', 'publicDir asset 应由 Rsbuild 复制');
@@ -91,6 +92,7 @@ async function verifyBaseSemantic(outDir) {
   assertIncludes(mainJs, '_padding_16px', 'tokens 应追加 atomic classes');
   assertIncludes(mainJs, 'fixture_Shared-module__shared', 'composes 应继承原生最终 token');
   assertIncludes(mainJs, 'phase-six', ':export value 应继承原生 token');
+  assertDoesNotInclude(mainJs, 'fixture_Base-module__collision _', '同值 ICSS class/value 不应追加 atomic class');
   assertIncludes(asyncJs, '_margin-top_12px', 'lazy chunk token 应追加 atomic class');
   assert(html.indexOf('/static/css/semantic-atomic.css') < html.indexOf('/static/css/index.'), 'atomic link 应先于 native fallback link');
   await assertMissing(path.join(outDir, 'semantic-atomic-manifest.json'));

@@ -30,6 +30,10 @@ build 保持默认 extraction；dev 使用 Rsbuild 官方 `output.injectStyles` 
 共享 owner 已通过 direct module、Sass partial、移除 import 和跨模块 cascade 浏览器验收。完整结果见
 [Phase 6 验收](phase-6-rsbuild-rspack-adapter-acceptance.md)。下文分批方案保留为实施历史。
 
+中型 Pilot 后续证明 css-loader array contract 无法区分完整同值的 local class export 与 ICSS value。
+adapter 不猜测 export 类型：同值中包含的已知 class 按 `ambiguous-export-value` 整类保留，所有相关
+default export 保持原生字符串。该保守边界已加入包测试、真实 fixture 与 Pilot 验收。
+
 ## 背景与目标
 
 Phase 5 已证明以下分层在 Vite 6 下可行：

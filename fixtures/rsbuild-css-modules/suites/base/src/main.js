@@ -13,6 +13,7 @@ document.querySelector('#root').innerHTML = `
     <section id="dev-cascade" class="${cascadeStyles.base} ${cascadeStyles.active}">dev cascade owner</section>
     <section id="important-box" class="${styles.importantBox}">important</section>
     <section id="dashed-token" class="${styles.dashedToken}">locals convention</section>
+    <section id="icss-collision" class="${styles.collision}">ICSS class/value collision</section>
     <section id="late-reuse" class="${lateReuseStyles.lateReuse}">late atomic reuse</section>
     <section id="unsafe-parent" class="${styles.unsafeParent}"><span id="unsafe-child">fallback</span></section>
     <pre id="tokens">${JSON.stringify(styles, null, 2)}</pre>

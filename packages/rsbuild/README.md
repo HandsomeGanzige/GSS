@@ -48,6 +48,8 @@ HMR dispose 会撤销旧快照；不同 atomic key 若碰撞到同一 readable c
 - `cssFilename`、manifest/report 文件名必须位于 dist 内。
 - 资源 class 及其 composed token 闭包整体保留；inline/external、query/hash、asset prefix 和 publicDir
   仍由 css-loader/Rspack 负责。
+- 多个 default export 完整同值且包含已知 class 时，公开 css-loader array contract 无法区分 class export
+  与 ICSS value；adapter 会按 `ambiguous-export-value` 整类保留，并让所有同值 export 保持原值。
 - 当前锁定并验证 Rsbuild `2.1.x`；其他版本 fail fast。
 - named exports、非 web target、CSS source map、strict mode 和非 array css-loader export fail fast。
 - 不支持 SSR、Node target、worker、library output、Module Federation 或 raw Rspack 公共入口。

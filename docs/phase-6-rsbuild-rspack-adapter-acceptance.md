@@ -4,7 +4,7 @@
 
 - Status: completed
 - 验收日期：2026-07-15
-- 最近回归：2026-07-16（dev 单一共享 style owner）
+- 最近回归：2026-07-17（ICSS 同值保守路径与中型 Pilot preview/partial reload）
 - 生产入口：`@semantic-atomic-css/rsbuild`
 - 自动 fixture：`@semantic-atomic-css/rsbuild-fixture`
 - 锁定基线：Node `22.22.3`、pnpm `8.6.2`、Rsbuild `2.1.6`、Rspack `2.1.4`、
@@ -36,7 +36,7 @@ style owner，按稳定 source order 渲染并按 atomic key 去重。preview �
 | 维度 | 已验证场景 |
 | --- | --- |
 | 输入 | `.module.css`、`.module.scss`、`.module.less`、普通 CSS 对照 |
-| tokens | default export、`camelCaseOnly`、custom ident、`composes`、`:export`、`@value` |
+| tokens | default export、`camelCaseOnly`、custom ident、`composes`、`:export`、`@value`、class/value 完整同值保守保留 |
 | selector | safe、hover/focus-visible/disabled、media/supports、descendant fallback |
 | declaration | custom property、`var()`、`!important`、shorthand/longhand、重复属性 |
 | 资源 | 阈值 inline、external、query/hash、asset prefix、publicDir URL 与文件复制 |
@@ -63,7 +63,7 @@ pnpm verify
 
 执行结果：
 
-- adapter：4 个 test files、11 项测试通过，覆盖 dev atomic key 去重和 readable class 碰撞保护；
+- adapter：4 个 test files、12 项测试通过，覆盖 ICSS 同值 preservation、dev atomic key 去重和 readable class 碰撞保护；
   typecheck/build 通过。
 - fixture static：semantic/native、连续构建、资源、错误边界和配置保护通过。
 - fixture visual：`base`、`preprocessor` 的 dev/preview/desktop/narrow/交互/partial reload 通过；跨模块
@@ -79,7 +79,7 @@ visual 需要本地端口和 Chrome，不进入根 `pnpm verify`；受限环境�
 - 资源 class 采用 class 级保守保留，不追求该 class 内的局部 atomization rate。
 - manifest/report 默认关闭，CSS source map 当前 fail fast。
 - named exports、strict、SSR/Node/worker/library/Module Federation 和 raw Rspack adapter 不在 Phase 6。
-- CSS-only HMR 和完整 source map 留给后续独立工作。中型 Rsbuild Pilot 已在
-  `playground/rsbuild-react-css-modules` 建立，但不进入本阶段自动 fixture 门禁；其 ICSS token probe 已
-  发现非 class export 同值歧义，见
+- CSS-only HMR 和完整 source map 留给后续独立工作。多个 default export 完整同值且包含已知 class 时，
+  adapter 会按 `ambiguous-export-value` 整类保留；因为公开 contract 无法区分 class/value，这也会保守
+  覆盖 `camelCase` alias。中型 Rsbuild Pilot 不进入自动 fixture 门禁，其完整验收见
   [Phase 6 Rsbuild Pilot tracking](phase-6-rsbuild-real-project-pilot-tracking.md)。

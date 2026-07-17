@@ -111,7 +111,10 @@ export async function pitch(this: RuntimeBridgeLoaderContext, remainingRequest: 
   });
   const nativeLocals = validateLocals((cssExport as CssRuntimeRow[] & { locals?: unknown }).locals, this.resourcePath);
   const exportedClassNames = collectExportedClassNames(nativeLocals);
-  const preserveClassNames = collectAssetPreserveClassNames(rows, nativeLocals);
+  const preserveClassNames = {
+    ...collectAssetPreserveClassNames(rows, nativeLocals),
+    ...collectAmbiguousExportPreserveClassNames(nativeLocals, exportedClassNames)
+  };
   const classMappings: Record<string, TransformClassMapping> = {};
   const inputs: CompiledCssInput[] = [];
   const transforms: RuntimeBridgeResult['transforms'] = [];
@@ -310,6 +313,44 @@ function collectExportedClassNames(locals: Record<string, string>): Set<string> 
   }
 
   return classNames;
+}
+
+/**
+ * 标记无法从 css-loader default locals 区分的同值 exports。
+ *
+ * css-loader array contract 只暴露最终字符串，不携带 export 来自 local class 还是 ICSS value 的类型证据。
+ * 多个 export 的完整值相同时，任意选择一个追加 atomic class 都可能污染非 class export；因此把值中的
+ * 已知 class 整体保留，让所有同值 export 继续使用原生字符串和 scoped fallback CSS。
+ */
+export function collectAmbiguousExportPreserveClassNames(
+  locals: Record<string, string>,
+  exportedClassNames: ReadonlySet<string>
+): Record<string, ClassPreservationReason> {
+  const exportNamesByValue = new Map<string, string[]>();
+
+  for (const [exportName, value] of Object.entries(locals)) {
+    const exportNames = exportNamesByValue.get(value) ?? [];
+    exportNames.push(exportName);
+    exportNamesByValue.set(value, exportNames);
+  }
+
+  const ambiguousClassNames = new Set<string>();
+  for (const [value, exportNames] of exportNamesByValue) {
+    if (exportNames.length < 2) {
+      continue;
+    }
+    for (const className of splitClassString(value)) {
+      if (exportedClassNames.has(className)) {
+        ambiguousClassNames.add(className);
+      }
+    }
+  }
+
+  return Object.fromEntries(
+    [...ambiguousClassNames]
+      .sort(compareText)
+      .map((className) => [className, 'ambiguous-export-value' as const])
+  );
 }
 
 /**

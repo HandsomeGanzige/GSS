@@ -2,8 +2,9 @@
 
 ## 当前状态
 
-- Status: in_progress
+- Status: completed
 - 开始日期：2026-07-16
+- 完成日期：2026-07-17
 - 项目入口：`playground/rsbuild-react-css-modules`
 - 锁定基线：Rsbuild `2.1.6`、Rspack `2.1.4`、React `19`、Sass/Less plugins `2.0.1`
 
@@ -49,20 +50,20 @@ pnpm --filter playground-rsbuild-react-css-modules acceptance
 - manifest/report 覆盖 23 个 CSS Modules source，包含 `.module.css`、`.module.scss` 和
   `.module.less`。
 - source-order probe 在锁定版本下相同：native 与 semantic 均由 `ZSourceOrder` 规则获胜。
-- ICSS probe 发现 class token 和同值非 class export 都被追加 atomic classes；该结果证明 adapter 当前
-  不能仅凭 locals 字符串稳定区分 class 与 ICSS value。
+- ICSS probe 的完整同值 class/value 均保持原生 token；对应 class 按 `ambiguous-export-value` 整类
+  fallback，静态检查把该结果作为硬断言。
 
 Analyzer 指标：
 
 | 指标 | 结果 |
 | --- | --- |
 | source classes | `228` |
-| atomic declarations | `291` |
-| reused atomic declarations | `925` |
-| reuse ratio | `0.7607` |
+| atomic declarations | `289` |
+| reused atomic declarations | `923` |
+| reuse ratio | `0.7616` |
 | unsafe rules | `38` |
-| preserved CSS ratio | `0.2954` |
-| estimated total diff | `-15666` bytes |
+| preserved CSS ratio | `0.3009` |
+| estimated total diff | `-15658` bytes |
 | health | `risky` |
 
 ## 浏览器旅程
@@ -70,38 +71,52 @@ Analyzer 指标：
 | 编号 | 模式 | 旅程 | 状态 |
 | --- | --- | --- | --- |
 | R1 | semantic dev | Overview 与 Build lazy route、模式标识、三语言矩阵 | passed |
-| R2 | semantic dev | inspector source order、ICSS token、lazy module | partial |
+| R2 | semantic dev | inspector source order、ICSS token、lazy module | passed |
 | R3 | native dev | inspector source order 与 ICSS token 对照 | passed |
 | R4 | semantic dev | `390 × 844` 主入口与 inspector 无横向溢出 | passed |
-| R5 | semantic/native preview | 两个入口与全部 5 routes 对照 | pending |
-| R6 | semantic dev | Sass/Less partial 更新与 stale token 清理 | pending |
+| R5 | semantic/native preview | 两个入口、全部 5 routes、desktop 与 `390 × 844` 对照 | passed |
+| R6 | semantic dev | Sass/Less partial 更新与 stale token 清理 | passed |
 
-R2 标记为 `partial` 是因为页面与 lazy chunk 均正常，但 ICSS 非 class export 被错误增强；这是 adapter
-正确性问题，不是 Pilot 页面故障。浏览器仅出现预期的 unsafe/preserved diagnostics，没有 runtime error。
+ICSS 的公开输入只有最终 locals 字符串；class export 与 `:export` value 完整同值时，没有类型证据可以
+安全选中其中一个。adapter 因此整类保留 scoped CSS，并让两个 export 都保持原值。inspector 的四张状态卡
+在 semantic dev/preview 中均为 `pass`，浏览器仅出现预期的 unsafe/preserved diagnostics，没有 runtime error。
 
 2026-07-16 进一步检查 R1 时发现，旧 dev bridge 会把每个 CSS Module 的完整 atomic CSS 注入独立 style
 tag；后加载模块重复输出同名原子类，导致 active nav 的 teal 被 gray 覆盖。adapter 改为单一共享 style
 owner 后，active nav computed color 恢复为 `rgb(15, 118, 110)`；页面只有 1 个共享 owner，owner 内重复
 atomic selector 数为 0。该问题已下沉到自动 fixture 的跨模块 cascade 回归。
 
-## 本轮仓库验证
+## 收口验收
 
-2026-07-16 已完成以下验证：
+2026-07-17 完成以下真实浏览器旅程：
 
-- `pnpm --filter @semantic-atomic-css/rsbuild verify`：通过；4 个 test files、11 项测试，包含 dev
-  atomic key 去重与 readable class collision fail-fast。
+- semantic/native preview 的 `index.html` 五个 lazy routes 在 desktop 与 `390 × 844` 下逐项 computed-style
+  一致，均无横向溢出。
+- `inspector.html` 的 source-order、ICSS class/value、lazy CSS Module 在两种 viewport 下完全一致；
+  source-order computed color 为 `rgb(4, 120, 87)`，四张状态卡均为 `pass`。
+- semantic dev 临时副本中修改 Sass `@use` partial，brand gap 从 `14px / _gap_14px` 更新为
+  `22px / _gap_22px`；修改 Less `@import` partial，按钮从 `rgb(15, 118, 110) / _background_0f766e`
+  更新为 `rgb(124, 58, 237) / _background_7c3aed`。旧 token 未留在当前元素，且始终只有一个 shared
+  style owner、lazy route 未丢失、控制台无 error。
+
+## 仓库验证
+
+2026-07-17 已完成以下验证：
+
+- `pnpm --filter @semantic-atomic-css/core verify`：通过；5 个 test files、32 项测试，包含新增的
+  `ambiguous-export-value` class preservation。
+- `pnpm --filter @semantic-atomic-css/rsbuild verify`：通过；4 个 test files、12 项测试，包含 ICSS
+  完整同值保守路径、dev atomic key 去重与 readable class collision fail-fast。
+- `pnpm --filter @semantic-atomic-css/rsbuild-fixture verify`：通过；真实 build 断言同值 class/value 均不增强。
 - `pnpm --filter @semantic-atomic-css/rsbuild-fixture test:visual`：通过；base/preprocessor 的完整
-  semantic/native dev/preview 矩阵包含新增的跨模块 cascade 回归。
-- `pnpm --filter playground-rsbuild-react-css-modules acceptance`：通过；完成 typecheck、semantic/native
-  build 与静态产物检查，并按预期报告 ICSS token 分类风险。
-- `pnpm typecheck`：通过，包含 Rsbuild adapter、fixture 与两个 Pilot。
-- `pnpm build`：通过；semantic build 输出的 unsafe selector / preserved class 信息均为预期保守诊断。
-- `pnpm verify`：通过；core、analyzer、Rsbuild adapter、Vite adapter 及两套 fixture 未发现回归。
+  semantic/native dev/preview 矩阵包含 ICSS 同值和跨模块 cascade 回归。
+- `pnpm --filter playground-rsbuild-react-css-modules acceptance`：通过；静态检查把 ICSS 保守结果作为硬断言。
+- `pnpm typecheck`、`pnpm build`、`pnpm verify`：通过；覆盖全部产品包、fixtures 与 Pilot 类型/构建入口。
 - `git diff --check`：通过，构建目录未进入工作区变更列表。
 
-## 收口条件
+## 收口结论
 
-- 修复或 fail fast 处理 ICSS class/value 同值歧义，并让 inspector semantic 状态恢复为 `pass`。
-- 完成 semantic/native preview 的主入口、inspector、5 routes 与窄屏对照。
-- 完成 Sass/Less partial 更新旅程，确认无 stale CSS/token。
-- 重新运行根 `pnpm typecheck`、`pnpm build`、`pnpm verify` 并检查最终 diff。
+- ICSS class/value 同值采用整类 fallback，不猜测、不污染非 class export。
+- semantic/native preview、双入口、五个 lazy route、窄屏和 inspector 全部一致。
+- Sass/Less partial reload 更新到新 computed style 与新 token，无 stale 当前 token。
+- Batch 6 completed；后续若要减少同值 alias 的保守损失，需要上游提供可证明的 export 类型证据。

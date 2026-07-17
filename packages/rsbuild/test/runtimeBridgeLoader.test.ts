@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   augmentLocals,
+  collectAmbiguousExportPreserveClassNames,
   isTargetCssModule,
   normalizeSyntheticAssetUrls,
   transformCompiledInput
@@ -46,6 +47,37 @@ describe('runtime bridge helpers', () => {
       value: '#146ef5'
     });
     expect(locals.button).toBe('Button_button__hash Shared_shared__hash');
+  });
+
+  it('class 与 ICSS value 同值时保留整类并让两个 export 都保持原值', () => {
+    const locals = {
+      collision: 'Icss_collision__hash',
+      collisionLabel: 'Icss_collision__hash',
+      other: 'Icss_other__hash'
+    };
+    const preserveClassNames = collectAmbiguousExportPreserveClassNames(
+      locals,
+      new Set(['Icss_collision__hash', 'Icss_other__hash'])
+    );
+    const transform = transformCompiledInput(
+      {
+        id: '/project/src/Icss.module.css',
+        scopedCss: '.Icss_collision__hash { color: red; padding: 14px; } .Icss_other__hash { color: blue; }',
+        exportedClassNames: ['Icss_collision__hash', 'Icss_other__hash'],
+        preserveClassNames
+      },
+      { className: { strategy: 'readable' } }
+    );
+
+    expect(preserveClassNames).toEqual({ Icss_collision__hash: 'ambiguous-export-value' });
+    expect(transform.classes.Icss_collision__hash.atomicClassNames).toEqual([]);
+    expect(transform.classes.Icss_other__hash.atomicClassNames).toEqual(['_color_blue']);
+    expect(transform.css.preserved).toContain('.Icss_collision__hash');
+    expect(augmentLocals(locals, transform.classes)).toEqual({
+      collision: 'Icss_collision__hash',
+      collisionLabel: 'Icss_collision__hash',
+      other: 'Icss_other__hash _color_blue'
+    });
   });
 
   it('保守 preservation 会保留 semantic rule，不把资源 declaration 写入 atomic key', () => {

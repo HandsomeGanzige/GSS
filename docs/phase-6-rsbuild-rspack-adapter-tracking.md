@@ -22,7 +22,7 @@
 | 3 | ICSS、SCSS/Less 与资源 | completed | composes、preprocessor、inline/external/prefix/publicDir |
 | 4 | dev 与失效模型 | completed | style injection + 单一共享 owner、HMR、partial、移除 import 无 stale state |
 | 5 | fixture、visual 与文档 | completed | static/root 门禁与显式 Chrome 验收 |
-| 6 | 中型 Rsbuild Pilot | in_progress | 双入口 React Pilot 已建立，ICSS token probe 发现待修复歧义 |
+| 6 | 中型 Rsbuild Pilot | completed | 双入口 React Pilot、ICSS 保守路径、preview 与 partial reload 已验收 |
 
 ## Batch 0 路线结论
 
@@ -82,6 +82,9 @@ cascade 已通过浏览器验收。
    移到 cascade 尾部并覆盖本应生效的 class。参考 Vite 的 shared CSS owner，将 dev 转换快照集中到一个
    style owner，按 atomic key 去重并复用 build renderer；另以跨模块相同 readable class 碰撞 fail fast
    防止不同 key 静默共用选择器。
+6. 中型 Pilot 证明 class export 与 ICSS value 可能拥有完全相同的最终字符串，而 css-loader array
+   contract 不携带 export 类型。adapter 现在识别完整同值 exports，把其中的已知 class 按
+   `ambiguous-export-value` 整类保留；相关 class/value 都保持原生 token，不进行顺序猜测。
 
 ## 验收结果
 
@@ -94,12 +97,12 @@ GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Goo
   pnpm --filter @semantic-atomic-css/rsbuild-fixture test:visual
 ```
 
-- adapter：4 个 test files、11 项测试，typecheck/build 通过。
+- adapter：4 个 test files、12 项测试，typecheck/build 通过。
 - static fixture：CSS/SCSS/Less、semantic/native、连续 build、lazy、ICSS/composes、inline/external、
   query/hash、asset prefix、publicDir、manifest/report/analysis、原生 Sass 错误和 config fail-fast 通过。
 - visual fixture：base/preprocessor 的 semantic/native dev/preview、desktop/narrow、hover/focus、lazy、
   asset HTTP、Sass partial 更新和移除 import 通过。
-- 根 `pnpm verify`：通过；包含 core 31、analyzer 5、Vite 30、Rsbuild 11 项测试及两套 static
+- 根 `pnpm verify`：通过；包含 core 32、analyzer 5、Vite 30、Rsbuild 12 项测试及两套 static
   fixture。visual 因 localhost/Chrome 要求保持显式命令。
 
 ## 当前决策
@@ -122,8 +125,9 @@ GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Goo
 - Rspack `importModule` / css-loader array contract 升级时需要重新验证版本门禁。
 - CSS source map、named exports、multi-environment、SSR/worker/library 与 Module Federation 尚未支持。
 - dev 浏览器 owner 与 build extraction owner 的生命周期不同，必须继续保留 semantic/native visual 对照。
-- 中型真实 Rsbuild Pilot 已覆盖多 entry、lazy routes、SCSS/Less、资源和窄屏；当前 source-order probe
-  与 native 一致，但 ICSS class/value 同值会错误增强非 class export，需在独立修复任务中收口。
+- 中型真实 Rsbuild Pilot 已覆盖多 entry、lazy routes、SCSS/Less、资源和窄屏；source-order 与
+  semantic/native preview 保持一致，ICSS class/value 同值已按整类 fallback 收口。该策略会同时保守处理
+  `camelCase` 等产生的同值 alias，牺牲少量 atomization rate 以避免污染非 class export。
 
-Batch 6 的实现、指标、浏览器旅程和剩余条件见
+Batch 6 的实现、指标、浏览器旅程和收口结果见
 [Phase 6 Rsbuild Pilot tracking](phase-6-rsbuild-real-project-pilot-tracking.md)。

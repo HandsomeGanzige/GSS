@@ -75,12 +75,8 @@ async function main() {
   };
 
   console.log(JSON.stringify(result, null, 2));
-  if (!sourceOrder.parity) {
-    console.warn('警告：semantic/native source-order probe 不一致，需要检查全局 atomic CSS 排序。');
-  }
-  if (!icss.nonClassExportPreserved) {
-    console.warn('警告：ICSS 非 class export 被追加 atomic class，当前 adapter 仍存在 token 分类歧义。');
-  }
+  assert(sourceOrder.parity, 'semantic/native source-order probe 应保持一致');
+  assert(icss.conservativePreservation, '同值 ICSS class/value 应全部保持 native token 且不追加 atomic class');
 }
 
 /** 比较 native scoped rules 与 semantic atomic rules 对两个 probe class 的最终覆盖顺序。 */
@@ -104,17 +100,24 @@ function inspectSourceOrder(manifest, atomicCss, nativeCss) {
   };
 }
 
-/** 检查 class token 与同值 ICSS export 是否被 adapter 一并增强。 */
+/** 检查 class token 与同值 ICSS export 是否都走保守 preservation。 */
 function inspectIcssCollision(semanticJs, nativeJs) {
   const scopedClass = 'pilot_IcssProbe-module__collision';
   const augmentedPattern = new RegExp(`${escapeRegExp(scopedClass)} _`, 'g');
+  const scopedPattern = new RegExp(escapeRegExp(scopedClass), 'g');
   const semanticAugmentedOccurrences = [...semanticJs.matchAll(augmentedPattern)].length;
-  const nativeScopedOccurrences = [...nativeJs.matchAll(new RegExp(escapeRegExp(scopedClass), 'g'))].length;
+  const semanticScopedOccurrences = [...semanticJs.matchAll(scopedPattern)].length;
+  const nativeScopedOccurrences = [...nativeJs.matchAll(scopedPattern)].length;
 
   return {
     nativeScopedOccurrences,
+    semanticScopedOccurrences,
     semanticAugmentedOccurrences,
-    nonClassExportPreserved: semanticAugmentedOccurrences === 1
+    nonClassExportPreserved: semanticAugmentedOccurrences === 0,
+    conservativePreservation:
+      nativeScopedOccurrences >= 2 &&
+      semanticScopedOccurrences === nativeScopedOccurrences &&
+      semanticAugmentedOccurrences === 0
   };
 }
 

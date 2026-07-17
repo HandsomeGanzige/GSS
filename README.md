@@ -124,7 +124,7 @@ pnpm --filter playground-rsbuild-react-css-modules preview:native
 ```
 
 主入口为 `index.html`，契约检查入口为 `inspector.html`。Pilot 的静态检查不进入根 `verify`；当前推进与
-已发现的 ICSS token 风险见
+ICSS 保守边界、preview/partial reload 验收结果见
 [Phase 6 Rsbuild Pilot tracking](docs/phase-6-rsbuild-real-project-pilot-tracking.md)。
 
 ## Rsbuild fixture

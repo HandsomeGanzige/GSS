@@ -101,7 +101,7 @@ export type TransformCssInput = {
 };
 
 /** adapter 要求 core 保守保留整个 class 的稳定原因。 */
-export type ClassPreservationReason = 'asset-reference';
+export type ClassPreservationReason = 'asset-reference' | 'ambiguous-export-value';
 
 /**
  * CSS rule 所处的安全转换上下文。

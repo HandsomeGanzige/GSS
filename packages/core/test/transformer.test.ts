@@ -120,6 +120,32 @@ describe('transformCss fixtures', () => {
     );
   });
 
+  it('adapter 无法区分同值 export 时会保留整类并记录稳定原因', () => {
+    const result = transformCss({
+      id: 'ambiguous-export.css',
+      css: '.collision { color: red; padding: 14px; }',
+      scope: createTestScope(),
+      preserveClassNames: {
+        collision: 'ambiguous-export-value'
+      }
+    });
+
+    expect(result.classes.collision).toMatchObject({
+      resolvedClassName: 's_collision',
+      atomicClassNames: [],
+      suggestedClassName: 's_collision'
+    });
+    expect(result.css.atomic).toBe('');
+    expect(result.css.preserved).toContain('.s_collision');
+    expect(result.diagnostics).toEqual([
+      expect.objectContaining({
+        code: 'preserved-class',
+        reason: 'ambiguous-export-value',
+        sourceClassName: 'collision'
+      })
+    ]);
+  });
+
   it('让 preserved CSS 保持在 atomic CSS 之后由调用方拼接使用', () => {
     const result = transformCss({
       id: 'mixed.css',

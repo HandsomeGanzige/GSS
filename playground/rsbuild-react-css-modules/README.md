@@ -22,5 +22,6 @@ pnpm --filter playground-rsbuild-react-css-modules preview
 pnpm --filter playground-rsbuild-react-css-modules preview:native
 ```
 
-`acceptance` 只检查类型、真实构建和静态产物结构，不进入根 `pnpm verify`。computed style、交互、窄屏和
-partial 更新继续由人工 Pilot 观察；稳定自动回归仍属于 `fixtures/rsbuild-css-modules`。
+`acceptance` 只检查类型、真实构建和静态产物结构，不进入根 `pnpm verify`；ICSS class/value 完整同值
+必须走保守 fallback，并由静态检查硬断言。computed style、交互、窄屏和 partial 更新仍属于人工 Pilot；
+2026-07-17 的收口结果记录在 Phase 6 Pilot tracking，稳定自动回归继续属于 `fixtures/rsbuild-css-modules`。
