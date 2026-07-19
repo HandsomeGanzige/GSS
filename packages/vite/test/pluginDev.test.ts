@@ -1,7 +1,8 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer, type Plugin, type PluginOption, type ViteDevServer } from 'vite';
 import { semanticAtomicCss } from '../src/plugin.js';
 
@@ -43,6 +44,100 @@ describe('semanticAtomicCss dev plugin', () => {
     } finally {
       await server.close();
     }
+  });
+
+  it('显式开启 devtools 后提供版本化 report API 并注入隔离 overlay', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gss-vite-devtools-'));
+    const srcDir = join(root, 'src');
+    tempRoots.push(root);
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(root, 'index.html'), '<html><head></head><body><div id="root"></div></body></html>');
+    await writeFile(
+      join(srcDir, 'Button.module.css'),
+      '.button { color: red; }\n.button[data-state="open"] { color: blue; }'
+    );
+
+    const server = await createViteServer(root, semanticAtomicCss({ devtools: { overlay: true } }));
+
+    try {
+      await server.transformRequest('/src/Button.module.css');
+      const headers = new Map<string, string>();
+      const body = await new Promise<string>((resolve, reject) => {
+        server.middlewares(
+          { method: 'GET', url: '/__semantic-atomic-css/report?t=1' } as never,
+          {
+            statusCode: 0,
+            setHeader(name: string, value: string) {
+              headers.set(name, value);
+            },
+            end(value: string) {
+              resolve(value);
+            }
+          } as never,
+          reject
+        );
+      });
+      const payload = JSON.parse(body);
+      const html = await server.transformIndexHtml('/', '<html><head></head><body></body></html>');
+
+      expect(headers.get('cache-control')).toBe('no-store');
+      expect(payload).toMatchObject({
+        schemaVersion: 1,
+        adapter: 'vite',
+        status: 'ready',
+        environments: [
+          {
+            name: 'client',
+            report: {
+              summary: { files: 1, unsafeRules: 1 },
+              analysis: { health: { status: 'risky' } }
+            }
+          }
+        ]
+      });
+      expect(html).toContain('data-semantic-atomic-css-overlay-runtime');
+      expect(html).toContain('attachShadow');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('dev report endpoint 只接受 GET', () => {
+    const plugin = readPipelinePlugin(semanticAtomicCss({ devtools: { enabled: true } }));
+    let middleware: ((request: Record<string, unknown>, response: Record<string, unknown>, next: () => void) => void) | undefined;
+    const configureServer = plugin.configureServer;
+
+    if (typeof configureServer !== 'function') {
+      throw new Error('semanticAtomicCss 插件缺少 configureServer。');
+    }
+
+    configureServer({
+      middlewares: {
+        use(callback: typeof middleware) {
+          middleware = callback;
+        }
+      }
+    } as never);
+    const next = vi.fn();
+    middleware?.(
+      { method: 'POST', url: '/__semantic-atomic-css/report' },
+      { end: vi.fn() },
+      next
+    );
+
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('拒绝可能破坏 inline overlay 的非法 endpoint', () => {
+    expect(() => semanticAtomicCss({ devtools: { endpoint: '/report?<script>' } })).toThrow(
+      /invalid-dev-report-endpoint/
+    );
+    expect(() => semanticAtomicCss({ devtools: { enabled: true, pollIntervalMs: Number.NaN } })).toThrow(
+      /invalid-overlay-poll-interval/
+    );
+    expect(() => semanticAtomicCss({ devtools: { endpoint: '/../report' } })).toThrow(
+      /invalid-dev-report-endpoint/
+    );
   });
 
   it('shared CSS 已缓存后首次转换新模块会刷新服务端快照并通知浏览器', async () => {
@@ -260,6 +355,96 @@ describe('semanticAtomicCss dev plugin', () => {
     }
   });
 
+  it('JS 移除 CSS Module import 时立即清理 stale CSS 与 dev report', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gss-vite-import-removal-'));
+    const srcDir = join(root, 'src');
+    const entryFile = join(srcDir, 'main.ts');
+    const pluginOption = semanticAtomicCss({ devtools: { enabled: true, overlay: false } });
+    const plugin = readPipelinePlugin(pluginOption);
+    tempRoots.push(root);
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(root, 'index.html'), '<div id="root"></div>');
+    await writeFile(entryFile, "import styles from './Button.module.css';\nconsole.log(styles.button);\n");
+    await writeFile(join(srcDir, 'Button.module.css'), '.button { color: red; }');
+
+    const server = await createViteServer(root, pluginOption);
+
+    try {
+      await server.transformRequest('/src/main.ts');
+      const moduleResult = await server.transformRequest('/src/Button.module.css');
+      const cssImport = readCssImport(moduleResult?.code);
+      expect(await loadRawVirtualCss(plugin, cssImport)).toContain('._color_red');
+
+      await writeFile(entryFile, "console.log('CSS import removed');\n");
+      invokeHotUpdate(plugin, server, entryFile);
+
+      expect(await loadRawVirtualCss(plugin, cssImport)).toBe('');
+      expect(await requestViteDevReport(server)).toMatchObject({ status: 'idle', environments: [] });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('HMR 失效后拒绝旧异步 transform 回写 dev cache', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gss-vite-generation-'));
+    const srcDir = join(root, 'src');
+    const cssFile = join(srcDir, 'Button.module.css');
+    const pluginOption = semanticAtomicCss();
+    const plugin = readPipelinePlugin(pluginOption);
+    tempRoots.push(root);
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(root, 'index.html'), '<div id="root"></div>');
+    await writeFile(cssFile, '.button { color: red; }');
+
+    const server = await createViteServer(root, pluginOption);
+
+    try {
+      const firstResult = await server.transformRequest('/src/Button.module.css');
+      const cssImport = readCssImport(firstResult?.code);
+      expect(await loadRawVirtualCss(plugin, cssImport)).toContain('._color_red');
+
+      const originalReadFile = fs.readFile.bind(fs);
+      let releaseRead: (() => void) | undefined;
+      let markReadStarted: (() => void) | undefined;
+      const readStarted = new Promise<void>((resolve) => {
+        markReadStarted = resolve;
+      });
+      const readFileSpy = vi.spyOn(fs, 'readFile').mockImplementation(((filename: unknown, options: unknown) => {
+        if (filename !== cssFile) {
+          return originalReadFile(filename as string, options as BufferEncoding);
+        }
+        markReadStarted?.();
+        return new Promise((resolve, reject) => {
+          releaseRead = () => {
+            originalReadFile(filename, options as BufferEncoding).then(resolve, reject);
+          };
+        });
+      }) as typeof fs.readFile);
+
+      try {
+        const transform = plugin.transform;
+        if (typeof transform !== 'function') {
+          throw new Error('semanticAtomicCss 插件缺少 transform。');
+        }
+        const staleTransform = (transform as Function).call(
+          { warn() {} },
+          '.fixture_button { color: red; }',
+          cssFile
+        ) as Promise<unknown>;
+        await readStarted;
+        invokeHotUpdate(plugin, server, cssFile);
+        releaseRead?.();
+        await staleTransform;
+        expect(await loadRawVirtualCss(plugin, cssImport)).toBe('');
+      } finally {
+        readFileSpy.mockRestore();
+        releaseRead?.();
+      }
+    } finally {
+      await server.close();
+    }
+  });
+
   it('SCSS shared partial 通过 Vite graph 失效 dependent，旧 watch 边会保守重验证', async () => {
     const { root, partialFile, alphaFile, betaFile } = await createPreprocessorDevFixture();
     const pluginOption = semanticAtomicCss();
@@ -350,6 +535,24 @@ function invokeHotUpdate(plugin: Plugin, server: ViteDevServer, file: string): v
     timestamp: Date.now(),
     read: async () => ''
   });
+}
+
+/** 通过 Vite middleware stack 读取当前 dev report JSON。 */
+async function requestViteDevReport(server: ViteDevServer): Promise<Record<string, unknown>> {
+  const body = await new Promise<string>((resolve, reject) => {
+    server.middlewares(
+      { method: 'GET', url: '/__semantic-atomic-css/report' } as never,
+      {
+        statusCode: 0,
+        setHeader() {},
+        end(value: string) {
+          resolve(value);
+        }
+      } as never,
+      reject
+    );
+  });
+  return JSON.parse(body) as Record<string, unknown>;
 }
 
 /**

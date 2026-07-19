@@ -5,6 +5,7 @@
  */
 export { pluginSemanticAtomicCss } from './plugin.js';
 export type {
+  DevtoolsOptions,
   DiagnosticsOptions,
   ManifestOptions,
   ReportOptions,

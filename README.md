@@ -12,6 +12,7 @@ Rsbuild 2.1 两条原生 CSS Modules adapter。
 packages/
   core/                         标准 CSS AST 转换与 manifest/report 数据
   analyzer/                     风险、收益、体积与 declaration 冲突分析
+  devtools/                     computed style verifier、dev report 协议与 overlay runtime
   vite/                         Vite 6 原生 CSS 管线 adapter
   rsbuild/                      Rsbuild 2.1 / Rspack 原生 CSS 管线 adapter
 
@@ -43,10 +44,10 @@ pnpm build
 pnpm verify
 ```
 
-- `test`：运行 core、analyzer、Vite 和 Rsbuild adapter 的包内测试。
-- `typecheck`：检查四个产品包、fixtures 和 Pilot。
+- `test`：运行 core、analyzer、devtools、Vite 和 Rsbuild adapter 的包内测试。
+- `typecheck`：检查五个产品包、fixtures 和 Pilot。
 - `build`：按 workspace 依赖顺序构建产品包、fixture semantic suites 和 Pilot。
-- `verify`：运行四个产品包的 test/typecheck/build，再运行 fixture 静态黑盒验收；
+- `verify`：运行五个产品包的 test/typecheck/build，再运行 fixture 静态黑盒验收；
   不含需要 Chrome/localhost 的 visual 测试，也不构建 Pilot 作为门禁。
 
 定向验证单个包时使用 workspace filter：
@@ -54,6 +55,7 @@ pnpm verify
 ```bash
 pnpm --filter @semantic-atomic-css/core verify
 pnpm --filter @semantic-atomic-css/analyzer verify
+pnpm --filter @semantic-atomic-css/devtools verify
 pnpm --filter @semantic-atomic-css/vite verify
 pnpm --filter @semantic-atomic-css/rsbuild verify
 ```
@@ -79,6 +81,7 @@ visual 验收会启动 semantic/native dev 与 preview，对比 computed style�
 ```bash
 pnpm --filter @semantic-atomic-css/vite-fixture test:visual
 pnpm --filter @semantic-atomic-css/vite-fixture test:visual -- --suite base
+pnpm --filter @semantic-atomic-css/vite-fixture test:visual -- --report /tmp/gss-vite-style-diff.json
 ```
 
 若 Chrome 不在默认位置：
@@ -139,6 +142,7 @@ pnpm --filter @semantic-atomic-css/rsbuild-fixture build
 pnpm --filter @semantic-atomic-css/rsbuild-fixture preview -- --suite base --mode semantic
 pnpm --filter @semantic-atomic-css/rsbuild-fixture verify
 pnpm --filter @semantic-atomic-css/rsbuild-fixture test:visual
+pnpm --filter @semantic-atomic-css/rsbuild-fixture test:visual -- --report /tmp/gss-rsbuild-style-diff.json
 ```
 
 静态验收覆盖连续构建稳定性、tokens、CSS、manifest/report、inline/external/publicDir 资源和配置保护；
@@ -152,6 +156,7 @@ visual 对比 dev/preview、桌面/窄屏、交互、lazy chunk，并修改 Sass
 - `composes`、`:import(...)`、`:export`、`@value`、预处理器和资源由 Vite 原生管线处理。
 - 包含 `url()` 的 class 及其 `composes` 闭包完整保留为 fallback，build 在 generate 阶段解析最终资源 URL。
 - manifest/report 默认不输出；显式开启 report 后附带 analyzer `analysis`。
+- `devtools.enabled` 默认关闭；开启后提供版本化 report API 和 Shadow DOM browser overlay。
 - strict mode、named exports、CSS-only HMR、Vite 7 和 raw Rspack adapter 仍非当前范围。
 
 ## Rsbuild adapter 当前边界
@@ -162,6 +167,7 @@ visual 对比 dev/preview、桌面/窄屏、交互、lazy chunk，并修改 Sass
   增量编译的嵌套 `importModule` panic 和后加载模块重复同名原子类造成的 cascade 覆盖。
 - tokens 在原生 scoped/composed class 后追加 atomic classes；资源 class 与 composed 闭包保守保留。
 - 支持可选 manifest/report 与 analyzer；输出顺序和条件分区可复现。
+- `devtools.enabled` 默认关闭；开启后按 environment 提供 dev report API 和 Shadow DOM overlay。
 - 当前锁定 Rsbuild 2.1.x、web target、default exports 和 css-loader array pipeline。
 - named exports、strict、CSS source map、Node/SSR/worker/library 与 raw Rspack adapter fail fast 或不在范围。
 
@@ -177,6 +183,9 @@ visual 对比 dev/preview、桌面/窄屏、交互、lazy chunk，并修改 Sass
   [docs/phase-6-rsbuild-real-project-pilot-tracking.md](docs/phase-6-rsbuild-real-project-pilot-tracking.md)
 - Rsbuild adapter：[packages/rsbuild/README.md](packages/rsbuild/README.md)、
   [docs/phase-6-rsbuild-rspack-adapter-acceptance.md](docs/phase-6-rsbuild-rspack-adapter-acceptance.md)
+- Phase 7 verifier 与调试体验：[packages/devtools/README.md](packages/devtools/README.md)、
+  [docs/phase-7-verifier-devtools-plan.md](docs/phase-7-verifier-devtools-plan.md)、
+  [docs/phase-7-verifier-devtools-acceptance.md](docs/phase-7-verifier-devtools-acceptance.md)
 
 `verify:phase*` 和 `dev:phase*` 等阶段命令已退役。历史 tracking 文档仍保留当时实际执行记录，
 当前开发与验收以本 README 中的能力命令为准。

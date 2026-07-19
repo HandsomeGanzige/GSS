@@ -24,6 +24,12 @@ import {
 import { analyzeBuild } from '@semantic-atomic-css/analyzer';
 import type { BuildAnalysis } from '@semantic-atomic-css/analyzer';
 import {
+  createBrowserOverlayRuntime,
+  createDevReportEnvelope,
+  matchesDevReportRequest,
+  type DevReportEnvelope
+} from '@semantic-atomic-css/devtools';
+import {
   augmentCssModuleTokens,
   cleanRequestId,
   collectExportedClassNames,
@@ -89,10 +95,12 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
   const devResults = new Map<string, CssModuleTransformResult>();
   const nativeTokensById = new Map<string, CssModuleTokens>();
   const pendingDevTransforms = new Set<Promise<void>>();
+  const devTransformGenerations = new Map<string, number>();
   const warnedDiagnostics = new Set<string>();
   let config: ResolvedConfig | undefined;
   let devServer: ViteDevServer | undefined;
   let buildTransformer: Transformer | undefined;
+  let devTransformSession = 0;
 
   const pipelinePlugin: Plugin = {
     name: 'semantic-atomic-css:vite-pipeline',
@@ -136,6 +144,25 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
      */
     configureServer(server): void {
       devServer = server;
+
+      if (resolvedOptions.devtools.enabled) {
+        server.middlewares.use((request, response, next) => {
+          if (request.method !== 'GET' || !matchesDevReportRequest(request.url, resolvedOptions.devtools.endpoint)) {
+            next();
+            return;
+          }
+
+          void waitForDevTransformIdle(pendingDevTransforms)
+            .then(() => {
+              const payload = createViteDevReport(devResults, resolvedOptions);
+              response.statusCode = 200;
+              response.setHeader('content-type', 'application/json; charset=utf-8');
+              response.setHeader('cache-control', 'no-store');
+              response.end(`${JSON.stringify(payload, null, 2)}\n`);
+            })
+            .catch(next);
+        });
+      }
     },
 
     /**
@@ -147,7 +174,8 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
     buildStart(): void {
       buildResults.clear();
       nativeTokensById.clear();
-      pendingDevTransforms.clear();
+      devTransformSession += 1;
+      devTransformGenerations.clear();
       warnedDiagnostics.clear();
       buildTransformer = createTransformer(resolveCoreOptions(resolvedOptions, 'build'));
     },
@@ -203,25 +231,41 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
         );
       }
 
-      const isNewDevModule = config.command === 'serve' && !hasTransformResult(devResults, file);
-      const sourceCss = await fs.readFile(file, 'utf8');
+      const isDev = config.command === 'serve';
+      const isNewDevModule = isDev && !hasTransformResult(devResults, file);
+      const generation = readDevTransformGeneration(devTransformGenerations, file);
+      const session = devTransformSession;
       const result = await trackDevTransform(
         config,
         pendingDevTransforms,
-        transformCompiledCssModule({
-          compiled: {
-            id: file,
-            sourceCss,
-            scopedCss,
-            tokens
-          },
-          config,
-          options: resolvedOptions,
-          buildTransformer,
-          buildResults,
-          devResults
-        })
+        (async () => {
+          const sourceCss = await fs.readFile(file, 'utf8');
+          return transformCompiledCssModule({
+            compiled: {
+              id: file,
+              sourceCss,
+              scopedCss,
+              tokens
+            },
+            config,
+            options: resolvedOptions,
+            buildTransformer,
+            buildResults,
+            devResults,
+            shouldCommitDevResult: () =>
+              session === devTransformSession &&
+              generation === readDevTransformGeneration(devTransformGenerations, file)
+          });
+        })()
       );
+
+      if (
+        isDev &&
+        (session !== devTransformSession ||
+          generation !== readDevTransformGeneration(devTransformGenerations, file))
+      ) {
+        return { code: '', map: null };
+      }
 
       Object.assign(tokens, result.tokens);
       emitDiagnostics(this, result.transform.diagnostics, resolvedOptions, warnedDiagnostics);
@@ -261,9 +305,9 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
       for (const affectedFile of affectedModules) {
         deleteTransformResult(devResults, affectedFile);
         nativeTokensById.delete(normalizeFileIdentity(affectedFile));
+        incrementDevTransformGeneration(devTransformGenerations, affectedFile);
       }
 
-      pendingDevTransforms.clear();
       invalidateDevCssModules(context.server, affectedModules, context.modules);
       invalidateDevVirtualCssModule(context.server);
       context.server.ws.send({ type: 'full-reload' });
@@ -276,7 +320,27 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
      * @param html - 当前 HTML source。
      * @returns 未产生 build CSS 时原样返回，否则返回包含 link 的 HTML。
      */
-    transformIndexHtml(html): string {
+    transformIndexHtml(html) {
+      if (config?.command === 'serve' && resolvedOptions.devtools.overlay) {
+        return {
+          html,
+          tags: [
+            {
+              tag: 'script',
+              attrs: {
+                type: 'module',
+                'data-semantic-atomic-css-overlay-runtime': ''
+              },
+              children: createBrowserOverlayRuntime({
+                endpoint: resolvedOptions.devtools.endpoint,
+                pollIntervalMs: resolvedOptions.devtools.pollIntervalMs
+              }),
+              injectTo: 'head'
+            }
+          ]
+        };
+      }
+
       if (!config || config.command !== 'build' || buildResults.size === 0) {
         return html;
       }
@@ -563,8 +627,19 @@ function normalizeFileIdentity(file: string): string {
   return process.platform === 'darwin' && resolved.startsWith('/private/') ? resolved.slice('/private'.length) : resolved;
 }
 
+/** 读取单个 CSS Module 的失效代次，未登记时从 0 开始。 */
+function readDevTransformGeneration(generations: Map<string, number>, file: string): number {
+  return generations.get(normalizeFileIdentity(file)) ?? 0;
+}
+
+/** 只推进受影响文件的代次，避免误废弃无关模块的并发 transform。 */
+function incrementDevTransformGeneration(generations: Map<string, number>, file: string): void {
+  const identity = normalizeFileIdentity(file);
+  generations.set(identity, (generations.get(identity) ?? 0) + 1);
+}
+
 /**
- * 从 Vite dependency graph 向上收集受影响 CSS Modules。
+ * 从 Vite dependency graph 分别沿旧 dependency 与 importer 方向收集受影响 CSS Modules。
  *
  * @param file - 本次变化的文件。
  * @param contextModules - Vite 已关联的 hot update modules。
@@ -581,13 +656,13 @@ function collectAffectedCssModules(
   options: ResolvedSemanticAtomicCssOptions
 ): Set<string> {
   const affectedFiles = new Set<string>();
-  const queuedModules = new Set<ModuleNode>(contextModules);
+  const rootModules = new Set<ModuleNode>(contextModules);
   for (const candidate of fileIdentityCandidates(file)) {
     const graphModules = server.moduleGraph.getModulesByFile(candidate);
 
     if (graphModules) {
       for (const moduleNode of graphModules) {
-        queuedModules.add(moduleNode);
+        rootModules.add(moduleNode);
       }
     }
   }
@@ -596,16 +671,25 @@ function collectAffectedCssModules(
     affectedFiles.add(file);
   }
 
-  const queue = [...queuedModules];
-  const visited = new Set<ModuleNode>();
+  const queue: Array<{ moduleNode: ModuleNode; direction: 'dependencies' | 'importers' }> = [];
+  for (const moduleNode of rootModules) {
+    queue.push({ moduleNode, direction: 'dependencies' }, { moduleNode, direction: 'importers' });
+  }
+  const visitedDependencies = new Set<ModuleNode>();
+  const visitedImporters = new Set<ModuleNode>();
 
   while (queue.length > 0) {
-    const moduleNode = queue.shift();
+    const entry = queue.shift();
 
-    if (!moduleNode || visited.has(moduleNode)) {
+    if (!entry) {
       continue;
     }
 
+    const { moduleNode, direction } = entry;
+    const visited = direction === 'dependencies' ? visitedDependencies : visitedImporters;
+    if (visited.has(moduleNode)) {
+      continue;
+    }
     visited.add(moduleNode);
     const candidate = moduleNode.file ?? readAbsoluteModuleId(moduleNode.id);
 
@@ -614,10 +698,19 @@ function collectAffectedCssModules(
       continue;
     }
 
-    for (const importer of moduleNode.importers) {
-      // Vite 某些 additional watch file 节点会短暂保留旧 importer，只沿当前双向边遍历。
-      if (importer.importedModules.has(moduleNode)) {
-        queue.push(importer);
+    if (direction === 'dependencies') {
+      for (const dependency of moduleNode.importedModules) {
+        // JS/TS 删除 import 时需要沿更新前的 outgoing edge 找到并清理旧 CSS result。
+        if (dependency.importers.has(moduleNode)) {
+          queue.push({ moduleNode: dependency, direction });
+        }
+      }
+    } else {
+      for (const importer of moduleNode.importers) {
+        // additional watch file 可能保留旧 importer，只沿当前双向边反查 CSS consumer。
+        if (importer.importedModules.has(moduleNode)) {
+          queue.push({ moduleNode: importer, direction });
+        }
       }
     }
   }
@@ -727,6 +820,7 @@ async function transformCompiledCssModule(input: {
   buildTransformer: Transformer | undefined;
   buildResults: Map<string, CssModuleTransformResult>;
   devResults: Map<string, CssModuleTransformResult>;
+  shouldCommitDevResult: () => boolean;
 }): Promise<CssModuleTransformResult> {
   if (input.config.command === 'build') {
     const cached = input.buildResults.get(input.compiled.id);
@@ -756,7 +850,7 @@ async function transformCompiledCssModule(input: {
 
   if (input.config.command === 'build') {
     input.buildResults.set(input.compiled.id, result);
-  } else {
+  } else if (input.shouldCommitDevResult()) {
     input.devResults.set(input.compiled.id, result);
   }
 
@@ -798,8 +892,23 @@ async function waitForDevTransformIdle(pendingDevTransforms: Set<Promise<void>>)
       return;
     }
 
-    await Promise.allSettled([...pendingDevTransforms]);
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      return;
+    }
+    await waitForPromisesOrTimeout([...pendingDevTransforms], remainingMs);
   } while (pendingDevTransforms.size > 0 && Date.now() < deadline);
+}
+
+/** 等待当前 promises 或 deadline，提前完成时清理 timeout 避免轮询累积 timer。 */
+async function waitForPromisesOrTimeout(promises: Promise<void>[], timeoutMs: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    void Promise.allSettled(promises).then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 /**
@@ -1092,6 +1201,41 @@ function createBuildReport(
       outputCss
     })
   };
+}
+
+/**
+ * 从可失效的 per-file dev results 重建一次 append-only 聚合视图。
+ *
+ * @remarks
+ * dev cache 不能直接复用 build transformer；每次 API 请求按稳定 source id 重放当前快照，确保已删除
+ * module 不会残留在 manifest/report 中，同时 analyzer 使用浏览器实际消费的 dev CSS。
+ */
+function createViteDevReport(
+  devResults: Map<string, CssModuleTransformResult>,
+  options: ResolvedSemanticAtomicCssOptions
+): DevReportEnvelope {
+  if (devResults.size === 0) {
+    return createDevReportEnvelope('vite', []);
+  }
+
+  const transformer = createTransformer(resolveCoreOptions(options, 'serve'));
+
+  for (const result of getStableBuildResults(devResults)) {
+    const exportedClassNames = collectExportedClassNames(result.tokens, result.scopedCss);
+    transformer.transformCss({
+      id: result.id,
+      css: result.scopedCss,
+      scope: createCssModulesScopeStrategy(exportedClassNames),
+      preserveClassNames: collectAssetPreserveClassNames(result.scopedCss, result.tokens)
+    });
+  }
+
+  return createDevReportEnvelope('vite', [
+    {
+      name: 'client',
+      report: createBuildReport(transformer, devResults, createDevCss(devResults))
+    }
+  ]);
 }
 
 /**

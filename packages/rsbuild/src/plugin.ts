@@ -13,6 +13,12 @@ import type {
 } from '@rsbuild/core';
 import type { TransformCssOptions } from '@semantic-atomic-css/core';
 import {
+  createBrowserOverlayRuntime,
+  createDevReportEnvelope,
+  matchesDevReportRequest,
+  type DevReportEnvelope
+} from '@semantic-atomic-css/devtools';
+import {
   createBuildArtifactSnapshot,
   createEnvironmentBuildState,
   recordRuntimeBridgeResult,
@@ -64,6 +70,27 @@ export function pluginSemanticAtomicCss(options: SemanticAtomicCssRsbuildOptions
       api.onBeforeEnvironmentCompile(({ environment }) => {
         resetEnvironmentBuildState(getEnvironmentState(states, environment.name, false));
       });
+
+      if (resolved.devtools.enabled) {
+        api.onBeforeStartDevServer(({ server }) => {
+          server.middlewares.use((request, response, next) => {
+            if (request.method !== 'GET' || !matchesDevReportRequest(request.url, resolved.devtools.endpoint)) {
+              next();
+              return;
+            }
+
+            try {
+              const payload = createRsbuildDevReport(states, resolved.core);
+              response.statusCode = 200;
+              response.setHeader('content-type', 'application/json; charset=utf-8');
+              response.setHeader('cache-control', 'no-store');
+              response.end(`${JSON.stringify(payload, null, 2)}\n`);
+            } catch (error) {
+              next(error);
+            }
+          });
+        });
+      }
 
       api.modifyBundlerChain((chain, { CHAIN_ID, environment, isDev, target }) => {
         validateEnvironment(environment.config, target);
@@ -129,6 +156,31 @@ export function pluginSemanticAtomicCss(options: SemanticAtomicCssRsbuildOptions
 
       api.modifyHTMLTags((tags, { assetPrefix, compilation, environment }) => {
         const state = states.get(environment.name);
+
+        if (api.context.action === 'dev') {
+          if (!resolved.devtools.overlay || hasOverlayRuntimeTag(tags.headTags)) {
+            return tags;
+          }
+
+          return {
+            ...tags,
+            headTags: [
+              ...tags.headTags,
+              {
+                tag: 'script',
+                attrs: {
+                  type: 'module',
+                  'data-semantic-atomic-css-overlay-runtime': ''
+                },
+                children: createBrowserOverlayRuntime({
+                  endpoint: resolved.devtools.endpoint,
+                  pollIntervalMs: resolved.devtools.pollIntervalMs
+                })
+              }
+            ]
+          };
+        }
+
         if (state?.isDev || !compilation.getAsset(resolved.cssFilename)) {
           return tags;
         }
@@ -160,6 +212,28 @@ export function pluginSemanticAtomicCss(options: SemanticAtomicCssRsbuildOptions
       });
     }
   };
+}
+
+/** 从当前各 environment 可失效状态创建稳定的 dev report API 快照。 */
+function createRsbuildDevReport(
+  states: Map<string, EnvironmentBuildState>,
+  coreOptions: TransformCssOptions
+): DevReportEnvelope {
+  const environments = [...states.entries()]
+    .filter(([, state]) => state.isDev && state.inputs.size > 0)
+    .map(([name, state]) => ({
+      name,
+      report: createBuildArtifactSnapshot(state, resolveCoreOptions(coreOptions, true)).report
+    }));
+
+  return createDevReportEnvelope('rsbuild', environments);
+}
+
+/** 判断 Rsbuild HTML tags 中是否已经注入当前 overlay runtime。 */
+function hasOverlayRuntimeTag(tags: HtmlBasicTag[]): boolean {
+  return tags.some(
+    (tag) => tag.tag === 'script' && tag.attrs?.['data-semantic-atomic-css-overlay-runtime'] !== undefined
+  );
 }
 
 /** 创建只在 build processAssets 阶段 emit 共享产物的 Rspack plugin。 */

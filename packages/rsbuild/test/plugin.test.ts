@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { pluginSemanticAtomicCss } from '../src/plugin.js';
 
 describe('pluginSemanticAtomicCss options', () => {
@@ -11,6 +11,100 @@ describe('pluginSemanticAtomicCss options', () => {
   it('拒绝越出 dist 的 asset filename', () => {
     expect(() => pluginSemanticAtomicCss({ cssFilename: '../semantic.css' })).toThrow(
       /invalid-asset-filename/
+    );
+  });
+
+  it('显式开启 devtools 后登记 report middleware 并注入 overlay', () => {
+    let onBeforeStartDevServer: ((input: Record<string, any>) => void) | undefined;
+    let modifyHTMLTags: ((tags: Record<string, any>, context: Record<string, any>) => any) | undefined;
+    let middleware: ((request: Record<string, any>, response: Record<string, any>, next: (error?: unknown) => void) => void) | undefined;
+    const plugin = pluginSemanticAtomicCss({ devtools: { enabled: true } });
+
+    plugin.setup({
+      context: {
+        version: '2.1.6',
+        action: 'dev'
+      },
+      modifyEnvironmentConfig() {},
+      onBeforeEnvironmentCompile() {},
+      onBeforeStartDevServer(callback: typeof onBeforeStartDevServer) {
+        onBeforeStartDevServer = callback;
+      },
+      modifyBundlerChain() {},
+      modifyRspackConfig() {},
+      modifyHTMLTags(callback: typeof modifyHTMLTags) {
+        modifyHTMLTags = callback;
+      }
+    } as never);
+
+    onBeforeStartDevServer?.({
+      server: {
+        middlewares: {
+          use(callback: typeof middleware) {
+            middleware = callback;
+          }
+        }
+      }
+    });
+
+    let body = '';
+    const headers = new Map<string, string>();
+    middleware?.(
+      { method: 'GET', url: '/__semantic-atomic-css/report?t=1' },
+      {
+        statusCode: 0,
+        setHeader(name: string, value: string) {
+          headers.set(name, value);
+        },
+        end(value: string) {
+          body = value;
+        }
+      },
+      (error) => {
+        if (error) throw error;
+      }
+    );
+
+    const tags = modifyHTMLTags?.(
+      { headTags: [], bodyTags: [] },
+      {
+        assetPrefix: '',
+        compilation: { getAsset: () => undefined },
+        environment: { name: 'web' }
+      }
+    );
+
+    expect(headers.get('cache-control')).toBe('no-store');
+    expect(JSON.parse(body)).toEqual({
+      schemaVersion: 1,
+      adapter: 'rsbuild',
+      status: 'idle',
+      environments: []
+    });
+    expect(tags.headTags[0]).toMatchObject({
+      tag: 'script',
+      attrs: { 'data-semantic-atomic-css-overlay-runtime': '' }
+    });
+    expect(tags.headTags[0].children).toContain('attachShadow');
+
+    const next = vi.fn();
+    middleware?.(
+      { method: 'DELETE', url: '/__semantic-atomic-css/report' },
+      { statusCode: 0, setHeader: vi.fn(), end: vi.fn() },
+      next
+    );
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('拒绝非法 dev report endpoint', () => {
+    expect(() => pluginSemanticAtomicCss({ devtools: { endpoint: '../report' } })).toThrow(
+      /invalid-dev-report-endpoint/
+    );
+    expect(() => pluginSemanticAtomicCss({ devtools: { enabled: true, pollIntervalMs: 0 } })).toThrow(
+      /invalid-overlay-poll-interval/
+    );
+    expect(() => pluginSemanticAtomicCss({ devtools: { endpoint: '/a/../report' } })).toThrow(
+      /invalid-dev-report-endpoint/
     );
   });
 

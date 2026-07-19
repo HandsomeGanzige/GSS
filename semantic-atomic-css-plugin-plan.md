@@ -1725,6 +1725,19 @@ Rspack 2.1 extraction 嵌套 `importModule` 的增量编译 panic。目标模块
 
 ### 21.7 阶段七：验证器与调试体验
 
+状态更新（2026-07-19）：Phase 7 已完成。`@semantic-atomic-css/devtools` 提供 Playwright-compatible
+computed style verifier、稳定的逐属性 diff report、版本化 dev report 协议和 Shadow DOM overlay runtime；
+Vite/Rsbuild 均已通过 opt-in `devtools` 接入真实 dev server。完整 CSS source map 已完成组合方案设计，但
+在 adapter 上游 map 与 core generated mapping 闭合前不宣称支持，Rsbuild 继续 fail fast。详见：
+
+2026-07-19 完成后稳健性审计已额外收口 Vite import-removal/current-cache 与异步 generation 竞争、
+verifier 零检查、失败 report 写盘、250ms polling 导航、GET/endpoint 负路径以及 overlay 生命周期；
+Shadow DOM host 对根级结构 selector 的影响已明确为 opt-in dev overlay 边界。验收统计见下列文档。
+
+- `docs/phase-7-verifier-devtools-plan.md`
+- `docs/phase-7-verifier-devtools-tracking.md`
+- `docs/phase-7-verifier-devtools-acceptance.md`
+
 任务：
 
 ```txt
@@ -1784,7 +1797,7 @@ Rspack 2.1 extraction 嵌套 `importModule` 的增量编译 panic。目标模块
 
 ```txt
 1. 维护 Phase 6 锁定版本和真实 fixture 门禁
-2. 进入 Phase 7 验证器、调试体验与 source map 方案设计
+2. 维护 Phase 7 verifier、dev report/overlay 协议与真实浏览器门禁
 3. 在独立任务中评估 Rsbuild 其他版本与 multi-environment 扩展
 ```
 

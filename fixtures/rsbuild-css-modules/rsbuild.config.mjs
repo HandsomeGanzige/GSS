@@ -20,7 +20,8 @@ export default defineConfig({
           pluginSemanticAtomicCss({
             core: { className: { strategy: 'readable' } },
             manifest: { enabled: suite === 'preprocessor' },
-            report: { enabled: suite === 'preprocessor' }
+            report: { enabled: suite === 'preprocessor' },
+            devtools: { enabled: true, pollIntervalMs: 250 }
           })
         ]
       : [])

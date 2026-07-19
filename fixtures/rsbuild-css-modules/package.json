@@ -11,6 +11,7 @@
     "test:visual": "node scripts/verify-visual.mjs"
   },
   "dependencies": {
+    "@semantic-atomic-css/devtools": "workspace:*",
     "@semantic-atomic-css/rsbuild": "workspace:*"
   },
   "devDependencies": {

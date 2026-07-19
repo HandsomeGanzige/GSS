@@ -11,6 +11,7 @@
 export { semanticAtomicCss, semanticAtomicCssPlugin } from './plugin.js';
 export type {
   CssModulesOptions,
+  DevtoolsOptions,
   DiagnosticsOptions,
   LocalsConvention,
   ManifestOptions,

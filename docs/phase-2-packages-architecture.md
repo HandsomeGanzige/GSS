@@ -15,7 +15,8 @@ Phase 2 的工作原则是：
 
 ## 2026-07-15 Workspace 测试分层更新
 
-当前生产包为 `packages/core`、`packages/analyzer`、`packages/vite` 和 `packages/rsbuild`。真实构建工具
+当前生产包为 `packages/core`、`packages/analyzer`、`packages/devtools`、`packages/vite` 和
+`packages/rsbuild`。真实构建工具
 消费方验收分别收敛到 `fixtures/vite-css-modules` 与 `fixtures/rsbuild-css-modules` workspace，fixture
 不是生产 adapter 包；
 `playground/vite-react-css-modules` 与 `playground/rsbuild-react-css-modules` 分别承担两个 adapter 的中型
@@ -30,6 +31,17 @@ CSS Modules、ICSS、预处理器或资源编译实现。
 
 包内自行定义 build/test/typecheck/verify，根 `package.json` 只通过 workspace 递归提供
 `pnpm build`、`pnpm test`、`pnpm typecheck` 和 `pnpm verify` 四个仓库级入口。
+
+## 2026-07-19 Phase 7 Devtools 边界更新
+
+`packages/devtools` 只承载构建工具无关的 computed style verifier、style diff schema、dev report envelope
+和 browser overlay runtime。它通过 structural browser/page interface 接受调用方 Playwright，不把
+Playwright 加入生产依赖；也不读取文件或分析 CSS。两个 adapter 依赖 devtools protocol/runtime，各自使用
+原生 middleware/HTML hook 暴露当前状态，devtools 不反向依赖 adapter。
+
+dev report 复用 core report 与 analyzer analysis，但使用独立 `schemaVersion: 1` envelope；现有 build report
+schema 不变。完整 CSS source map 仍需要 adapter 上游 map 与 core generated mapping 组合，不属于 devtools
+职责，也不能由 overlay 或 manifest location 近似替代。
 
 ## 2026-07-03 状态更新
 

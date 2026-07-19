@@ -1,5 +1,5 @@
 {
-  "name": "@semantic-atomic-css/rsbuild",
+  "name": "@semantic-atomic-css/devtools",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -23,17 +23,9 @@
   },
   "dependencies": {
     "@semantic-atomic-css/analyzer": "workspace:*",
-    "@semantic-atomic-css/core": "workspace:*",
-    "@semantic-atomic-css/devtools": "workspace:*",
-    "postcss": "^8.4.49",
-    "postcss-selector-parser": "^7.0.0",
-    "postcss-value-parser": "^4.2.0"
-  },
-  "peerDependencies": {
-    "@rsbuild/core": "^2.1.0"
+    "@semantic-atomic-css/core": "workspace:*"
   },
   "devDependencies": {
-    "@rsbuild/core": "2.1.6",
     "@types/node": "^22.10.2",
     "typescript": "^5.7.2",
     "vitest": "^2.1.8"

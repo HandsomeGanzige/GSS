@@ -30,6 +30,12 @@ const options: ResolvedSemanticAtomicCssOptions = {
     enabled: false,
     filename: 'semantic-atomic-report.json'
   },
+  devtools: {
+    enabled: false,
+    overlay: false,
+    endpoint: '/__semantic-atomic-css/report',
+    pollIntervalMs: 1_500
+  },
   diagnostics: {
     warn: true,
     strict: false

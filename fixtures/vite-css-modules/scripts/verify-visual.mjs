@@ -6,6 +6,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import {
+  captureComputedStyles,
+  createStyleDiffReport,
+  mergeStyleDiffReports,
+  writeAndAssertStyleDiffReport
+} from '@semantic-atomic-css/devtools';
 
 const fixtureRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const viteBin = path.join(fixtureRoot, 'node_modules/.bin/vite');
@@ -17,6 +23,8 @@ const viewports = [
   { name: 'desktop', width: 1280, height: 900 },
   { name: 'narrow', width: 520, height: 900 }
 ];
+const styleDiffReports = [];
+const deferredVisualErrors = [];
 
 const baseCases = [
   {
@@ -178,7 +186,9 @@ const preprocessorCases = [
  * @throws {Error} 当参数非法、进程失败、浏览器不可用或视觉断言不成立时抛出。
  */
 async function main() {
-  const selectedSuites = resolveSuites(process.argv.slice(2));
+  const args = process.argv.slice(2);
+  const selectedSuites = resolveSuites(args);
+  const reportFile = resolveReportFile(args);
   const tempRoot = await mkdtemp(path.join(tmpdir(), 'gss-vite-visual-'));
 
   try {
@@ -190,10 +200,24 @@ async function main() {
     if (selectedSuites.includes('preprocessor')) {
       await verifyPartialReload(tempRoot);
     }
+    const report = mergeStyleDiffReports(styleDiffReports);
+    await writeAndAssertStyleDiffReport(report, reportFile ? path.resolve(reportFile) : undefined);
+    if (deferredVisualErrors.length > 0) {
+      throw new AggregateError(deferredVisualErrors, 'Vite visual 固定值或布局断言失败');
+    }
     console.log(`Vite CSS Modules visual 验收通过: ${selectedSuites.join(', ')}`);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
+}
+
+/** 解析可选的 style diff report 输出路径。 */
+function resolveReportFile(args) {
+  const index = args.indexOf('--report');
+  if (index === -1) return undefined;
+  const filename = args[index + 1];
+  if (!filename || filename.startsWith('--')) throw new Error('--report 需要文件路径。');
+  return filename;
 }
 
 /**
@@ -350,7 +374,7 @@ async function verifyPartialReload(tempRoot) {
   });
 
   try {
-    await page.goto(urlFor(port), { waitUntil: 'networkidle' });
+    await page.goto(urlFor(port), { waitUntil: 'load' });
     try {
       await page.waitForSelector('[data-gss-case="scss-safe"]', { timeout: 5_000 });
     } catch (error) {
@@ -385,6 +409,41 @@ async function verifyPartialReload(tempRoot) {
       );
     }
     assert(loadCount >= 2, 'partial 更新应触发浏览器 full reload');
+
+    const appFile = path.join(tempFixture, 'suites/preprocessor/src/App.tsx');
+    const appSource = await readFile(appFile, 'utf8');
+    const scssMarkup = `      <section
+        className={scssStyles.assetComposed}
+        data-gss-case="scss-asset"
+        data-state="ready"
+      >
+        SCSS asset fallback
+      </section>
+      <button className={scssStyles.safeScss} data-gss-case="scss-safe">
+        SCSS safe atomic
+      </button>
+`;
+    const appWithoutScss = appSource
+      .replace("import scssStyles from './cases/Theme.module.scss';\n", '')
+      .replace(scssMarkup, '');
+    assert(!appWithoutScss.includes('scssStyles'), 'import-removal fixture 应完整移除 SCSS 引用');
+    const importRemovalReload = page.waitForEvent('load', { timeout: timeoutMs });
+    await writeFile(appFile, appWithoutScss);
+    await importRemovalReload;
+
+    await page.waitForFunction(async () => {
+      try {
+        const payload = await fetch('/__semantic-atomic-css/report').then((response) => response.json());
+        const report = payload.environments?.[0]?.report;
+        const hasStaleRule = Array.from(document.styleSheets).some((sheet) =>
+          Array.from(sheet.cssRules).some((rule) => rule.cssText.includes('_color_7c3aed'))
+        );
+        return report?.summary?.files === 2 && !hasStaleRule;
+      } catch {
+        return false;
+      }
+    }, undefined, { timeout: timeoutMs });
+    assert(loadCount >= 3, '移除 CSS Module import 应触发 full reload');
   } finally {
     await browser.close();
     await stopProcess(server);
@@ -414,10 +473,19 @@ async function compareServers(label, suite, semanticUrl, nativeUrl) {
 
       try {
         await Promise.all([
-          semanticPage.goto(semanticUrl, { waitUntil: 'networkidle' }),
-          nativePage.goto(nativeUrl, { waitUntil: 'networkidle' })
+          semanticPage.goto(semanticUrl, { waitUntil: 'load' }),
+          nativePage.goto(nativeUrl, { waitUntil: 'load' })
         ]);
         await assertSemanticClassExpansion(label, suite, semanticPage, nativePage);
+        if (label.endsWith('/dev')) {
+          await assertDevtools(semanticPage, nativePage);
+        } else {
+          const [semanticOverlay, nativeOverlay] = await Promise.all([
+            semanticPage.locator('[data-semantic-atomic-css-overlay]').count(),
+            nativePage.locator('[data-semantic-atomic-css-overlay]').count()
+          ]);
+          assert(semanticOverlay === 0 && nativeOverlay === 0, `${label}: preview 不应注入 GSS overlay`);
+        }
 
         if (suite === 'base') {
           await compareCases(label, viewport, 'base', semanticPage, nativePage, baseCases);
@@ -492,26 +560,38 @@ async function compareCases(label, viewport, state, semanticPage, nativePage, ca
     collectSnapshots(nativePage, cases)
   ]);
 
-  assertExpectedSnapshots(label, viewport, state, semantic, cases);
-  assertExpectedSnapshots(label, viewport, state, native, cases);
+  const report = createStyleDiffReport({
+    baselineLabel: 'native',
+    candidateLabel: 'semantic',
+    runs: [
+      {
+        id: `${label}/${viewport.name}/${state}`,
+        viewport: { width: viewport.width, height: viewport.height },
+        baseline: Object.fromEntries(Object.entries(native).map(([key, value]) => [key, value.styles])),
+        candidate: Object.fromEntries(Object.entries(semantic).map(([key, value]) => [key, value.styles]))
+      }
+    ]
+  });
+  styleDiffReports.push(report);
 
-  for (const [key, semanticValue] of Object.entries(semantic)) {
-    const nativeValue = native[key];
-    assert(nativeValue, `${label}/${viewport.name}/${state}: native 缺少 ${key}`);
+  try {
+    assertExpectedSnapshots(label, viewport, state, semantic, cases);
+    assertExpectedSnapshots(label, viewport, state, native, cases);
 
-    for (const [property, value] of Object.entries(semanticValue.styles)) {
-      assert(
-        nativeValue.styles[property] === value,
-        `${label}/${viewport.name}/${state}/${key}: ${property} 不一致 semantic=${value} native=${nativeValue.styles[property]}`
-      );
-    }
+    for (const [key, semanticValue] of Object.entries(semantic)) {
+      const nativeValue = native[key];
+      assert(nativeValue, `${label}/${viewport.name}/${state}: native 缺少 ${key}`);
 
-    if (semanticValue.rect && nativeValue.rect) {
-      for (const property of ['x', 'y', 'width', 'height']) {
-        const difference = Math.abs(semanticValue.rect[property] - nativeValue.rect[property]);
-        assert(difference <= rectTolerance, `${label}/${viewport.name}/${state}/${key}: ${property} 偏差 ${difference}`);
+      if (semanticValue.rect && nativeValue.rect) {
+        for (const property of ['x', 'y', 'width', 'height']) {
+          const difference = Math.abs(semanticValue.rect[property] - nativeValue.rect[property]);
+          assert(difference <= rectTolerance, `${label}/${viewport.name}/${state}/${key}: ${property} 偏差 ${difference}`);
+        }
       }
     }
+  } catch (error) {
+    // 先完成全部 style diff 采集并写盘，再统一报告固定值/布局失败。
+    deferredVisualErrors.push(error);
   }
 }
 
@@ -524,24 +604,66 @@ async function compareCases(label, viewport, state, semanticPage, nativePage, ca
  * @throws {Error} 当目标验收元素不存在时抛出。
  */
 async function collectSnapshots(page, cases) {
-  return page.evaluate((caseSpecs) => {
-    const result = {};
-
-    for (const spec of caseSpecs) {
-      const element = document.querySelector(`[data-gss-case="${spec.id}"]`);
-      if (!element) throw new Error(`缺少验收元素: ${spec.id}`);
-      const style = getComputedStyle(element, spec.pseudo ?? null);
-      const rect = spec.rect ? element.getBoundingClientRect() : undefined;
-      result[spec.pseudo ? `${spec.id}${spec.pseudo}` : spec.id] = {
-        styles: Object.fromEntries(spec.properties.map((property) => [property, style[property]])),
-        rect: rect
-          ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height }
-          : undefined
-      };
-    }
-
-    return result;
+  const verifierCases = cases.map((spec) => ({
+    id: spec.pseudo ? `${spec.id}${spec.pseudo}` : spec.id,
+    selector: `[data-gss-case="${spec.id}"]`,
+    properties: spec.properties,
+    pseudo: spec.pseudo
+  }));
+  const styles = await captureComputedStyles(page, verifierCases);
+  const rects = await page.evaluate((caseSpecs) => {
+    return Object.fromEntries(
+      caseSpecs
+        .filter((spec) => spec.rect)
+        .map((spec) => {
+          const element = document.querySelector(`[data-gss-case="${spec.id}"]`);
+          if (!element) throw new Error(`缺少验收元素: ${spec.id}`);
+          const rect = element.getBoundingClientRect();
+          return [spec.pseudo ? `${spec.id}${spec.pseudo}` : spec.id, {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height
+          }];
+        })
+    );
   }, cases);
+
+  return Object.fromEntries(
+    Object.entries(styles).map(([key, value]) => [key, { styles: value, rect: rects[key] }])
+  );
+}
+
+/** 验证 dev report API 与 Shadow DOM overlay 只出现在 semantic dev 页面。 */
+async function assertDevtools(semanticPage, nativePage) {
+  await semanticPage.waitForSelector('[data-semantic-atomic-css-overlay]');
+  await semanticPage.waitForFunction(() => {
+    const host = document.querySelector('[data-semantic-atomic-css-overlay]');
+    const health = host?.shadowRoot?.querySelector('button')?.getAttribute('data-health');
+    return health === 'ready' || health === 'risky' || health === 'blocked';
+  });
+  const [payload, overlayState, nativeOverlay] = await Promise.all([
+    semanticPage.evaluate(async () => (await fetch('/__semantic-atomic-css/report')).json()),
+    semanticPage.locator('[data-semantic-atomic-css-overlay]').evaluate((element) => {
+      const button = element.shadowRoot?.querySelector('button');
+      const panel = element.shadowRoot?.querySelector('section');
+      button?.click();
+      return {
+        hasShadowRoot: Boolean(element.shadowRoot),
+        health: button?.getAttribute('data-health'),
+        expanded: button?.getAttribute('aria-expanded'),
+        panelHidden: panel?.hasAttribute('hidden')
+      };
+    }),
+    nativePage.locator('[data-semantic-atomic-css-overlay]').count()
+  ]);
+
+  assert(payload.schemaVersion === 1 && payload.adapter === 'vite' && payload.status === 'ready', 'Vite dev report API 契约不成立');
+  assert(payload.environments[0]?.report?.analysis, 'Vite dev report API 缺少 analyzer analysis');
+  assert(overlayState.hasShadowRoot, 'Vite semantic dev overlay 应使用 Shadow DOM');
+  assert(['ready', 'risky', 'blocked'].includes(overlayState.health), 'Vite overlay 未展示 report health');
+  assert(overlayState.expanded === 'true' && overlayState.panelHidden === false, 'Vite overlay 展开交互失败');
+  assert(nativeOverlay === 0, 'Vite native 对照不应注入 GSS overlay');
 }
 
 /**

@@ -6,16 +6,25 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import {
+  captureComputedStyles,
+  createStyleDiffReport,
+  mergeStyleDiffReports,
+  writeAndAssertStyleDiffReport
+} from '@semantic-atomic-css/devtools';
 
 const fixtureRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const rsbuildBin = path.join(fixtureRoot, 'node_modules/.bin/rsbuild');
 const host = '127.0.0.1';
 const timeoutMs = 30_000;
 const chromeExecutable = process.env.GSS_VISUAL_CHROME_EXECUTABLE;
+const styleDiffReports = [];
 
 /** 运行 semantic/native dev、preview 与 Sass partial/full reload 浏览器验收。 */
 async function main() {
-  const suites = resolveSuites(process.argv.slice(2));
+  const args = process.argv.slice(2);
+  const suites = resolveSuites(args);
+  const reportFile = resolveReportFile(args);
   const tempRoot = await mkdtemp(path.join(tmpdir(), 'gss-rsbuild-visual-'));
 
   try {
@@ -24,10 +33,21 @@ async function main() {
       await comparePreview(suite, tempRoot);
     }
     if (suites.includes('preprocessor')) await verifyPartialReload(tempRoot);
+    const report = mergeStyleDiffReports(styleDiffReports);
+    await writeAndAssertStyleDiffReport(report, reportFile ? path.resolve(reportFile) : undefined);
     console.log(`Rsbuild CSS Modules visual 验收通过: ${suites.join(', ')}`);
   } finally {
     await rm(tempRoot, { recursive: true, force: true });
   }
+}
+
+/** 解析可选的 style diff report 输出路径。 */
+function resolveReportFile(args) {
+  const index = args.indexOf('--report');
+  if (index === -1) return undefined;
+  const filename = args[index + 1];
+  if (!filename || filename.startsWith('--')) throw new Error('--report 需要文件路径。');
+  return filename;
 }
 
 /** 解析可选的单 suite 参数。 */
@@ -74,9 +94,29 @@ async function compareServers(label, suite, semanticUrl, nativeUrl) {
     for (const viewport of [{ width: 1280, height: 900 }, { width: 520, height: 900 }]) {
       const semantic = await capturePage(browser, semanticUrl, suite, viewport);
       const native = await capturePage(browser, nativeUrl, suite, viewport);
-      assertDeepEqual(semantic.styles, native.styles, `${label} computed style 不一致: ${viewport.width}px`);
+      const report = createStyleDiffReport({
+        baselineLabel: 'native',
+        candidateLabel: 'semantic',
+        runs: [{
+          id: `${label}@${viewport.width}x${viewport.height}`,
+          viewport,
+          baseline: native.styles,
+          candidate: semantic.styles
+        }]
+      });
+      styleDiffReports.push(report);
       assertTokenCompatibility(semantic.tokens, native.tokens, `${label} tokens`);
       assert(semantic.assetStatus === 200 && native.assetStatus === 200, `${label} 资源请求应成功`);
+      if (label.endsWith('/dev')) {
+        assert(semantic.devtools?.schemaVersion === 1 && semantic.devtools.adapter === 'rsbuild', `${label} dev report API 契约不成立`);
+        assert(semantic.devtools.environments[0]?.report?.analysis, `${label} dev report 缺少 analyzer analysis`);
+        assert(semantic.hasOverlay, `${label} semantic 页面缺少 Shadow DOM overlay`);
+        assert(['ready', 'risky', 'blocked'].includes(semantic.overlayState?.health), `${label} overlay 未展示 report health`);
+        assert(semantic.overlayState.expanded === 'true' && semantic.overlayState.panelHidden === false, `${label} overlay 展开交互失败`);
+        assert(!native.hasOverlay, `${label} native 页面不应注入 GSS overlay`);
+      } else {
+        assert(!semantic.hasOverlay && !native.hasOverlay, `${label} preview 不应注入 GSS overlay`);
+      }
     }
   } finally {
     await browser.close();
@@ -87,7 +127,7 @@ async function compareServers(label, suite, semanticUrl, nativeUrl) {
 async function capturePage(browser, url, suite, viewport) {
   const page = await browser.newPage({ viewport });
   try {
-    await page.goto(url, { waitUntil: 'networkidle', timeout: timeoutMs });
+    await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
     await page.waitForSelector('#tokens');
     const styles = await captureCases(page, suite);
     if (suite === 'base') {
@@ -110,7 +150,32 @@ async function capturePage(browser, url, suite, viewport) {
       const match = background.match(/^url\(["']?(.*?)["']?\)$/);
       return match ? (await fetch(match[1])).status : 200;
     });
-    return { styles, tokens, assetStatus };
+    const hasOverlay = await page.locator('[data-semantic-atomic-css-overlay]').evaluateAll(
+      (elements) => elements.some((element) => Boolean(element.shadowRoot))
+    );
+    if (hasOverlay) {
+      await page.waitForFunction(() => {
+        const host = document.querySelector('[data-semantic-atomic-css-overlay]');
+        const health = host?.shadowRoot?.querySelector('button')?.getAttribute('data-health');
+        return health === 'ready' || health === 'risky' || health === 'blocked';
+      });
+    }
+    const overlayState = hasOverlay
+      ? await page.locator('[data-semantic-atomic-css-overlay]').evaluate((element) => {
+          const button = element.shadowRoot?.querySelector('button');
+          const panel = element.shadowRoot?.querySelector('section');
+          button?.click();
+          return {
+            health: button?.getAttribute('data-health'),
+            expanded: button?.getAttribute('aria-expanded'),
+            panelHidden: panel?.hasAttribute('hidden')
+          };
+        })
+      : undefined;
+    const devtools = hasOverlay
+      ? await page.evaluate(async () => (await fetch('/__semantic-atomic-css/report')).json())
+      : undefined;
+    return { styles, tokens, assetStatus, hasOverlay, overlayState, devtools };
   } finally {
     await page.close();
   }
@@ -138,10 +203,10 @@ async function captureCases(page, suite) {
         ['lessSafe', '#less-safe', ['color', 'backgroundColor', 'borderRadius']],
         ['lessChild', '#less-child', ['fontWeight']]
       ];
-  return Object.fromEntries(await Promise.all(definitions.map(async ([name, selector, properties]) => [
-    name,
-    await readStyle(page, selector, properties)
-  ])));
+  return captureComputedStyles(
+    page,
+    definitions.map(([name, selector, properties]) => ({ id: name, selector, properties }))
+  );
 }
 
 /** 读取指定 computed style 属性。 */
@@ -166,7 +231,7 @@ async function verifyPartialReload(tempRoot) {
   const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
 
   try {
-    await page.goto(urlFor(port), { waitUntil: 'networkidle', timeout: timeoutMs });
+    await page.goto(urlFor(port), { waitUntil: 'load', timeout: timeoutMs });
     const partial = path.join(copyRoot, 'suites/preprocessor/src/_tokens.scss');
     const before = await readFile(partial, 'utf8');
     await writeFile(partial, before.replace('#0f766e', '#be123c'));

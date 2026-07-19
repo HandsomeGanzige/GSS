@@ -14,7 +14,8 @@ export default defineConfig({
   plugins: [
     semanticAtomicCss({
       manifest: { enabled: true },
-      report: { enabled: true }
+      report: { enabled: true },
+      devtools: { enabled: true }
     })
   ]
 });
@@ -35,6 +36,7 @@ scoped class。
 - 显式提供 `modules` 时，只用 GSS 当前支持的配置覆盖原生管线。
 - include/exclude 当前只承诺已验证的 `*` 与 `**` 匹配能力。
 - manifest 和 report 默认关闭。
+- devtools 默认关闭；开启后只在 dev 提供 report API 与 overlay，不改变 build asset。
 - `modules.namedExports: true` 和 `diagnostics.strict: true` 当前会显式失败。
 - Lightning CSS transformer 当前会显式失败。
 - 无法从 Vite 原生管线取得 tokens 时会停止构建，避免 silent miscompile。
@@ -43,6 +45,13 @@ scoped class。
 
 dev 使用单一 virtual CSS owner 聚合当前已知模块，避免同一 atomic class 被多个 style tag 重复注入。
 CSS Module 或预处理器依赖更新时，adapter 会失效受影响模块并触发 full reload。
+
+显式配置 `devtools: { enabled: true }` 后，dev server 提供
+`GET /__semantic-atomic-css/report`，并向 semantic dev HTML 注入 Shadow DOM overlay。可以使用
+`overlay: false` 只启用 API，或用 `endpoint` 与 `pollIntervalMs` 调整 pathname/轮询；endpoint 必须是
+无 query/hash/dot-segment 的绝对 pathname。API 仅处理 GET。JS/TS 更新时 adapter 会从更新前的 outgoing
+graph 保守清理 CSS dependency，并以 per-file generation 拒绝旧异步 transform 回写；API 每次从当前
+per-file cache 重建 report。
 
 build 默认生成 `assets/semantic-atomic.css`。显式开启后还会生成：
 
@@ -66,6 +75,7 @@ build 聚合顺序、基础/条件规则分区和简单宽度断点顺序属于 
 - [Vite adapter 设计](../../docs/phase-3-vite-adapter-design.md)
 - [Vite adapter tracking](../../docs/phase-3-vite-adapter-tracking.md)
 - [Phase 4 production readiness](../../docs/phase-4-production-readiness-plan.md)
+- [Phase 7 verifier/devtools](../../docs/phase-7-verifier-devtools-plan.md)
 
 ## 验证
 

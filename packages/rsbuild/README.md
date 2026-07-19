@@ -14,7 +14,8 @@ export default defineConfig({
   plugins: [
     pluginSemanticAtomicCss({
       manifest: { enabled: true },
-      report: { enabled: true }
+      report: { enabled: true },
+      devtools: { enabled: true }
     })
   ]
 });
@@ -40,6 +41,11 @@ live-reload 配置。目标 CSS Modules 的原生 style rows 会被清空，runt
 也避免 Rsbuild 2.1.6 / Rspack 2.1.4 在 extraction 嵌套 `importModule` 的增量编译路径上发生 panic。
 HMR dispose 会撤销旧快照；不同 atomic key 若碰撞到同一 readable class 则 fail fast。CSS-only HMR
 不是当前公共承诺；direct module、Sass partial 和移除 import 的最终状态必须正确且无 stale CSS/tokens。
+
+显式配置 `devtools: { enabled: true }` 后，dev server 提供
+`GET /__semantic-atomic-css/report`，按 environment 返回当前 report/analyzer snapshot，并向 semantic dev HTML
+注入 Shadow DOM overlay。API 只处理 GET，endpoint 不接受 dot-segment。`overlay: false` 可只启用 API；
+该配置不影响 build/preview。
 
 ## 配置与保护边界
 
@@ -67,3 +73,4 @@ pnpm --filter @semantic-atomic-css/rsbuild-fixture test:visual
 - [Phase 6 方案](../../docs/phase-6-rsbuild-rspack-adapter-plan.md)
 - [Phase 6 acceptance](../../docs/phase-6-rsbuild-rspack-adapter-acceptance.md)
 - [Phase 6 tracking](../../docs/phase-6-rsbuild-rspack-adapter-tracking.md)
+- [Phase 7 verifier/devtools](../../docs/phase-7-verifier-devtools-plan.md)
