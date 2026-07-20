@@ -186,6 +186,8 @@ visual 对比 dev/preview、桌面/窄屏、交互、lazy chunk，并修改 Sass
 - Phase 7 verifier 与调试体验：[packages/devtools/README.md](packages/devtools/README.md)、
   [docs/phase-7-verifier-devtools-plan.md](docs/phase-7-verifier-devtools-plan.md)、
   [docs/phase-7-verifier-devtools-acceptance.md](docs/phase-7-verifier-devtools-acceptance.md)
+- Phase 8 能力强化待办：
+  [docs/phase-8-capability-hardening-backlog.md](docs/phase-8-capability-hardening-backlog.md)
 
 `verify:phase*` 和 `dev:phase*` 等阶段命令已退役。历史 tracking 文档仍保留当时实际执行记录，
 当前开发与验收以本 README 中的能力命令为准。
