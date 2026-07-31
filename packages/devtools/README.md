@@ -1,7 +1,7 @@
 # @semantic-atomic-css/devtools
 
-`@semantic-atomic-css/devtools` 提供 Phase 7 的构建工具无关调试能力：Playwright-compatible
-computed style verifier、逐属性 style diff report、版本化 dev report 协议和 Shadow DOM browser overlay
+`@semantic-atomic-css/devtools` 提供构建工具无关的调试能力：Playwright-compatible
+computed style verifier、逐属性 style diff report、dev report 协议和 Shadow DOM browser overlay
 runtime。它不读取项目文件、不参与 CSS 转换，也不推断 DOM class 共现。
 
 ## Computed style verifier
@@ -50,13 +50,15 @@ report 不写入时间戳或动态端口，只记录 label、run、viewport、ca
 
 Vite/Rsbuild adapter 显式启用 `devtools` 后，默认提供：
 
-- `GET /__semantic-atomic-css/report`：`schemaVersion: 1` 的 JSON envelope。
+- `GET /__semantic-atomic-css/report`：包含 adapter、status 和 environments 的当前 JSON envelope。
 - browser overlay：同源轮询 report API，在 Shadow DOM 中展示 health、files、atomic、unsafe、preserved
   和 estimated diff。
 
-dev envelope 把既有 `TransformReport + analysis` 放在 `environments[].report` 中，不改变 build report asset
-schema。endpoint 拒绝 dot-segment，两个 adapter 只处理 GET；其他 method 继续交给 dev server。overlay 的
+dev envelope 把既有 `TransformReport + analysis` 原样放在 `environments[].report` 中。
+endpoint 拒绝 dot-segment，两个 adapter 只处理 GET；其他 method 继续交给 dev server。overlay 的
 动态文本只通过 `textContent` 写入，请求不重叠，BFCache 恢复后重启轮询。
+它仅校验展示必需的当前字段；非法 payload 会显示 `GSS · offline`
+和 `invalid-dev-report-payload`，不会把缺失值默认为零或 unknown。
 
 Shadow DOM 只隔离 overlay 内部样式；连接到 `documentElement` 的 `<aside>` host 仍是一个 dev-only light DOM
 节点，可能影响 `:last-child` / `:has()` 等根级结构 selector。对此敏感的项目应配置 `overlay: false`

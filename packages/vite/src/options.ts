@@ -34,7 +34,6 @@ export function resolveOptions(options: SemanticAtomicCssOptions = {}): Resolved
       configured: options.modules !== undefined
     },
     core: {
-      preserveResolvedClass: options.core?.preserveResolvedClass ?? true,
       className: options.core?.className
     },
     manifest: {

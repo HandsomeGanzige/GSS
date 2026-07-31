@@ -71,6 +71,79 @@ Analyzer 指标：
 风险来源仍是 Pilot 刻意保留的 unsafe selector 和 Settings route 的一组 shorthand/longhand 顺序冲突；
 新增资源保留使 preserved CSS ratio 从 Phase 5 前的 `0.1882` 上升到 `0.2055`，仍低于 `0.3` 门槛。
 
+## 2026-07-27 SEL-02 同语料 artifact 复盘
+
+本节只追加 SEL-02 的 semantic/native artifact 复盘，不改变上方历史人工旅程及本文
+`in_progress` 状态。adapter 的自动静态/浏览器边界见
+[Phase 3 acceptance](phase-3-acceptance.md)。
+
+- 2026-07-25 `FOUND-02-D` semantic artifact 与 2026-07-27 SEL-02 semantic artifact 的
+  `files / sourceClasses / beforeRawCssBytes` 都保持 `17 / 212 / 44695`，可按同语料计算差值；
+  semantic/native 两次重建均通过。
+- 实际释放 `ModuleMatrix.surfaceCard`、`RuleInspector.ruleCard`、`ScenarioNotes.noteCard`、
+  `SelectorMatrix.caseCard` 与 `Shell.topbar` 共 5 个 class，新增 52 个 declaration occurrences，
+  拆分为 15 个 atomic definitions 与 37 个 reused occurrences。
+- `attribute-selector` unsafe rules 从 9 降至 0，preserved rules/declarations 从 `55 / 206`
+  降至 `40 / 154`，preserved CSS ratio 从 `0.4101` 降至 `0.3264`。
+- after raw/gzip/brotli CSS 从 `19111 / 4326 / 3796` bytes 变为
+  `17960 / 4291 / 3771` bytes；计入 class string 后 estimated total diff 从 `-14974`
+  改善到 `-15605` bytes，即改善 631 bytes。
+- 复杂 descendant/pseudo/compound evidence 仍让另外 3 个共享 class 整类 fallback。这里只把同语料
+  report/manifest 的实际差值记为 SEL-02 收益；早期 exact-only class 与历史 token links 不作为因果值。
+
+## 2026-07-28 SEL-03 selector list 同语料收口
+
+- 实施前将 Modules route 的 `searchField/selectField`、`textControl/selectControl` 和两者
+  `:focus-visible` 合并为 3 条真实 selector list，再用旧 Core 封存 semantic/native
+  baseline；不修改 JSX、class 使用或视觉属性。
+- baseline/current 的 `files / sourceClasses / beforeCssBytes / beforeRawCssBytes` 均为
+  `17 / 212 / 44309 / 44341`，语料可比。
+- 3 条 `selector-list` 全部消失，4 个目标 class 均保留 semantic token 并获得非空
+  atomic mapping；preserved rules/declarations 由 `43 / 170` 降为 `40 / 154`。
+- 16 个 source declaration 释放为 32 个 arm registrations，全部复用已有 atomic definitions；
+  不将 32 个 reuse occurrence 记为 32 个新 source declaration。
+- preserved ratio 由 `0.3492` 降为 `0.3264`；after raw/gzip/brotli 由
+  `18592 / 4385 / 3845` 降为 `17960 / 4291 / 3771`。class-string increase 由
+  `10810` 增至 `11130`，estimated total diff 仍从 `-14939` 改善到 `-15251`。
+- semantic/native preview 在 `1280 × 844` 和 `390 × 844` 下的 Modules route 普通、
+  focus-visible computed style 一致；四个 class 的 semantic/native token 数为
+  `7/1、7/1、11/1、11/1`，base 与 focus 单-arm CSSOM 均存在。
+- artifact 位于 `/private/tmp/gss-selector-list-pilot/{baseline,current}`，浏览器证据位于
+  `/private/tmp/gss-selector-list-pilot/pilot-browser-closeout.json`。自动边界见
+  [SEL-03 验收](phase-8-selector-list-acceptance.md)。
+
+## 2026-07-29 SEL-01 pseudo-element 同语料 artifact
+
+- 冻结 baseline SHA 清单逐项校验通过，native baseline/current 目录完全相同；未修改 Pilot CSS/JSX。
+- `files/sourceClasses/beforeCssBytes/beforeRawCssBytes` 保持 `17/212/44309/44341`。
+- 3 条 `pseudo-element` blocker 全消失；只有 `selectorValue` 获得 11 个 mapping，`taskCard` 与
+  `diagnosticProbe` 继续由 descendant/compound evidence 保留且保持零 mapping。
+- atomic definitions/reuse 为 `255/858 → 259/865`；preserved rules/declarations 为
+  `40/154 → 38/143`；preserved ratio 为 `0.3264 → 0.3112`。
+- after raw/gzip/brotli 为 `17960/4291/3771 → 17794/4284/3759`；class-string increase
+  `11130 → 11240`，estimated total diff `-15251 → -15307`，改善 56 bytes。
+- artifact 位于 `/private/tmp/gss-pseudo-element-pilot/{baseline,current}`；完整 hash 与边界见
+  [SEL-01 验收](phase-8-pseudo-element-acceptance.md)。Pilot corpus/delta 未因 reason/CSSOM matcher 修复改变；
+  独立 Test/Review 与最终 Vite full visual 已通过，SEL-01 状态为 `completed`。
+
+## 2026-07-29 FOUND-04 多 local foundation 评估
+
+- 使用当前 Vite Pilot 的真实 post-CSS-Modules capture 进行一次性 shadow replay；未修改 Pilot source，
+  未把 candidate 结果接入 CSS、manifest、report、diagnostic 或 tokens。
+- compound 为 `1 exact-only / +40 B`；two-local descendant 为 `6 / +1176 B`；child 为
+  `2 / +173 B`；single-local descendant-tag 为 `0 / 0 B`。四项都未通过“双 Pilot 各至少
+  2 个 exact-only 且 estimated total diff 不恶化”的门禁。
+- 两次 evaluation SHA-256 均为
+  `d6d7f011e72b5428d30aaa3dd11138c4197006e7599a8de3728a2766cb2deebb`，capture aggregate
+  SHA-256 为 `912376d37aa4a01b98c93e3b7e7d57427fe5d54818ec62d8bda3d849dd36a53d`。
+- `FOUND-04` 已 `closed-no-go`，shadow prototype 已回滚；`SEL-04` / `SEL-05` / `SEL-06`
+  deferred，不授权 production rewrite。独立 Test/Review 已 PASS；Vite full visual 报告
+  `/private/tmp/gss-found04-vite-independent.json` 为 `64 runs / 228 cases / 676 comparisons /
+  0 differences`，`passed=true`。adapter pre-image/hash 可独立复核，但任务前正式 Core 完整
+  checksum/pre-image 未持久化，Core byte-identical 独立比较为 `not_run`；当前只依赖开发阶段
+  比对结论、无 shadow/正式入口未接入与全门禁，继续 semantic fallback 且不扩展 `FOUND-05`。完整口径见
+  [FOUND-04 评估](phase-8-multi-local-selector-foundation-evaluation.md)。
+
 ## 人工浏览器旅程
 
 | 编号 | 模式 | 旅程 | 状态 |

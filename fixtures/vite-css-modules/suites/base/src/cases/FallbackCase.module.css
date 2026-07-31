@@ -80,3 +80,18 @@
   background: #0f766e;
   border-radius: 8px;
 }
+
+.pseudoAfter {
+  min-height: 24px;
+  padding: 10px;
+  color: #334155;
+}
+
+.pseudoAfter:after {
+  display: inline-block;
+  width: 8px;
+  height: 6px;
+  margin-left: 6px;
+  content: "A";
+  color: #7c3aed;
+}

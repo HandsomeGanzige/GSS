@@ -1,5 +1,5 @@
 /**
- * GSS Phase 7 的 computed style verifier、diff report、dev report 协议和 browser overlay。
+ * GSS 的 computed style verifier、diff report、dev report 协议和 browser overlay。
  *
  * @packageDocumentation
  */

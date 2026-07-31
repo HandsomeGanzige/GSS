@@ -6,11 +6,15 @@
 
 ```bash
 pnpm verify
-pnpm --filter @semantic-atomic-css/vite-fixture test:visual -- --suite base
+pnpm --filter @semantic-atomic-css/vite-fixture verify
+
+GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  pnpm --filter @semantic-atomic-css/vite-fixture test:visual \
+  -- --report /private/tmp/gss-vite-cascade-oracle-closeout.json
 ```
 
-`base` 验收已迁移到 `fixtures/vite-css-modules/suites/base`。`pnpm verify` 运行包级门禁和
-fixture 静态验收；visual 使用包内显式命令，不进入根默认门禁。
+当前 fixture 同时覆盖 `base` 与 `preprocessor` suite。`pnpm verify` 运行包级门禁和 fixture
+静态验收；visual 使用包内显式命令，不进入根默认门禁，并需要 localhost 与 Chrome 权限。
 
 `verify:phase*` 命令已退役。以下内容保留 Phase 3/4 当时的实际验收记录。
 
@@ -35,6 +39,139 @@ fixture 静态验收；visual 使用包内显式命令，不进入根默认门�
 - 如果 Chrome 不在默认位置，可通过 `GSS_VISUAL_CHROME_EXECUTABLE` 指定可执行文件路径。
 
 ## 当前验收结果
+
+### 2026-07-28 SEL-03 selector list Vite 收口
+
+- production adapter 未新增 selector 解析、list 拼接或 cascade guard；继续通用消费 Core
+  的单-arm descriptor。
+- Vite package 通过 4 files / 39 tests 与 typecheck/build。新契约覆盖 base/pseudo/attribute
+  list、unsafe mixed list、manifest 单-arm descriptor，以及 update/import-removal stale cleanup。
+- fixture typecheck/static 通过；base/base 共享 token，unsafe arm 保持完整 fallback，旧的
+  “全 eligible list 必然 fallback” oracle 已改为至少含一个 unsafe arm。
+- full visual 通过 semantic/native dev + preview、desktop + narrow，覆盖 base、hover、focus-visible、
+  attribute absent/open/change/remove、attribute-before-class、同元素多 arm winner、semantic token
+  与单-arm CSSOM；报告为 `/private/tmp/gss-vite-selector-list-closeout.json`。
+- Vite Pilot 同语料 baseline 的 3 条 `selector-list` 清零，4/4 目标 class 获得 mapping；
+  Modules route 的 1280/390 preview computed style 与 native 一致。详见
+  [SEL-03 验收](phase-8-selector-list-acceptance.md)。
+
+### 2026-07-27 SEL-02 attribute selector Vite 批次
+
+执行：
+
+```txt
+pnpm --filter @semantic-atomic-css/vite verify
+pnpm --filter @semantic-atomic-css/vite-fixture verify
+
+GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  pnpm --filter @semantic-atomic-css/vite-fixture test:visual \
+  -- --suite base --report /private/tmp/gss-vite-attribute-selector-base.json
+
+GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  pnpm --filter @semantic-atomic-css/vite-fixture test:visual \
+  -- --report /private/tmp/gss-vite-attribute-selector-full.json
+
+pnpm verify
+```
+
+结果：
+
+- Vite package 4 files、38 tests、typecheck/build 通过；三个旧 exact-equality fallback false-red
+  已替换为 eligible descriptor/token/CSS、order-risk report 与 HMR stale cleanup 契约。
+- fixture typecheck/static 通过。base static 证明 presence/exact/node-order 使用 atomic token + attribute
+  guard，eligible scoped selector 不重复 fallback；order-risk/`^=` near-miss 只有 scoped token 和 fallback CSS，
+  默认仍无 manifest/report。
+- base visual 为 32 runs、136 cases、444 comparisons、0 differences，`passed=true`。attribute state
+  依次经过 absent、open、closed、removed；semantic/native 各自 className 全程不变，CSSOM 精确绑定
+  guarded atomic selector；order-risk normal/hover 与 native 一致。
+- full visual 为 40 runs、176 cases、596 comparisons、0 differences，`passed=true`。除 base 外还验证
+  SCSS nested selector 经 Sass 编译为 `[data-state=ready]` 后的 manifest descriptor、CSS、tokens、
+  computed style，以及既有 partial full reload/import removal。
+- base/full report 分别为 `/private/tmp/gss-vite-attribute-selector-base.json` 和
+  `/private/tmp/gss-vite-attribute-selector-full.json`。
+- 两次 visual 首次在受限 sandbox 监听 localhost 返回 `EPERM`；获得 localhost/Chrome 权限后通过，
+  属运行环境权限，不是产品失败。
+- 根 `pnpm verify` 唯一失败是 Rsbuild fixture 的 SEL-02 旧 token-count 预期：
+  `oracleNonCompetingFallback` 实际为 scoped token + guarded atomic token。五个产品包测试、Vite fixture
+  static 均通过；该失败按已确认批次边界留给后续 Rsbuild 迁移。
+
+本节只收口 Vite adapter/fixture，不代表 SEL-02 全仓完成。
+
+### 2026-07-25 C4 cascade oracle canonical 重验
+
+在 C1 Core matrix、C2 Vite oracle 与 C3 Rsbuild oracle 的组合状态下，最终重验已通过：
+
+- 根 `pnpm verify` 通过：Core 8 files/74 tests、Analyzer 1 file/7 tests、Devtools
+  2 files/17 tests、Vite 4 files/37 tests、Rsbuild 4 files/18 tests，五个产品包合计
+  19 files/153 tests；全部 typecheck/build 与 Vite/Rsbuild fixture static 通过。
+- Vite full visual 覆盖 `base`、`preprocessor` 的 semantic/native dev 与 preview，共
+  20 runs、132 cases、420 次属性比较、0 differences，`passed=true`。
+- canonical report：
+  `/private/tmp/gss-vite-cascade-oracle-closeout.json`。
+- 绿色结果证明当前支持范围和已列代表场景中的 fixed winner、native token preservation 与
+  精确 CSSOM atomic rule 绑定；不证明任意 DOM class/module 共现，不开放 pseudo element、
+  attribute selector 或其他当前 unsafe selector。
+
+### 2026-07-25 C2 Vite cascade oracle 实施批次历史结果
+
+在真实 base CSS Modules fixture 中加入 6 个 atomic/fallback mixed case，并把两个已有
+same-value duplicate 锚点纳入 computed-style 后已通过：
+
+```txt
+pnpm --filter @semantic-atomic-css/vite verify
+pnpm --filter @semantic-atomic-css/vite-fixture verify
+
+GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  pnpm --filter @semantic-atomic-css/vite-fixture test:visual \
+  -- --suite base --report /private/tmp/found-02-c2-vite-base.json
+
+GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  pnpm --filter @semantic-atomic-css/vite-fixture test:visual \
+  -- --report /private/tmp/found-02-c2-vite-full.json
+```
+
+- Vite package：4 个 test files、37 项测试通过，typecheck/build 通过。
+- fixture typecheck/static 通过；静态门禁证明 8 个锚点、safe atomic token、fallback selector/value、
+  atomic-first/preserved-second、stable/media/supports 顺序，以及 duplicate same-value atomic
+  rule 单次输出。
+- base visual：12 runs、100 cases、300 次属性比较、0 differences，`passed=true`。
+- full visual：覆盖 `base`、`preprocessor` 的 semantic/native dev 与 preview，共
+  20 runs、132 cases、420 次属性比较、0 differences，`passed=true`。
+- 6 个 mixed case 在 semantic/native 的 desktop/narrow 均命中固定 expected；native 元素恰有
+  两枚 scoped token，semantic 保留两者并至少追加一枚 atomic token。
+- `duplicate-base` 与 `duplicate-align` 已进入 computed-style capture，验证跨 module
+  same-value atomic reuse 不丢失或错误移动。
+- reports：
+  `/private/tmp/found-02-c2-vite-base.json`、
+  `/private/tmp/found-02-c2-vite-full.json`。
+- 以上 C2 reports 是实施批次历史证据；当前 canonical 结果使用本节之前记录的 closeout report。
+- 两条 visual 首次在受限 sandbox 监听 localhost 返回 `EPERM`；原命令获得 localhost/Chrome
+  权限后通过，属运行环境权限，不是产品失败。
+
+### 2026-07-25 selector descriptor 收口结果
+
+selector descriptor consumer 与仓库静态门禁收口后已通过：
+
+```txt
+pnpm --filter @semantic-atomic-css/vite-fixture verify
+pnpm verify
+GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  pnpm --filter @semantic-atomic-css/vite-fixture test:visual \
+  -- --report /tmp/gss-vite-selector-descriptor-style-diff.json
+```
+
+- fixture static 只消费当前 manifest selector descriptor 与当前 build report；manifest 的
+  class mapping、atomic index、`selector.css` 和真实 bundle token 链路通过 exact rule 与
+  mutation 门禁。
+- full visual 覆盖 `base`、`preprocessor` 的 semantic/native dev 与 preview，共
+  20 runs、100 cases、356 次属性比较、0 differences，`passed=true`。
+- fixture visual 消费当前无版本 `adapter/status/environments` dev envelope，并覆盖 overlay、
+  HMR update/remove 与 stale selector 清理。
+- visual report：`/tmp/gss-vite-selector-descriptor-style-diff.json`。
+- 首次受限 sandbox 监听 localhost 返回 `EPERM`；原命令获得 localhost/Chrome 权限后通过，
+  属运行环境权限，不是产品失败。
+
+### 历史结果
 
 2026-07-06 已通过：
 
@@ -105,7 +242,7 @@ pnpm verify:phase4:full
 - `dist/index.html` 注入全局聚合 CSS asset。
 - unsafe selector fallback CSS 保留在全局 CSS asset 中。
 - 静态验收脚本检查 atomic asset、media/supports、`!important`、custom property、attribute fallback、
-  pseudo-element fallback 和 scoped descendant fallback。
+  before/after pseudo-element atomic selector、unsupported fallback 和 scoped descendant fallback。
 - 默认不输出 `semantic-atomic-manifest.json`。
 - 默认不输出 `semantic-atomic-report.json`。
 - visual 验收脚本对比 semantic/native dev 与 build preview 的 computed style，允许 className/token 字符串不同。
@@ -141,9 +278,11 @@ playground/vite-css-modules-acceptance/dist/assets/semantic-atomic.css
 
 `playground/vite-react-css-modules` 仍可用于手动观察较大业务场景，但不作为自动验收基准。
 
-## 非目标确认
+## 历史 Phase 3 非目标
 
-本阶段不验收：
+以下内容是 Phase 3 初始验收时的非目标，用于保留当时的范围边界；后续阶段与
+2026-07-25 当前完整回归已经扩展了其中部分能力，因此不应把本节解读为当前 fixture
+仍未覆盖这些场景。
 
 - Less/Sass。
 - named exports。
@@ -152,3 +291,17 @@ playground/vite-css-modules-acceptance/dist/assets/semantic-atomic.css
 - HMR 写文件 visual 验收。
 - core `invalidate(id)` 或 rebuild API。
 - 与 Vite 原生 CSS Modules hash 完全一致。
+
+## 2026-07-29 SEL-01 Vite 验收增量
+
+- Status: completed。
+- package build/dev 测试证明生产 adapter 沿 generic descriptor 路径消费 modern/legacy before/after，
+  mapping、alias cascade fallback、selector-list fallback 与 HMR stale cleanup 不复制 Core grammar。
+- base fixture static 证明 semantic scoped token 始终保留，atomic selector 保留 Vite 传入 Core 的
+  `::before`/`:after` spelling，且不重复输出 scoped fallback。
+- visual 脚本覆盖 semantic/native dev + preview、desktop + narrow 的 before/after content、颜色、
+  display、尺寸/间距、semantic-only token 与 CSSOM rule。首轮 Chrome legacy CSSOM canonicalization
+  finding 修复后，Vite 首次 focused retest 又发现 guarded assertion 仍读取旧 `expectedSelector`；统一为
+  严格 `expectedSelectors[]` matcher 并加入负向 mutation self-test 后，最终报告
+  `/private/tmp/gss-vite-pseudo-element-final-retest.json` PASS：`64 / 228 / 676 / 0`。
+- 双 Pilot 同语料证据见 [SEL-01 验收](phase-8-pseudo-element-acceptance.md)。

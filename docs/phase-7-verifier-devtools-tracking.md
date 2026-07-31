@@ -13,7 +13,7 @@
 | Batch | 主题 | 状态 | 结果 |
 | --- | --- | --- | --- |
 | 0 | 现有 verifier 与 adapter state 调研 | completed | 复用两套 fixture 的真实 Playwright journey，不新增浏览器依赖 |
-| 1 | devtools 包与 diff schema | completed | structural Playwright seam、稳定 report、protocol、overlay runtime |
+| 1 | devtools 包与 diff report | completed | structural Playwright seam、稳定 report、protocol、overlay runtime |
 | 2 | Vite 接入 | completed | 当前 dev cache 重建 report、middleware、HTML overlay 注入 |
 | 3 | Rsbuild 接入 | completed | environment snapshot、middleware、HTML overlay 注入 |
 | 4 | fixture 与文档 | completed | semantic/native style diff、API/overlay 真实检查、source map 方案 |
@@ -32,10 +32,22 @@
   transform 回写 current cache。
 - verifier 拒绝空/重复检查输入，零 comparisons 不得 passed，并使用 `load` 代替 `networkidle`。
 - 完整 CSS source map 仍未实现；Vite `map: null` 与 Rsbuild fail-fast 继续作为正确性保护。
+- 2026-07-22 当前 report 契约删除 dev envelope 与 style diff report 的人为
+  `schemaVersion`；不保留旧 reader 或 dual-write。
+- overlay 对展示必需字段做具体校验，非法 payload 统一进入 offline；
+  nested Analyzer `selectorIdentity` 原样透传。
+- 2026-07-25 consumer contract 已证明 nested Core diagnostic 的
+  `attribute-cascade-order` reason 与 Analyzer distribution 由 envelope 保留同一 report 对象，
+  且 JSON roundtrip 不过滤或改写字段；协议仍无 `schemaVersion`。
+- overlay 接受携带上述 nested 字段的 ready payload，但继续只展示 aggregate unsafe count、
+  health 与体积等既有 rows，不新增 reason-specific UI 或 reason whitelist。
 
 ## 最终回归
 
-- `pnpm verify`：通过；95 项包级测试与两套 static fixture 全部通过。
+- `pnpm --filter @semantic-atomic-css/devtools verify`：通过；2 个 test files、18 项测试，
+  typecheck/build 通过。新增 consumer contract 只修改 protocol test，不修改 production runtime
+  或 computed style verifier。
+- 此前 `pnpm verify`：通过；95 项包级测试与两套 static fixture 全部通过。
 - Vite visual：20 runs、344 次 computed style 属性比较、0 difference。
 - Rsbuild visual：8 runs、168 次 computed style 属性比较、0 difference。
 - 两份 style diff JSON 分别写入临时验收路径，并有独立失败 report 用例证明断言前写盘。
@@ -50,6 +62,7 @@
 | stale dev report | Vite outgoing graph 清理 + per-file generation + 请求时重建；Rsbuild 每轮 compile 清理 environment state |
 | 零检查伪通过 | 输入不变量 fail fast，`comparisons === 0` 时 `passed: false` 且 assert 抛错 |
 | polling 阻塞验证 | verifier/fixture 等待 `load`，两套真实 visual 使用 250ms 最低轮询验收 |
-| report API schema 污染 build schema | 独立 `schemaVersion: 1` envelope，nested report 原样复用 |
+| report API 污染 nested build report | envelope 仅表达 adapter/status/environments，nested report 原样复用 |
+| 非法 payload 被默认值掩盖 | 校验 overlay 实际消费字段，失败显示 `invalid-dev-report-payload` |
 | Playwright 版本耦合生产包 | structural browser/page interface，由调用方注入 |
 | source map 近似映射误导调试 | 未闭合 map composition 前不输出近似 map，Rsbuild 继续 fail fast |

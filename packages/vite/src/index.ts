@@ -8,7 +8,7 @@
  *
  * @packageDocumentation
  */
-export { semanticAtomicCss, semanticAtomicCssPlugin } from './plugin.js';
+export { semanticAtomicCss } from './plugin.js';
 export type {
   CssModulesOptions,
   DevtoolsOptions,

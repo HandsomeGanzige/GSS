@@ -25,6 +25,7 @@ export function createManifest(
     atomicManifest[declaration.className] = {
       key: declaration.key,
       className: declaration.className,
+      selector: { ...declaration.selector },
       declaration: {
         ...declaration.declaration,
         source: declaration.declaration.source && { ...declaration.declaration.source }

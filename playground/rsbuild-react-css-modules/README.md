@@ -23,5 +23,7 @@ pnpm --filter playground-rsbuild-react-css-modules preview:native
 ```
 
 `acceptance` 只检查类型、真实构建和静态产物结构，不进入根 `pnpm verify`；ICSS class/value 完整同值
-必须走保守 fallback，并由静态检查硬断言。computed style、交互、窄屏和 partial 更新仍属于人工 Pilot；
+必须走保守 fallback，并由静态检查硬断言。artifact inspector 直接使用 manifest 中必填的
+`selector.css` 定位 atomic rule，并只把非空 `selector.identity` 作为 opaque identity 校验，不从
+`className` 重建 selector。computed style、交互、窄屏和 partial 更新仍属于人工 Pilot；
 2026-07-17 的收口结果记录在 Phase 6 Pilot tracking，稳定自动回归继续属于 `fixtures/rsbuild-css-modules`。

@@ -11,6 +11,7 @@ const semanticReportPath = path.join(semanticRoot, 'semantic-atomic-report.json'
 
 /** 检查双入口 semantic/native 构建产物，并输出需要人工继续观察的契约结果。 */
 async function main() {
+  verifyExactSelectorRulePositionGuard();
   const [semanticFiles, nativeFiles] = await Promise.all([listFiles(semanticRoot), listFiles(nativeRoot)]);
 
   assertIncludes(semanticFiles, 'index.html', 'semantic build 应包含主入口 HTML');
@@ -44,6 +45,7 @@ async function main() {
   assert(sourceIds.some((id) => id.endsWith('/ASourceOrder.module.css')), 'manifest 应包含 source-order A probe');
   assert(sourceIds.some((id) => id.endsWith('/ZSourceOrder.module.css')), 'manifest 应包含 source-order Z probe');
   assert(report.analysis?.size?.beforeRawCssBytes > 0, 'report 应包含 analyzer size');
+  verifyAtomicSelectors(manifest, atomicCss);
 
   const [nativeInspectorCss, semanticInspectorJs, nativeInspectorJs] = await Promise.all([
     readEntryAsset(nativeRoot, 'static/css', 'inspector.', '.css'),
@@ -87,8 +89,8 @@ function inspectSourceOrder(manifest, atomicCss, nativeCss) {
   const zColor = findAtomicDeclaration(manifest, zEntry, 'color');
   const nativeAIndex = nativeCss.indexOf(`.${aEntry.resolvedClassName}`);
   const nativeZIndex = nativeCss.indexOf(`.${zEntry.resolvedClassName}`);
-  const semanticAIndex = atomicCss.indexOf(`.${aColor.className}`);
-  const semanticZIndex = atomicCss.indexOf(`.${zColor.className}`);
+  const semanticAIndex = findExactSelectorRulePosition(atomicCss, aColor.selector.css);
+  const semanticZIndex = findExactSelectorRulePosition(atomicCss, zColor.selector.css);
 
   assert(Math.min(nativeAIndex, nativeZIndex, semanticAIndex, semanticZIndex) >= 0, '无法定位 source-order probe rules');
   const nativeWinner = nativeAIndex < nativeZIndex ? 'ZSourceOrder' : 'ASourceOrder';
@@ -135,6 +137,56 @@ function findAtomicDeclaration(manifest, classEntry, property) {
     if (declaration?.declaration?.prop === property) return declaration;
   }
   throw new Error(`class ${classEntry.resolvedClassName} 缺少 ${property} atomic declaration`);
+}
+
+/** 校验 atomic entry 的当前 descriptor 必填，且 stylesheet 直接包含 descriptor CSS。 */
+function verifyAtomicSelectors(manifest, atomicCss) {
+  const entries = Object.entries(manifest.atomic ?? {});
+  assert(entries.length > 0, 'manifest 应包含 atomic entries');
+
+  for (const [className, atomic] of entries) {
+    assert(atomic?.className === className, `manifest atomic 索引应等于 entry.className: ${className}`);
+    assert(
+      typeof atomic.selector?.identity === 'string' && atomic.selector.identity.length > 0,
+      `atomic selector.identity 必填: ${className}`
+    );
+    assert(
+      typeof atomic.selector?.css === 'string' && atomic.selector.css.length > 0,
+      `atomic selector.css 必填: ${className}`
+    );
+    assert(
+      findExactSelectorRulePosition(atomicCss, atomic.selector.css) >= 0,
+      `atomic stylesheet 缺少完整 selector.css rule: ${className}`
+    );
+  }
+}
+
+/** 定位 descriptor selector 作为完整 rule prelude 的位置，拒绝更长 selector 前缀误命中。 */
+function findExactSelectorRulePosition(css, selector) {
+  let searchFrom = 0;
+  while (searchFrom <= css.length) {
+    const position = css.indexOf(selector, searchFrom);
+    if (position < 0) return -1;
+
+    let before = position - 1;
+    while (before >= 0 && /\s/u.test(css[before])) before -= 1;
+    let after = position + selector.length;
+    while (after < css.length && /\s/u.test(css[after])) after += 1;
+    const startsAtRuleBoundary = before < 0 || css[before] === '{' || css[before] === '}';
+    if (startsAtRuleBoundary && css[after] === '{') return position;
+    searchFrom = position + 1;
+  }
+  return -1;
+}
+
+/** 以更长 selector mutation、顶层和条件嵌套规则自检 exact rule boundary。 */
+function verifyExactSelectorRulePositionGuard() {
+  assert(findExactSelectorRulePosition('.foo_suffix {}', '.foo') === -1, 'exact selector 不得命中更长 class');
+  assert(findExactSelectorRulePosition('.foo {}', '.foo') === 0, 'exact selector 应命中顶层 rule');
+  assert(
+    findExactSelectorRulePosition('@media (min-width: 1px) {\n  .foo {}\n}', '.foo') > 0,
+    'exact selector 应命中条件规则中的完整 prelude'
+  );
 }
 
 /** 校验 atomic stylesheet 在当前 entry 原生 stylesheet 之前。 */

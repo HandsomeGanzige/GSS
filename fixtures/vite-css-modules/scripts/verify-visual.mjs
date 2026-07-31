@@ -88,6 +88,140 @@ const baseCases = [
     }
   },
   {
+    id: 'selector-list-cascade',
+    properties: ['color'],
+    expected: { color: 'rgb(220, 38, 38)' }
+  },
+  {
+    id: 'selector-list-peer',
+    properties: ['color'],
+    expected: { color: 'rgb(37, 99, 235)' }
+  },
+  {
+    id: 'selector-list-interactive',
+    properties: ['backgroundColor'],
+    expected: { backgroundColor: 'rgb(248, 250, 252)' }
+  },
+  {
+    id: 'selector-list-interactive-peer',
+    properties: ['backgroundColor'],
+    expected: { backgroundColor: 'rgb(248, 250, 252)' }
+  },
+  {
+    id: 'selector-list-attribute',
+    properties: ['backgroundColor'],
+    expected: { backgroundColor: 'rgb(248, 250, 252)' }
+  },
+  {
+    id: 'selector-list-attribute-peer',
+    properties: ['backgroundColor'],
+    expected: { backgroundColor: 'rgb(220, 252, 231)' }
+  },
+  {
+    id: 'selector-list-attribute-coincident',
+    properties: ['backgroundColor'],
+    expected: { backgroundColor: 'rgb(220, 252, 231)' }
+  },
+  {
+    id: 'selector-list-independent',
+    properties: ['paddingTop', 'color'],
+    expected: {
+      paddingTop: '13px',
+      color: 'rgb(71, 85, 105)'
+    }
+  },
+  {
+    id: 'oracle-non-competing',
+    properties: ['color', 'backgroundColor'],
+    expected: {
+      color: 'rgb(67, 56, 202)',
+      backgroundColor: 'rgb(254, 243, 199)'
+    }
+  },
+  {
+    id: 'oracle-important',
+    properties: ['color'],
+    expected: { color: 'rgb(159, 18, 57)' }
+  },
+  {
+    id: 'oracle-specificity',
+    properties: ['color'],
+    expected: { color: 'rgb(14, 116, 144)' }
+  },
+  {
+    id: 'oracle-stable-order',
+    properties: ['color'],
+    expected: { color: 'rgb(3, 105, 161)' }
+  },
+  {
+    id: 'oracle-media-overlap',
+    properties: ['color', 'backgroundColor'],
+    expected: { backgroundColor: 'rgb(241, 245, 249)' },
+    expectedByViewport: {
+      desktop: { color: 'rgb(190, 18, 60)' },
+      narrow: { color: 'rgb(30, 58, 138)' }
+    }
+  },
+  {
+    id: 'oracle-supports-overlap',
+    properties: ['color', 'backgroundColor'],
+    expected: {
+      color: 'rgb(67, 56, 202)',
+      backgroundColor: 'rgb(220, 252, 231)'
+    }
+  },
+  {
+    id: 'duplicate-base',
+    properties: ['backgroundColor', 'color', 'paddingTop'],
+    expected: {
+      backgroundColor: 'rgb(255, 255, 255)',
+      color: 'rgb(51, 65, 85)',
+      paddingTop: '14px'
+    }
+  },
+  {
+    id: 'duplicate-align',
+    properties: ['display', 'alignItems', 'backgroundColor', 'paddingTop'],
+    expected: {
+      display: 'flex',
+      alignItems: 'center',
+      backgroundColor: 'rgb(255, 255, 255)',
+      paddingTop: '14px'
+    }
+  },
+  {
+    id: 'attribute-presence',
+    properties: ['color', 'backgroundColor', 'paddingTop'],
+    expected: {
+      color: 'rgb(30, 58, 138)',
+      backgroundColor: 'rgb(219, 234, 254)'
+    }
+  },
+  {
+    id: 'attribute-node-order',
+    properties: ['color', 'backgroundColor', 'paddingTop'],
+    expected: {
+      color: 'rgb(88, 28, 135)',
+      backgroundColor: 'rgb(243, 232, 255)'
+    }
+  },
+  {
+    id: 'attribute-order-risk',
+    properties: ['color', 'backgroundColor', 'borderTopColor', 'fontWeight'],
+    expected: {
+      color: 'rgb(180, 83, 9)',
+      backgroundColor: 'rgb(255, 251, 235)'
+    }
+  },
+  {
+    id: 'attribute-near-miss',
+    properties: ['color', 'boxShadow', 'paddingTop'],
+    expected: {
+      color: 'rgb(51, 65, 85)',
+      boxShadow: 'rgba(248, 113, 113, 0.45) 0px 0px 0px 3px'
+    }
+  },
+  {
     id: 'fallback-child',
     properties: ['boxShadow', 'backgroundColor', 'borderTopColor'],
     expected: { boxShadow: 'rgba(15, 23, 42, 0.12) 0px 12px 22px 0px' }
@@ -128,6 +262,19 @@ const baseCases = [
       backgroundColor: 'rgb(15, 118, 110)',
       width: '4px'
     }
+  },
+  {
+    id: 'pseudo-after',
+    pseudo: '::after',
+    properties: ['content', 'color', 'display', 'width', 'height', 'marginLeft'],
+    expected: {
+      content: '"A"',
+      color: 'rgb(124, 58, 237)',
+      display: 'inline-block',
+      width: '8px',
+      height: '6px',
+      marginLeft: '6px'
+    }
   }
 ];
 
@@ -140,6 +287,22 @@ const baseHoverCases = [
       borderTopColor: 'rgb(148, 163, 184)',
       fontWeight: '800'
     }
+  }
+];
+
+const baseSelectorListHoverCases = [
+  {
+    id: 'selector-list-interactive',
+    properties: ['backgroundColor'],
+    expected: { backgroundColor: 'rgb(219, 234, 254)' }
+  }
+];
+
+const baseAttributeHoverCases = [
+  {
+    id: 'attribute-order-risk',
+    properties: ['color', 'backgroundColor', 'fontWeight'],
+    expected: { color: 'rgb(124, 58, 237)' }
   }
 ];
 
@@ -156,6 +319,18 @@ const baseFocusCases = [
   }
 ];
 
+const baseSelectorListFocusCases = [
+  {
+    id: 'selector-list-interactive-peer',
+    properties: ['outlineColor', 'outlineStyle', 'outlineWidth'],
+    expected: {
+      outlineColor: 'rgb(240, 171, 252)',
+      outlineStyle: 'solid',
+      outlineWidth: '3px'
+    }
+  }
+];
+
 const preprocessorCases = [
   {
     id: 'scss-asset',
@@ -166,6 +341,14 @@ const preprocessorCases = [
     id: 'scss-safe',
     properties: ['color', 'backgroundColor', 'paddingTop', 'outlineColor', 'outlineWidth'],
     expected: { color: 'rgb(15, 118, 110)' }
+  },
+  {
+    id: 'scss-attribute-ready',
+    properties: ['color', 'backgroundColor', 'paddingTop', 'borderTopColor'],
+    expected: {
+      color: 'rgb(15, 118, 110)',
+      backgroundColor: 'rgb(204, 251, 241)'
+    }
   },
   {
     id: 'less-safe',
@@ -409,6 +592,11 @@ async function verifyPartialReload(tempRoot) {
       );
     }
     assert(loadCount >= 2, 'partial 更新应触发浏览器 full reload');
+    const staleSelectors = await captureClassSelectors(page, '[data-gss-case="scss-safe"]');
+    assert(
+      staleSelectors.some(({ className }) => !className.startsWith('fixture_')),
+      'partial 更新后的 semantic token 应包含待清理 atomic class'
+    );
 
     const appFile = path.join(tempFixture, 'suites/preprocessor/src/App.tsx');
     const appSource = await readFile(appFile, 'utf8');
@@ -422,6 +610,13 @@ async function verifyPartialReload(tempRoot) {
       <button className={scssStyles.safeScss} data-gss-case="scss-safe">
         SCSS safe atomic
       </button>
+      <section
+        className={scssStyles.compiledAttribute}
+        data-state="ready"
+        data-gss-case="scss-attribute-ready"
+      >
+        SCSS compiled attribute selector
+      </section>
 `;
     const appWithoutScss = appSource
       .replace("import scssStyles from './cases/Theme.module.scss';\n", '')
@@ -431,18 +626,20 @@ async function verifyPartialReload(tempRoot) {
     await writeFile(appFile, appWithoutScss);
     await importRemovalReload;
 
-    await page.waitForFunction(async () => {
+    await page.waitForFunction(async (selectors) => {
       try {
         const payload = await fetch('/__semantic-atomic-css/report').then((response) => response.json());
         const report = payload.environments?.[0]?.report;
         const hasStaleRule = Array.from(document.styleSheets).some((sheet) =>
-          Array.from(sheet.cssRules).some((rule) => rule.cssText.includes('_color_7c3aed'))
+          Array.from(sheet.cssRules).some((rule) =>
+            selectors.some(({ selector }) => rule.cssText.includes(selector))
+          )
         );
         return report?.summary?.files === 2 && !hasStaleRule;
       } catch {
         return false;
       }
-    }, undefined, { timeout: timeoutMs });
+    }, staleSelectors, { timeout: timeoutMs });
     assert(loadCount >= 3, '移除 CSS Module import 应触发 full reload');
   } finally {
     await browser.close();
@@ -477,8 +674,14 @@ async function compareServers(label, suite, semanticUrl, nativeUrl) {
           nativePage.goto(nativeUrl, { waitUntil: 'load' })
         ]);
         await assertSemanticClassExpansion(label, suite, semanticPage, nativePage);
+        if (suite === 'base') {
+          await assertBaseCaseTokenContracts(label, semanticPage, nativePage);
+          await assertBaseAttributeTokenContracts(label, semanticPage, nativePage);
+        } else {
+          await assertPreprocessorAttributeTokenContract(label, semanticPage, nativePage);
+        }
         if (label.endsWith('/dev')) {
-          await assertDevtools(semanticPage, nativePage);
+          await assertDevtools(label, suite, semanticPage, nativePage);
         } else {
           const [semanticOverlay, nativeOverlay] = await Promise.all([
             semanticPage.locator('[data-semantic-atomic-css-overlay]').count(),
@@ -488,6 +691,7 @@ async function compareServers(label, suite, semanticUrl, nativeUrl) {
         }
 
         if (suite === 'base') {
+          await compareAttributeMutation(label, viewport, semanticPage, nativePage);
           await compareCases(label, viewport, 'base', semanticPage, nativePage, baseCases);
           await Promise.all([
             semanticPage.locator('[data-gss-case="hover-button"]').hover(),
@@ -495,10 +699,46 @@ async function compareServers(label, suite, semanticUrl, nativeUrl) {
           ]);
           await compareCases(label, viewport, 'hover', semanticPage, nativePage, baseHoverCases);
           await Promise.all([
+            semanticPage.locator('[data-gss-case="selector-list-interactive"]').hover(),
+            nativePage.locator('[data-gss-case="selector-list-interactive"]').hover()
+          ]);
+          await compareCases(
+            label,
+            viewport,
+            'selector-list-hover',
+            semanticPage,
+            nativePage,
+            baseSelectorListHoverCases
+          );
+          await Promise.all([
+            semanticPage.locator('[data-gss-case="attribute-order-risk"]').hover(),
+            nativePage.locator('[data-gss-case="attribute-order-risk"]').hover()
+          ]);
+          await compareCases(
+            label,
+            viewport,
+            'attribute-hover',
+            semanticPage,
+            nativePage,
+            baseAttributeHoverCases
+          );
+          await Promise.all([
             semanticPage.locator('[data-gss-case="focus-button"]').focus(),
             nativePage.locator('[data-gss-case="focus-button"]').focus()
           ]);
           await compareCases(label, viewport, 'focus', semanticPage, nativePage, baseFocusCases);
+          await Promise.all([
+            semanticPage.locator('[data-gss-case="selector-list-interactive-peer"]').focus(),
+            nativePage.locator('[data-gss-case="selector-list-interactive-peer"]').focus()
+          ]);
+          await compareCases(
+            label,
+            viewport,
+            'selector-list-focus',
+            semanticPage,
+            nativePage,
+            baseSelectorListFocusCases
+          );
         } else {
           await compareCases(label, viewport, 'base', semanticPage, nativePage, preprocessorCases);
           await Promise.all([
@@ -541,6 +781,529 @@ async function assertSemanticClassExpansion(label, suite, semanticPage, nativePa
     semanticCount > nativeCount,
     `${label}: semantic class token 未体现 atomic 增强\nsemantic=${semanticClassName}\nnative=${nativeClassName}`
   );
+}
+
+/**
+ * 逐个验证 mixed 与 duplicate case 保留原生 scoped token，并命中各自 safe-side atomic rule。
+ *
+ * @param {string} label - 用于错误定位的运行标签。
+ * @param {import('playwright').Page} semanticPage - semantic 页面。
+ * @param {import('playwright').Page} nativePage - native 对照页面。
+ * @returns {Promise<void>} 八个 case 的 token 边界全部成立后解决。
+ */
+async function assertBaseCaseTokenContracts(label, semanticPage, nativePage) {
+  const cases = [
+    {
+      id: 'oracle-non-competing',
+      nativeTokenCount: 2,
+      exactAtomicTokenCount: 2,
+      atomicRules: [
+        { property: 'color', value: '#4338ca' },
+        {
+          property: 'background',
+          value: '#fef3c7',
+          selectorSuffix: '[data-oracle="non-competing"]'
+        }
+      ]
+    },
+    {
+      id: 'oracle-important',
+      nativeTokenCount: 2,
+      exactAtomicTokenCount: 1,
+      atomicRules: [{ property: 'color', value: '#9f1239', priority: 'important' }]
+    },
+    {
+      id: 'oracle-specificity',
+      nativeTokenCount: 2,
+      exactAtomicTokenCount: 2,
+      atomicRules: [
+        { property: 'color', value: '#7c3aed' },
+        { property: 'color', value: '#0e7490', selectorSuffix: '[data-oracle="specificity"]' }
+      ]
+    },
+    {
+      id: 'oracle-stable-order',
+      nativeTokenCount: 2,
+      exactAtomicTokenCount: 1,
+      atomicRules: [{ property: 'color', value: '#7c2d12' }]
+    },
+    {
+      id: 'oracle-media-overlap',
+      nativeTokenCount: 2,
+      exactAtomicTokenCount: 3,
+      atomicRules: [
+        { property: 'color', value: '#1e3a8a' },
+        { property: 'color', value: '#2563eb', media: '(min-width: 600px)' },
+        { property: 'color', value: '#be123c', media: '(min-width: 900px)' }
+      ]
+    },
+    {
+      id: 'oracle-supports-overlap',
+      nativeTokenCount: 2,
+      exactAtomicTokenCount: 1,
+      atomicRules: [{ property: 'color', value: '#4338ca' }]
+    },
+    {
+      id: 'duplicate-base',
+      nativeTokenCount: 1,
+      atomicRules: [{ property: 'color', value: '#334155' }]
+    },
+    {
+      id: 'duplicate-align',
+      nativeTokenCount: 1,
+      atomicRules: [{ property: 'align-items', value: 'center' }]
+    },
+    {
+      id: 'selector-list-interactive',
+      nativeTokenCount: 1,
+      exactAtomicTokenCount: 3,
+      atomicRules: [
+        { property: 'background-color', value: '#f8fafc' },
+        { property: 'background-color', value: '#dbeafe', selectorSuffix: ':hover' },
+        { property: 'outline', value: '3px solid #f0abfc', selectorSuffix: ':focus-visible' }
+      ]
+    },
+    {
+      id: 'selector-list-interactive-peer',
+      nativeTokenCount: 1,
+      exactAtomicTokenCount: 3,
+      atomicRules: [
+        { property: 'background-color', value: '#f8fafc' },
+        { property: 'background-color', value: '#dbeafe', selectorSuffix: ':hover' },
+        { property: 'outline', value: '3px solid #f0abfc', selectorSuffix: ':focus-visible' }
+      ]
+    },
+    {
+      id: 'pseudo-marker',
+      nativeTokenCount: 1,
+      atomicRules: [
+        { property: 'content', value: '""', selectorSuffix: '::before' },
+        { property: 'background', value: '#0f766e', selectorSuffix: '::before' },
+        { property: 'width', value: '4px', selectorSuffix: '::before' }
+      ]
+    },
+    {
+      id: 'pseudo-after',
+      nativeTokenCount: 1,
+      atomicRules: [
+        { property: 'content', value: '"A"', selectorSuffix: ':after' },
+        { property: 'color', value: '#7c3aed', selectorSuffix: ':after' },
+        { property: 'width', value: '8px', selectorSuffix: ':after' }
+      ]
+    }
+  ];
+
+  for (const spec of cases) {
+    const { id } = spec;
+    const selector = `[data-gss-case="${id}"]`;
+    const [semanticClassName, nativeClassName] = await Promise.all([
+      semanticPage.locator(selector).evaluate((element) => element.className),
+      nativePage.locator(selector).evaluate((element) => element.className)
+    ]);
+    const semanticTokens = splitClassName(semanticClassName);
+    const nativeTokens = splitClassName(nativeClassName);
+
+    assert(
+      nativeTokens.length === spec.nativeTokenCount,
+      `${label}/${id}: native scoped token 数应为 ${spec.nativeTokenCount}\nnative=${nativeClassName}`
+    );
+    assert(
+      nativeTokens.every((token) => semanticTokens.includes(token)),
+      `${label}/${id}: semantic 必须保留全部 native scoped token\nsemantic=${semanticClassName}\nnative=${nativeClassName}`
+    );
+    const atomicTokens = semanticTokens.filter((token) => !nativeTokens.includes(token));
+    assert(
+      atomicTokens.length > 0,
+      `${label}/${id}: semantic 必须至少追加一枚 atomic token\nsemantic=${semanticClassName}\nnative=${nativeClassName}`
+    );
+    if (spec.exactAtomicTokenCount !== undefined) {
+      assert(
+        atomicTokens.length === spec.exactAtomicTokenCount,
+        `${label}/${id}: safe side atomic token 数应为 ${spec.exactAtomicTokenCount}\natomic=${atomicTokens.join(' ')}`
+      );
+    }
+
+    const atomicRuleMatches = await captureAtomicRuleMatches(semanticPage, atomicTokens, spec.atomicRules);
+    for (const expectedRule of spec.atomicRules) {
+      assert(
+        atomicRuleMatches.some((actualRule) =>
+          matchesCapturedAtomicRule(actualRule, expectedRule, atomicTokens)
+        ),
+        `${label}/${id}: semantic 新增 token 未绑定预期 atomic rule ${JSON.stringify(expectedRule)}\n` +
+          `atomic=${atomicTokens.join(' ')}\nrules=${JSON.stringify(atomicRuleMatches)}`
+      );
+    }
+  }
+}
+
+/**
+ * 验证 base attribute 正向 class 的完整 guarded CSSOM selector，以及两个 fallback class 的 token 边界。
+ */
+async function assertBaseAttributeTokenContracts(label, semanticPage, nativePage) {
+  const eligibleCases = [
+    {
+      id: 'attribute-state',
+      atomicRules: [
+        { property: 'background', value: '#dcfce7', selectorSuffix: '[data-state="open"]' },
+        { property: 'background', value: '#fee2e2', selectorSuffix: '[data-state="closed"]' }
+      ]
+    },
+    {
+      id: 'attribute-presence',
+      atomicRules: [{ property: 'background', value: '#dbeafe', selectorSuffix: '[data-present]' }]
+    },
+    {
+      id: 'attribute-node-order',
+      atomicRules: [
+        { property: 'background', value: '#f3e8ff', selectorPrefix: '[data-placement="before"]' }
+      ]
+    },
+    {
+      id: 'selector-list-attribute',
+      atomicRules: [
+        { property: 'background-color', value: '#dcfce7', selectorSuffix: '[data-list-state="open"]' }
+      ]
+    },
+    {
+      id: 'selector-list-attribute-peer',
+      atomicRules: [
+        { property: 'background-color', value: '#dcfce7', selectorPrefix: '[data-list-state="open"]' }
+      ]
+    }
+  ];
+
+  for (const spec of eligibleCases) {
+    const { semanticTokens, nativeTokens } = await readComparedClassTokens(
+      label,
+      spec.id,
+      semanticPage,
+      nativePage
+    );
+    const atomicTokens = semanticTokens.filter((token) => !nativeTokens.includes(token));
+    assert(atomicTokens.length > 0, `${label}/${spec.id}: eligible attribute class 应追加 atomic token`);
+    const matches = await captureAtomicRuleMatches(semanticPage, atomicTokens, spec.atomicRules);
+    for (const expectedRule of spec.atomicRules) {
+      assert(
+        matches.some((match) => matchesCapturedAtomicRule(match, expectedRule, atomicTokens)),
+        `${label}/${spec.id}: 缺少完整 guarded atomic selector ${JSON.stringify(expectedRule)}\n` +
+          `matches=${JSON.stringify(matches)}`
+      );
+    }
+  }
+
+  const styleSelectors = await captureStyleSelectors(semanticPage);
+  for (const spec of [
+    {
+      id: 'attribute-order-risk',
+      expectedSelectors: (className) => [`.${className}[data-state]`, `.${className}:hover`]
+    },
+    {
+      id: 'attribute-near-miss',
+      expectedSelectors: (className) => [`.${className}[data-kind^="danger"]`]
+    }
+  ]) {
+    const { semanticTokens, nativeTokens } = await readComparedClassTokens(
+      label,
+      spec.id,
+      semanticPage,
+      nativePage
+    );
+    assert(
+      semanticTokens.length === nativeTokens.length,
+      `${label}/${spec.id}: fallback class 不得追加 partial atomic token`
+    );
+    for (const expectedSelector of spec.expectedSelectors(nativeTokens[0])) {
+      assert(
+        styleSelectors.includes(expectedSelector),
+        `${label}/${spec.id}: scoped fallback CSSOM 缺少 ${expectedSelector}`
+      );
+    }
+  }
+}
+
+/** 验证 Sass nested selector 经 Vite 编译后仍以完整 attribute-guarded atomic selector 输出。 */
+async function assertPreprocessorAttributeTokenContract(label, semanticPage, nativePage) {
+  const { semanticTokens, nativeTokens } = await readComparedClassTokens(
+    label,
+    'scss-attribute-ready',
+    semanticPage,
+    nativePage
+  );
+  const atomicTokens = semanticTokens.filter((token) => !nativeTokens.includes(token));
+  const expectedRules = [
+    { property: 'color', value: '#0f766e', selectorSuffix: '[data-state="ready"]' },
+    { property: 'background', value: '#ccfbf1', selectorSuffix: '[data-state="ready"]' }
+  ];
+  const matches = await captureAtomicRuleMatches(semanticPage, atomicTokens, expectedRules);
+  for (const expectedRule of expectedRules) {
+    assert(
+      matches.some((match) => matchesCapturedAtomicRule(match, expectedRule, atomicTokens)),
+      `${label}/scss-attribute-ready: SCSS compiled guard 缺少 ${JSON.stringify(expectedRule)}\n` +
+        `matches=${JSON.stringify(matches)}`
+    );
+  }
+}
+
+/** 读取 semantic/native class tokens，并统一断言原生 scoped token 未被 adapter 丢失。 */
+async function readComparedClassTokens(label, id, semanticPage, nativePage) {
+  const selector = `[data-gss-case="${id}"]`;
+  const [semanticClassName, nativeClassName] = await Promise.all([
+    semanticPage.locator(selector).evaluate((element) => element.className),
+    nativePage.locator(selector).evaluate((element) => element.className)
+  ]);
+  const semanticTokens = splitClassName(semanticClassName);
+  const nativeTokens = splitClassName(nativeClassName);
+  assert(
+    nativeTokens.every((token) => semanticTokens.includes(token)),
+    `${label}/${id}: semantic 必须保留全部 native scoped token\n` +
+      `semantic=${semanticClassName}\nnative=${nativeClassName}`
+  );
+  return { semanticTokens, nativeTokens };
+}
+
+/**
+ * 依次执行 absent → open → closed → removed，并证明 attribute mutation 不改变任何一侧 className。
+ */
+async function compareAttributeMutation(label, viewport, semanticPage, nativePage) {
+  const selector = '[data-gss-case="attribute-state"]';
+  const [semanticClassName, nativeClassName] = await Promise.all([
+    semanticPage.locator(selector).evaluate((element) => element.className),
+    nativePage.locator(selector).evaluate((element) => element.className)
+  ]);
+  const states = [
+    {
+      name: 'absent',
+      value: null,
+      expected: { color: 'rgb(71, 85, 105)', backgroundColor: 'rgb(248, 250, 252)' }
+    },
+    {
+      name: 'open',
+      value: 'open',
+      expected: { color: 'rgb(22, 101, 52)', backgroundColor: 'rgb(220, 252, 231)' }
+    },
+    {
+      name: 'closed',
+      value: 'closed',
+      expected: { color: 'rgb(153, 27, 27)', backgroundColor: 'rgb(254, 226, 226)' }
+    },
+    {
+      name: 'removed',
+      value: null,
+      expected: { color: 'rgb(71, 85, 105)', backgroundColor: 'rgb(248, 250, 252)' }
+    }
+  ];
+
+  for (const state of states) {
+    await Promise.all(
+      [semanticPage, nativePage].map((page) =>
+        page.locator(selector).evaluate((element, value) => {
+          if (value === null) element.removeAttribute('data-state');
+          else element.setAttribute('data-state', value);
+        }, state.value)
+      )
+    );
+    const [currentSemanticClassName, currentNativeClassName] = await Promise.all([
+      semanticPage.locator(selector).evaluate((element) => element.className),
+      nativePage.locator(selector).evaluate((element) => element.className)
+    ]);
+    assert(
+      currentSemanticClassName === semanticClassName && currentNativeClassName === nativeClassName,
+      `${label}/${viewport.name}/attribute-${state.name}: attribute mutation 不得改变 className`
+    );
+    await compareCases(label, viewport, `attribute-${state.name}`, semanticPage, nativePage, [
+      {
+        id: 'attribute-state',
+        properties: ['color', 'backgroundColor', 'paddingTop', 'borderTopColor', 'fontWeight'],
+        expected: state.expected
+      }
+    ]);
+  }
+
+  const listSelector = '[data-gss-case="selector-list-attribute"]';
+  const [semanticListClassName, nativeListClassName] = await Promise.all([
+    semanticPage.locator(listSelector).evaluate((element) => element.className),
+    nativePage.locator(listSelector).evaluate((element) => element.className)
+  ]);
+  for (const state of [
+    { name: 'absent', value: null, backgroundColor: 'rgb(248, 250, 252)' },
+    { name: 'open', value: 'open', backgroundColor: 'rgb(220, 252, 231)' },
+    { name: 'changed', value: 'closed', backgroundColor: 'rgb(248, 250, 252)' },
+    { name: 'removed', value: null, backgroundColor: 'rgb(248, 250, 252)' }
+  ]) {
+    await Promise.all(
+      [semanticPage, nativePage].map((page) =>
+        page.locator(listSelector).evaluate((element, value) => {
+          if (value === null) element.removeAttribute('data-list-state');
+          else element.setAttribute('data-list-state', value);
+        }, state.value)
+      )
+    );
+    const [currentSemanticClassName, currentNativeClassName] = await Promise.all([
+      semanticPage.locator(listSelector).evaluate((element) => element.className),
+      nativePage.locator(listSelector).evaluate((element) => element.className)
+    ]);
+    assert(
+      currentSemanticClassName === semanticListClassName && currentNativeClassName === nativeListClassName,
+      `${label}/${viewport.name}/selector-list-attribute-${state.name}: attribute mutation 不得改变 className`
+    );
+    await compareCases(
+      label,
+      viewport,
+      `selector-list-attribute-${state.name}`,
+      semanticPage,
+      nativePage,
+      [
+        {
+          id: 'selector-list-attribute',
+          properties: ['backgroundColor'],
+          expected: { backgroundColor: state.backgroundColor }
+        }
+      ]
+    );
+  }
+}
+
+/**
+ * 从 CSSOM 中读取 semantic-only class 的 atomic rule，并保留 media 上下文用于精确匹配。
+ *
+ * @param {import('playwright').Page} page - 当前 semantic 页面。
+ * @param {string[]} atomicTokens - 相对 native 新增的 atomic class token。
+ * @param {Array<{ property: string, value: string }>} expectedRules - 需要规范化 value 的预期规则。
+ * @returns {Promise<Array<Record<string, string>>>} 命中 token 的 atomic declaration 与上下文。
+ */
+async function captureAtomicRuleMatches(page, atomicTokens, expectedRules) {
+  const cssomExpectedRules = expectedRules.map((rule) => ({
+    ...rule,
+    selectorSuffixes: cssomSelectorSuffixes(rule.selectorSuffix)
+  }));
+
+  return await page.evaluate(
+    ({ tokens, rules }) => {
+      const expectedValues = Object.fromEntries(
+        rules.map(({ property, value }) => {
+          const probe = document.createElement('div').style;
+          probe.setProperty(property, value);
+          return [`${property}\0${value}`, probe.getPropertyValue(property)];
+        })
+      );
+      const matches = [];
+
+      /**
+       * 递归读取条件规则内的 atomic selector，避免仅检查 className 字符串造成 false-green。
+       *
+       * @param {CSSRuleList} ruleList - 当前层级的 CSS rule 列表。
+       * @param {{ media: string }} context - 当前继承的 media 上下文。
+       */
+      function visitRules(ruleList, context) {
+        for (const rule of Array.from(ruleList)) {
+          if (rule instanceof CSSStyleRule) {
+            for (const token of tokens) {
+              for (const expectedRule of rules) {
+                const expectedSelectors = expectedRule.selectorPrefix
+                  ? [`${expectedRule.selectorPrefix}.${CSS.escape(token)}`]
+                  : expectedRule.selectorSuffixes.map(
+                      (suffix) => `.${CSS.escape(token)}${suffix}`
+                    );
+                if (!expectedSelectors.includes(rule.selectorText)) continue;
+                matches.push({
+                  token,
+                  selector: rule.selectorText,
+                  expectedSelectors,
+                  property: expectedRule.property,
+                  value: rule.style.getPropertyValue(expectedRule.property),
+                  expectedValue: expectedValues[`${expectedRule.property}\0${expectedRule.value}`],
+                  priority: rule.style.getPropertyPriority(expectedRule.property),
+                  media: context.media
+                });
+              }
+            }
+            continue;
+          }
+
+          if ('cssRules' in rule) {
+            visitRules(rule.cssRules, {
+              media: rule instanceof CSSMediaRule ? rule.conditionText : context.media
+            });
+          }
+        }
+      }
+
+      for (const sheet of Array.from(document.styleSheets)) {
+        visitRules(sheet.cssRules, { media: '' });
+      }
+
+      return matches;
+    },
+    { tokens: atomicTokens, rules: cssomExpectedRules }
+  );
+}
+
+/**
+ * 返回 CSSOM 允许的 selector suffix；Chrome 会把 legacy pseudo element 序列化为双冒号。
+ *
+ * 这里只放宽浏览器 selectorText 断言，不改变 static build 对 Core descriptor spelling 的严格检查。
+ */
+function cssomSelectorSuffixes(selectorSuffix = '') {
+  const match = /^:(before|after)$/u.exec(selectorSuffix);
+  return match ? [selectorSuffix, `::${match[1]}`] : [selectorSuffix];
+}
+
+/**
+ * 严格匹配一次已捕获的 atomic CSSOM evidence。
+ *
+ * selector 必须是当前 expected rule 生成的完整单 selector，token 必须来自 semantic/native 差集，
+ * property/value/priority/media 也必须同时一致，避免 pseudo alias 兼容产生 false-green。
+ */
+function matchesCapturedAtomicRule(actualRule, expectedRule, atomicTokens) {
+  return (
+    atomicTokens.includes(actualRule.token) &&
+    actualRule.expectedSelectors.includes(actualRule.selector) &&
+    actualRule.property === expectedRule.property &&
+    actualRule.value === actualRule.expectedValue &&
+    actualRule.priority === (expectedRule.priority ?? '') &&
+    actualRule.media === (expectedRule.media ?? '')
+  );
+}
+
+/** 用模拟的 Chrome legacy canonicalization 锁定 CSSOM mutation 兼容边界。 */
+function verifyPseudoElementCssomSerializationSelfTest() {
+  assert(
+    cssomSelectorSuffixes(':before').includes('::before') &&
+      cssomSelectorSuffixes(':after').includes('::after'),
+    'CSSOM self-test 必须接受 legacy pseudo element 被序列化为双冒号'
+  );
+  assert(
+    JSON.stringify(cssomSelectorSuffixes('::before')) === JSON.stringify(['::before']) &&
+      JSON.stringify(cssomSelectorSuffixes(':hover')) === JSON.stringify([':hover']),
+    'CSSOM self-test 不得放宽 modern pseudo element 或 pseudo class selector'
+  );
+
+  const expectedRule = { property: 'color', value: 'red', selectorSuffix: ':before' };
+  const validEvidence = {
+    token: 'atomic-token',
+    selector: '.atomic-token::before',
+    expectedSelectors: ['.atomic-token:before', '.atomic-token::before'],
+    property: 'color',
+    value: 'red',
+    expectedValue: 'red',
+    priority: '',
+    media: ''
+  };
+  assert(
+    matchesCapturedAtomicRule(validEvidence, expectedRule, ['atomic-token']),
+    'CSSOM self-test 应接受同 token/property 的 legacy before 双冒号序列化'
+  );
+  for (const mutation of [
+    { ...validEvidence, selector: '.atomic-token::after' },
+    { ...validEvidence, selector: '.atomic-token::before, .other' },
+    { ...validEvidence, token: 'other-token' },
+    { ...validEvidence, property: 'background' }
+  ]) {
+    assert(
+      !matchesCapturedAtomicRule(mutation, expectedRule, ['atomic-token']),
+      `CSSOM self-test 不得接受错误 evidence: ${JSON.stringify(mutation)}`
+    );
+  }
 }
 
 /**
@@ -635,7 +1398,7 @@ async function collectSnapshots(page, cases) {
 }
 
 /** 验证 dev report API 与 Shadow DOM overlay 只出现在 semantic dev 页面。 */
-async function assertDevtools(semanticPage, nativePage) {
+async function assertDevtools(label, suite, semanticPage, nativePage) {
   await semanticPage.waitForSelector('[data-semantic-atomic-css-overlay]');
   await semanticPage.waitForFunction(() => {
     const host = document.querySelector('[data-semantic-atomic-css-overlay]');
@@ -658,12 +1421,39 @@ async function assertDevtools(semanticPage, nativePage) {
     nativePage.locator('[data-semantic-atomic-css-overlay]').count()
   ]);
 
-  assert(payload.schemaVersion === 1 && payload.adapter === 'vite' && payload.status === 'ready', 'Vite dev report API 契约不成立');
-  assert(payload.environments[0]?.report?.analysis, 'Vite dev report API 缺少 analyzer analysis');
+  const report = payload.environments[0]?.report;
+  assert(payload.adapter === 'vite' && payload.status === 'ready', 'Vite dev report API 契约不成立');
+  assert(!Object.hasOwn(payload, 'schemaVersion'), 'Vite dev report 当前 envelope 不应出现 schemaVersion');
+  assert(report?.analysis, 'Vite dev report API 缺少 analyzer analysis');
+  if (suite === 'base') {
+    assert(
+      report.diagnostics.some((diagnostic) => diagnostic.reason === 'attribute-cascade-order'),
+      `${label}: Vite dev report 应透传 attribute-cascade-order diagnostic`
+    );
+    assert(
+      report.analysis.risk.unsafeReasonDistribution['attribute-cascade-order'] > 0,
+      `${label}: Analyzer distribution 应包含 attribute-cascade-order`
+    );
+  }
   assert(overlayState.hasShadowRoot, 'Vite semantic dev overlay 应使用 Shadow DOM');
   assert(['ready', 'risky', 'blocked'].includes(overlayState.health), 'Vite overlay 未展示 report health');
   assert(overlayState.expanded === 'true' && overlayState.panelHidden === false, 'Vite overlay 展开交互失败');
   assert(nativeOverlay === 0, 'Vite native 对照不应注入 GSS overlay');
+}
+
+/** 递归收集当前页面 CSSOM 中的完整 style rule selectorText。 */
+async function captureStyleSelectors(page) {
+  return await page.evaluate(() => {
+    const selectors = [];
+    function visitRules(ruleList) {
+      for (const rule of Array.from(ruleList)) {
+        if (rule instanceof CSSStyleRule) selectors.push(rule.selectorText);
+        else if ('cssRules' in rule) visitRules(rule.cssRules);
+      }
+    }
+    for (const sheet of Array.from(document.styleSheets)) visitRules(sheet.cssRules);
+    return selectors;
+  });
 }
 
 /**
@@ -898,6 +1688,22 @@ function splitClassName(value) {
 }
 
 /**
+ * 从更新后的 DOM token 捕获待清理 selector，避免把 atomic class 命名策略固化进 HMR 验收。
+ *
+ * @param {import('playwright').Page} page - 当前 semantic dev 页面。
+ * @param {string} elementSelector - 携带待移除 CSS Module token 的元素 selector。
+ * @returns {Promise<Array<{ className: string, selector: string }>>} 当前 class 及其精确 CSS selector。
+ */
+async function captureClassSelectors(page, elementSelector) {
+  return await page.locator(elementSelector).evaluate((element) =>
+    Array.from(element.classList, (className) => ({
+      className,
+      selector: `.${CSS.escape(className)}`
+    }))
+  );
+}
+
+/**
  * 生成 fixture 本地服务根地址。
  *
  * @param {number} port - 服务监听端口。
@@ -939,4 +1745,7 @@ function formatError(error) {
   return error instanceof Error ? error.stack ?? error.message : String(error);
 }
 
-await main();
+verifyPseudoElementCssomSerializationSelfTest();
+if (process.env.GSS_VISUAL_SELF_TEST_ONLY !== '1') {
+  await main();
+}

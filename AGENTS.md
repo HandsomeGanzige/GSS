@@ -73,8 +73,19 @@
 - 默认只转换 `.module.css`、`.module.scss` 和 `.module.less`，不改写 JSX/TSX 中 CSS Modules 的使用方式。
 - 默认保留 semantic scoped class；除非任务明确批准新的产品模式，不移除 semantic class preservation。
 - unsafe selector 必须保留为 scoped fallback CSS，并在 warning/report 中记录原因。
-- safe selector 仅允许一个 local class、零 tag/id/attribute/combinator/额外 class/pseudo element/`:global`，
-  且最多带一个已支持的 pseudo class：`:hover`、`:focus`、`:active`、`:disabled`、`:focus-visible`。
+- 每个 safe selector arm 只能有一个 local class anchor，且不得包含 tag、id、combinator、额外 class
+  或 `:global`。除基础 selector 外，只能三选一：带一个已支持的 pseudo class
+  （`:hover`、`:focus`、`:active`、`:disabled`、`:focus-visible`），带一个末尾
+  `::before` / `::after` / `:before` / `:after`，或在同一 compound 内带一个 presence / `=` equality
+  attribute。
+- selector list 只有在全部 arm 都安全、可导出且未被 class-wide evidence 阻断时才能转换；任一 arm
+  unsafe 时完整 rule fallback。当前含 pseudo element arm 的 selector list 仍整体 fallback。
+- attribute selector 的 parser-decoded name 不得为 `class`，并且不得含 namespace、flag、其他 operator、
+  多 attribute 或与 pseudo 等结构混用；attribute 可位于 local class 前后，但 identity 与 renderer
+  必须保留输入 AST serializer 的 spelling、spacing 和 node order，不做语义归并。
+- attribute candidate 必须在 atomic registry mutation 前完成 same-class cascade guard；无法证明等
+  specificity occurrence 重排安全时，以 `attribute-cascade-order` 整类 fallback。adapter 不复制
+  selector grammar 或 guard，Analyzer 也不以缺少 usage evidence 的共现猜测替代 Core 判断。
 - 当前可处理的条件上下文限于已验证的 `@media` 和 `@supports` 路径。扩展 selector 或 at-rule 前，
   必须先给出语义等价依据并补充测试。
 - atomic class 顺序必须稳定；同一个 local class 内保持 declaration 原始顺序。

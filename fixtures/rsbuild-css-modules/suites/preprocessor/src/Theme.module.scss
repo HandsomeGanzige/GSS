@@ -10,3 +10,14 @@
   color: tokens.$accent;
   padding: tokens.$partial-padding + $fixture-runtime-gap;
 }
+
+.compiled-attribute {
+  padding: tokens.$partial-padding;
+  border: 1px solid #99f6e4;
+  border-radius: 10px;
+
+  &[data-state='ready'] {
+    color: #0f766e;
+    background: #ccfbf1;
+  }
+}

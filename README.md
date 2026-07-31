@@ -151,17 +151,23 @@ visual 对比 dev/preview、桌面/窄屏、交互、lazy chunk，并修改 Sass
 ## Vite adapter 当前边界
 
 - 默认处理 `.module.css`、`.module.scss` 和 `.module.less`，不处理普通 CSS/SCSS/Less。
+- safe selector 支持单 local anchor 的基础 class、五种 pseudo class、独立 before/after pseudo element，
+  以及一个 attribute presence / exact equality；全分支安全且不含 pseudo element arm 的 selector list
+  也可以转换。其他 operator、flag、namespace、多个 attribute、复合结构及同 class 顺序风险继续 fallback。
 - adapter 位于 Vite 6 `vite:css` 与 `vite:css-post` 之间，不单独调用 `preprocessCSS`。
 - tokens 由 Vite `css.modules.getJSON` 捕获并原地增强；Vite 继续生成默认 JS exports。
 - `composes`、`:import(...)`、`:export`、`@value`、预处理器和资源由 Vite 原生管线处理。
 - 包含 `url()` 的 class 及其 `composes` 闭包完整保留为 fallback，build 在 generate 阶段解析最终资源 URL。
 - manifest/report 默认不输出；显式开启 report 后附带 analyzer `analysis`。
-- `devtools.enabled` 默认关闭；开启后提供版本化 report API 和 Shadow DOM browser overlay。
+- `devtools.enabled` 默认关闭；开启后提供当前无版本 `adapter/status/environments` report envelope
+  和 Shadow DOM browser overlay。
 - strict mode、named exports、CSS-only HMR、Vite 7 和 raw Rspack adapter 仍非当前范围。
 
 ## Rsbuild adapter 当前边界
 
 - 默认处理 `.module.css`、`.module.scss` 和 `.module.less`，复用 Rsbuild 原生 css-loader 结果。
+- SEL-02 attribute selector 直接复用 Core descriptor 与 class-wide cascade guard；adapter 不解析 selector
+  identity，也不自行重建 attribute selector。
 - build 保持 extraction；dev 使用 Rsbuild 官方 style injection 维持模块图与 HMR，并把目标 CSS Modules
   快照聚合到单一共享 style owner，按稳定 source order 输出且按 atomic key 去重；这同时避免 Rspack 2.1
   增量编译的嵌套 `importModule` panic 和后加载模块重复同名原子类造成的 cascade 覆盖。
@@ -186,8 +192,25 @@ visual 对比 dev/preview、桌面/窄屏、交互、lazy chunk，并修改 Sass
 - Phase 7 verifier 与调试体验：[packages/devtools/README.md](packages/devtools/README.md)、
   [docs/phase-7-verifier-devtools-plan.md](docs/phase-7-verifier-devtools-plan.md)、
   [docs/phase-7-verifier-devtools-acceptance.md](docs/phase-7-verifier-devtools-acceptance.md)
-- Phase 8 能力强化待办：
-  [docs/phase-8-capability-hardening-backlog.md](docs/phase-8-capability-hardening-backlog.md)
+- Phase 8 当前状态与研究入口：
+  [能力强化 backlog](docs/phase-8-capability-hardening-backlog.md)、
+  [收益复盘](docs/selector-capability-benefit-review.md)、
+  [多 local foundation 评估](docs/phase-8-multi-local-selector-foundation-evaluation.md)、
+  [关系选择器研究](docs/phase-8-multi-local-selector-research.md)
+- Phase 8 当前设计与验收：
+  [selector rewrite foundation](docs/phase-8-selector-rewrite-foundation-design.md)、
+  [selector-aware identity/cascade](docs/phase-8-selector-aware-identity-cascade-design.md)、
+  [attribute 设计](docs/phase-8-attribute-selector-design.md) / [验收](docs/phase-8-attribute-selector-acceptance.md)、
+  [pseudo element 设计](docs/phase-8-pseudo-element-design.md) / [验收](docs/phase-8-pseudo-element-acceptance.md)、
+  [selector list 设计](docs/phase-8-selector-list-design.md) / [验收](docs/phase-8-selector-list-acceptance.md)
+- Phase 8 历史迁移证据：
+  [cascade correctness foundation](docs/phase-8-cascade-correctness-foundation-plan.md)、
+  [descriptor 迁移前基线](docs/phase-8-selector-descriptor-v2-baseline.md)、
+  [descriptor clean replacement](docs/phase-8-selector-descriptor-migration-plan.md)
+
+`FOUND-04` 多 local selector foundation 已按双 Pilot 门禁评估为 `closed-no-go`；相关 shadow prototype
+已回滚，`SEL-04` / `SEL-05` / `SEL-06` 继续 deferred。本结论不授权 production rewrite，正式 Core
+仍保持 single-local anchor safe selector 边界与 unsafe scoped fallback。
 
 `verify:phase*` 和 `dev:phase*` 等阶段命令已退役。历史 tracking 文档仍保留当时实际执行记录，
 当前开发与验收以本 README 中的能力命令为准。

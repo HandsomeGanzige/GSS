@@ -72,12 +72,10 @@ export type AtomicClassNameOptions = {
  * core transform 的运行选项。
  *
  * @remarks
- * v1 只暴露 safe transform 能力。该 interface 不包含 selector 放宽、aggressive atomization、
+ * 当前只暴露 safe transform 能力。该 interface 不包含 selector 放宽、aggressive atomization、
  * 文件匹配或构建工具配置。
  */
 export type TransformCssOptions = {
-  /** 是否在建议的 class string 中保留 resolver 返回的 semantic class，默认 `true`。 */
-  preserveResolvedClass?: boolean;
   /** atomic class name 的稳定生成策略。 */
   className?: AtomicClassNameOptions;
 };
@@ -107,13 +105,25 @@ export type ClassPreservationReason = 'asset-reference' | 'ambiguous-export-valu
  * CSS rule 所处的安全转换上下文。
  *
  * @remarks
- * 所有字段都参与 atomic key。当前只建模已验证的 pseudo、`@media` 和 `@supports`，
+ * 所有字段都参与 atomic key。selector 的命中语义由
+ * {@link AtomicSelectorDescriptor} 独立表达，这里只建模已验证的条件 at-rule。
  * 未建模的 at-rule 必须走 preserved fallback。
  */
 export type CssTransformContext = {
-  pseudo?: string;
   media?: string;
   supports?: string;
+};
+
+/**
+ * 描述 atomic declaration 的 selector 身份与已渲染 CSS。
+ *
+ * @remarks
+ * `identity` 是与 source class 无关的 canonical selector template，用于 key 与复用判断；
+ * `css` 已包含最终 atomic class，下游不应再自行拼接 pseudo 或重新解析 selector。
+ */
+export type AtomicSelectorDescriptor = {
+  identity: string;
+  css: string;
 };
 
 /** 结构化 declaration 元数据，后续 pass 不直接依赖 PostCSS declaration node。 */
@@ -137,6 +147,7 @@ export type UnsafeSelectorReason =
   | 'tag-selector'
   | 'id-selector'
   | 'attribute-selector'
+  | 'attribute-cascade-order'
   | 'pseudo-element'
   | 'unsupported-pseudo'
   | 'global-selector'
@@ -148,24 +159,6 @@ export type PreservedDeclarationReason =
   | 'custom-property-declaration'
   | 'unsupported-declaration'
   | 'invalid-declaration';
-
-/** selector 分析结果，safe 分支提供唯一 source class。 */
-export type SelectorAnalysis =
-  | {
-      kind: 'safe';
-      selector: string;
-      sourceClassName: string;
-      sourceClassNames: string[];
-      pseudo?: string;
-    }
-  | {
-      kind: 'unsafe';
-      selector: string;
-      sourceClassNames: string[];
-      globalClassNames: string[];
-      reason: UnsafeSelectorReason;
-      details?: UnsafeSelectorReason[];
-    };
 
 /** declaration 分析结果，atomizable 和 preserved 分支都携带结构化 declaration。 */
 export type DeclarationAnalysis =
@@ -209,12 +202,6 @@ export type Diagnostic = {
   source?: SourceLocation;
 };
 
-/** atomic key 的概念输入，包含 declaration 和当前转换上下文。 */
-export type AtomicKeyInput = {
-  declaration: DeclarationMeta;
-  context: CssTransformContext;
-};
-
 /**
  * registry 中保存的 atomic declaration。
  *
@@ -224,6 +211,7 @@ export type AtomicKeyInput = {
 export type AtomicDeclaration = {
   key: string;
   className: string;
+  selector: AtomicSelectorDescriptor;
   declaration: DeclarationMeta;
   context: CssTransformContext;
   sources: SourceLocation[];
@@ -242,6 +230,7 @@ export type TransformClassMapping = {
 export type AtomicManifestEntry = {
   key: string;
   className: string;
+  selector: AtomicSelectorDescriptor;
   declaration: DeclarationMeta;
   context: CssTransformContext;
   sources: SourceLocation[];
@@ -261,7 +250,7 @@ export type ClassManifestEntry = {
  * core 输出的机器可读索引。
  *
  * @remarks
- * `atomic` 以 atomic key 为键，`classes` 以 `id::sourceClassName` 为键。adapter 在持久化前可以
+ * `atomic` 以 atomic class name 为键，`classes` 以 `id::sourceClassName` 为键。adapter 在持久化前可以
  * 规范化对象键和 source 顺序，但不得改变 declaration、context 或 class mapping 语义。
  */
 export type TransformManifest = {

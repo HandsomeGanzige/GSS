@@ -5,20 +5,28 @@
 本文档记录 `@semantic-atomic-css/core` 的设计理念、职责边界、核心概念和关键决策。
 它会随着项目推进持续更新，最终目标是成为维护者和使用者理解 core 包的主要设计文档。
 
-注意：截至 2026-07-03，`packages/core` 已按本文档方向落地 Phase 2 core v1。当前实现只关注
-core transform engine，不包含 Vite adapter、CSS Modules tokens、virtual CSS 或 playground 兼容。
+当前 `packages/core` 只关注 core transform engine，不包含 Vite adapter、CSS Modules tokens、
+virtual CSS 或 playground 兼容。历史阶段只在追踪文档中保留，生产类型、方法和
+selector identity 只使用具体语义命名。
 
 ## 当前实现状态
 
-Phase 2 core v1 已实现以下能力：
+当前 Core 已实现以下能力：
 
 - 新 public API：`transformCss(input, options)` 与 `createTransformer(options)`。
 - public types、IR、selector analysis、declaration analysis、atomic registry、CSS render、
   manifest 和 report。
-- selector v1 safe 范围：单 source class + 可选一个支持的 pseudo class。
+- selector safe 范围：单个 selector arm 可为单 source class、可选一个支持的 pseudo class、
+  末尾单个 before/after pseudo element，或同 compound 内一个 presence/exact-equality attribute；
+  含 pseudo-element arm 的 selector list 在 SEL-01 整体 fallback。
 - unsafe selector preserved fallback，并输出稳定 unsafe reason diagnostic。
 - custom property declaration 默认 preserved；普通 `var(...)` declaration 可以 atomize。
-- atomic key 包含 `prop`、`value`、`important`、`pseudo`、`media`、`supports`。
+- selector rewrite 输出无版本 canonical identity 和基于 AST clone 的 renderer。
+- atomic declaration 必填 `AtomicSelectorDescriptor { identity, css }`；`CssTransformContext` 只建模
+  `media` 和 `supports`。
+- atomic key 包含 `selectorIdentity`、`prop`、`value`、`important`、`media`、`supports`，
+  使用合法 canonical JSON，不带 version 字段。
+- normal declaration 的 `important` 在 IR 边界归一为 `false`。
 - `createTransformer()` 支持跨文件复用 atomic declaration。
 - 单次 `TransformCssResult` 是当前输入的转换快照；跨文件聚合 CSS/report 通过 transformer
   的 `getAtomicCss()`、`getReport()` 和 `getManifest()` 获取。
@@ -33,6 +41,14 @@ Phase 2 core v1 已实现以下能力：
 - `TransformCssInput.preserveClassNames` 允许 adapter 按稳定原因保守保留整个 class。
   `asset-reference` 用于避免构建工具的延迟资源 URL 进入 atomic key；`ambiguous-export-value` 用于
   构建工具只能证明多个 CSS Modules export 同值、却无法区分 class 与 ICSS value 的场景。
+- engine 在任何 atomic registry mutation 前对普通 rule、nested rule 与 unsupported preserved block
+  收集完整 class evidence；同一 source class 只要参与 unsafe/preserved selector，其 eligible rules 也
+  整类 preserved。eligible selector list 的 arm class 在当前 input 内形成连接分量，任一 class
+  被 evidence 阻断时固定点传播到整个分量，不相关 class 继续 atomize。
+- selector evidence 不完整时禁止当前 input 部分 atomize；无法安全 scope 的 selector 在 registry
+  mutation 前 fail fast，不原样输出未 scoped CSS，也不静默丢弃 rule。
+- resolved class 是 class mapping 的固定 DOM hook，`suggestedClassName` 始终以它开头；已删除
+  可关闭该行为的旧选项，runtime 继续传入旧字段会明确报错。
 
 当前明确不实现：
 
@@ -50,9 +66,9 @@ corepack pnpm exec tsc -p packages/core/tsconfig.json --noEmit
 corepack pnpm --filter @semantic-atomic-css/core build
 ```
 
-## Core v1 行为契约
+## Core 行为契约
 
-本节记录 Phase 2 core v1 已经收口的行为契约。后续 adapter、report、CI 或 verifier 工作应以这些
+本节记录当前已收口的行为契约。后续 adapter、report、CI 或 verifier 工作应以这些
 契约为基础，除非先更新本文档和对应测试。
 
 ### Public API 契约
@@ -78,10 +94,29 @@ corepack pnpm --filter @semantic-atomic-css/core build
 
 ### Selector 契约
 
-- safe selector 只允许单 source class，最多一个受支持 pseudo class。
-- v1 支持的 pseudo class 为 `:hover`、`:focus`、`:active`、`:disabled`、`:focus-visible`。
-- selector list、缺失 source class、复合 class、tag、id、attribute、combinator、pseudo element、
-  unsupported pseudo 和 `:global` 都必须作为 unsafe selector preserved。
+- 每个 safe selector arm 只允许单 source class，并且只能是基础 selector、一个受支持
+  pseudo class、末尾单个 `::before`/`::after`/`:before`/`:after`，或同一 compound 内恰好一个受支持 attribute。
+- selector planner 统一返回有序 `arms[]`，单 selector 是长度为 1 的同一模型。selector list
+  只在全部 arm 安全、可导出且未被 class-wide evidence 阻断时转换；任一 arm 失败则
+  完整保留原 rule，primary reason 为 `selector-list`，不做 safe/unsafe 混合拆分。
+- 当前支持的 pseudo class 为 `:hover`、`:focus`、`:active`、`:disabled`、`:focus-visible`。
+- pseudo-element identity/renderer 保留 Core 实际输入 spelling；legacy/modern alias 是不同 token，
+  cascade guard 则按 `before`/`after` generated box 归一，两个 box 互不竞争。
+- attribute 首批只支持 presence 与 exact equality：`.class[attr]`、`.class[attr=value]` 以及
+  `[attr].class` 反向 node order；quoted、unquoted 与 escaped value 均由 selector AST 处理。
+- attribute candidate 拒绝 parser 解码后 ASCII case-insensitive 等于 `class` 的 name，并拒绝
+  namespace、`i`/`s` flag、其他 operator、多个 attribute 或与 pseudo/tag/id/combinator 等结构混用。
+- 每个 eligible arm 使用 source-class-independent canonical template 作为 identity，例如
+  `.__GSS_ANCHOR__`、`.__GSS_ANCHOR__:hover` 和
+  `.__GSS_ANCHOR__[data-state='open']`。
+- attribute identity 与 renderer 保留 Core 输入 selector AST serializer 的 name、operator、value、
+  quote、escape、spacing 和 node order；只替换唯一 local class，不归并语义相同但 spelling 不同的 identity。
+- selector-list atomic identity/renderer 只包含当前单 arm 的 AST serializer，不包含逗号或分隔
+  空白；arm 内 spelling、spacing 和 node order 继续保留。resolver/export callback 的
+  `originalSelector` 仍传入完整原 rule selector。
+- 缺失 source class、复合 class、tag、id、不支持的 attribute、combinator、不支持或复合的 pseudo element、
+  unsupported pseudo 和 `:global` 都必须作为 unsafe selector preserved；它们出现在多 arm
+  rule 的任一 arm 中时，完整 list 按 `selector-list` 保留。
 - unsafe selector 必须输出 `unsafe-selector` diagnostic，并写入 class mapping 的 `unsafeReasons`。
 - preserved selector 中 source class 必须通过 `scope.resolveClassName` 改写；`:global(...)` 展开为标准 selector，
   且 global class 不调用 resolver。
@@ -91,19 +126,52 @@ corepack pnpm --filter @semantic-atomic-css/core build
 - 普通 declaration 默认 atomize。
 - custom property declaration 默认 preserved，不输出 warning，但进入 report/manifest 基础数据。
 - 使用 `var(...)` 的普通 declaration 可以 atomize。
+- `important` 是必填 boolean；normal declaration 为 `false`，`!important` 为 `true`。
 - `!important` 必须进入 atomic key，并生成与非 important declaration 不同的 atomic class。
-- shorthand/longhand 不展开、不重排、不做冲突图分析；同一 source class 内的 `atomicClassNames` 必须保持
-  declaration 原始顺序。
+- 通用 atomization 不展开或重排 shorthand/longhand，也不建立跨 class 冲突图；同一 source class 内的
+  `atomicClassNames` 必须保持 declaration 原始顺序。attribute same-class guard 仅为证明等 specificity
+  occurrence 顺序安全而使用一个局部、保守的 property 关系表，不改变 declaration 输出。
 - 不确定或暂不支持的 declaration 应 preserved + diagnostic，不允许为了提高 atomization rate 改变 cascade 语义。
 
 ### Preserved Fallback 契约
 
 - unsafe selector 整条 preserved。
+- 同一 input 内，只要 source class 出现在 unsafe selector、nested rule 或 unsupported preserved block，
+  该 class 的其他 eligible rules 也必须完整 preserved，并按原始 `order` 输出，避免 atomic-first / preserved-second
+  反转同 class cascade。
+- eligible selector list 的 source classes 在当前 input 内建立无向连接图；unsafe/nested/block、
+  `preserveClassNames`、non-exported 和 attribute cascade risk 均可成为种子，按 source order
+  做固定点传播。传播只影响内部 preservation plan，不伪造新 public reason/diagnostic。
+- class-wide evidence 必须在第一次 `registry.register` 前完整收集；append-only registry 不允许先注册后回滚。
+- same source class 的 attribute candidate 与现有 supported pseudo 都是 `(0,2,0)`。只要至少一侧为
+  attribute，且 guard 可能共现、同 importance declaration 可能竞争，整个 class 必须在 registry mutation
+  前以 `attribute-cascade-order` preserved。基础 selector `(0,1,0)` 不进入该等 specificity 判断。
+- 单条 attribute candidate rule 内的 competing declaration occurrences 也必须在 preflight 检查；
+  append-only registry 可能已由更早 input 确定相反的 key 顺序，A→B→A 也会折叠最后一个 A。
+  该检查不扩展到 base 或 pseudo-only rule。
+- 首批唯一 attribute 互斥证明是：parser-decoded exact name 完全相同、exact name 以 lowercase
+  `data-` 开头，且 exact equality 的 decoded value 不同。attribute name 不做 case-fold；
+  `data-State` 与 `data-state` 不能据此证明互斥。
+  presence、不同 name、attribute/pseudo、以及 quote/escape spelling 不同但 decoded condition 相同的
+  guard 都按可能共现处理；media/supports 不作为互斥证明。
+- `attribute-cascade-order` 只由被 guard 阻塞的 exact attribute candidate 输出 public diagnostic 和
+  `unsafeReasons`；同 class 的其他 eligible rule 仅跟随 class-wide preservation。若另有
+  descendant/list/global/nested 等 unsafe evidence，保留原 evidence 与原因，不额外伪造 order reason。
+- pseudo-element alias cascade guard 由真正参与竞争的 `:before`/`::before` 或
+  `:after`/`::after` candidate 输出既有 `pseudo-element` public reason；attribute candidate 仍输出
+  `attribute-cascade-order`。preflight 以内部 rule order/arm index 记录直接风险，base、普通 pseudo
+  与 selector-list 连接传播只跟随 class-wide preservation，不新增 public reason。
+- class-wide propagation 使用的内部 preservation reason 不会额外写入 public `unsafeReasons`；nested rule
+  和普通 unsafe rule 仍继续输出自身既有 diagnostic 与 public reason，unsupported block 保持既有
+  `unsupported-at-rule` diagnostic。
 - `preserveClassNames` 标记的 safe class 必须整条 preserved，同一 class 的 pseudo、media 和 supports
   rules 也不能部分 atomize，避免重排后改变 cascade。
 - class 级保留必须输出 `preserved-class` diagnostic，记入 preserved rules/declarations，
   但不得伪装为 unsafe selector；manifest class 保留且 `atomicClassNames` 为空。
 - safe selector 中 mixed declaration 只 preserved 无法 atomize 的 declaration。
+- eligible selector list 的 declaration 按“declaration 顺序优先、arm 顺序次之”注册；每个 arm
+  是独立 registry occurrence，同 identity 复用同一 atomic token。custom property 或不支持
+  declaration 只完整 preserved 原 selector list 一次，不按 arm 复制 CSS、warning 或 report 计数。
 - nested rule 不参与 atomize，整块 scoped preserved，并输出 `nested-rule` diagnostic。
 - unsupported at-rule 整块 preserved；如果块内包含 selector，输出前应尽量执行 selector scoping，并把 source class
   写入 class mapping，确保后续 CSS Modules adapter 有 fallback hook。
@@ -118,18 +186,36 @@ corepack pnpm --filter @semantic-atomic-css/core build
   classes 部分来自每次 transform 的 class manifest 合并。
 - `createTransformer().getReport()` 应使用全局去重后的 atomic CSS size，并重新计算
   `estimatedTotalDiffBytes`，避免跨文件复用时 size 字段内部不一致。
-- manifest/report 是内存结构，core 不负责写入磁盘或决定输出路径。
+- manifest atomic entry 包含 selector descriptor，并以 atomic class name 索引。
+- manifest/report 是内存结构，core 不负责写入磁盘或决定输出路径；
+  当前仓库不为它们增加 schema version 或兼容 reader。
 
 ### 验收契约
 
-core v1 收口验收以以下测试为准：
+Core 收口验收以以下测试为准：
 
-- selector reason 覆盖 safe pseudo、selector list、missing source class、combinator、compound class、
-  tag/id/attribute、pseudo element、unsupported pseudo、`:global`。
+- selector reason 覆盖 safe pseudo class/pseudo element、exact attribute、全 eligible selector list、
+  pseudo-element list fallback、unsafe mixed selector list、missing source class、combinator、compound class、
+  tag/id/attribute/pseudo-element near-miss、unsupported pseudo、`:global`。
 - declaration 覆盖 custom property、`var(...)`、vendor prefix、`!important`。
-- atomizer 覆盖 readable/hash class name、context key separation、class name collision、跨文件复用。
+- atomizer 覆盖 selector-aware readable/hash class name、context key separation、class name collision、
+  renderer 一致性与跨文件复用。
+- selector output contract 覆盖 base、五种 pseudo、exact attribute 与单-arm list descriptor 的
+  identity/key/class/descriptor/CSS，media/supports/important、collision 和 descriptor 防御性 clone。
 - transform fixture 覆盖 nested fallback、unsupported at-rule fallback、preserved order、manifest/report aggregation。
 - contract tests 覆盖 public API surface、scope strategy 稳定性、shorthand/longhand 顺序和 append-only transformer。
+- cascade static oracle 覆盖同一 input、同一 source class 的 importance、base/attribute specificity、
+  attribute/pseudo 和 attribute/attribute guard overlap、重复 declaration、shorthand/longhand、
+  custom property、可能重叠的 media/supports、A→B→A reuse，以及后置 evidence preflight。
+  该矩阵证明 class-wide preservation、selector scoping、wrapper/occurrence 原始顺序和 registry
+  零部分注册，不引入 specificity calculator 或 media/supports 互斥求解。
+- selector-list contract 额外覆盖三 arm、重复 arm、同 class 多 arm、media/supports、declaration/arm
+  顺序、部分 declaration fallback、attribute/pseudo 竞争、链式传播、配置保留、non-exported、
+  unsafe arm 前/中/后位置与零部分注册。
+- pseudo-element contract 覆盖四种 spelling、near-miss、alias cascade/A-B-A/shorthand-longhand、
+  media/supports、before/after 隔离、list 全量 fallback、配置/导出/nested evidence 与零部分注册。
+- 不同 source class/module 在同一元素上的 atomic/fallback 等优先级顺序竞争属于
+  `FOUND-05: deferred`，不在该静态矩阵内，也不得把本矩阵表述为跨 class/module 的全局安全证明。
 
 ## Core 的长期定位
 
@@ -282,7 +368,7 @@ outputs
 
 GSS IR 是 core 自己定义的中间表示，用于隔离 parser 变化、adapter 变化和输出格式变化。
 
-v1 可以保持 IR 简洁，不需要构建完整 CSS 语法树。只需要沉淀转换必须依赖的领域结构：
+当前 IR 保持简洁，不构建第二棵完整 CSS 语法树，只沉淀转换必须依赖的领域结构：
 
 ```ts
 type CssRuleRecord = {
@@ -450,23 +536,17 @@ button -> button
 
 这样 core 可以保持通用，不把 CSS Modules scoped name 生成逻辑写死在内部。
 
-### 4. `preserveSemanticClass` 改为 `preserveResolvedClass`
+### 4. resolved class 始终保留
 
-长期配置不应绑定 CSS Modules 或 semantic class 概念。
-
-`preserveResolvedClass` 的含义是：
-
-```txt
-生成建议 class name 时，是否保留 scope strategy 解析后的 class name。
-```
-
-CSS Modules 场景下，它通常等价于保留 semantic scoped class：
+scope strategy 解析后的 class name 是 preserved fallback 命中 DOM 的必要 hook，不能作为可选压缩项。
+所有 class mapping 的建议 class name 都固定包含 resolved class：
 
 ```txt
-Button_button__hash _color_red
+Button_button__hash _selector_q0dmug_color_red
 ```
 
-普通 CSS 或其他 scoped CSS 场景下，它表示是否保留解析后的原始 class hook。
+CSS Modules 场景下它是 semantic scoped class；普通 CSS 或其他 scoped CSS 场景下，它是解析后的原始
+class hook。core 不提供关闭该行为的配置。
 
 ### 5. core 输出 class mappings，而不是 CSS Modules tokens
 
@@ -487,7 +567,7 @@ type TransformClassMapping = {
 CSS Modules adapter 可以基于该数据生成：
 
 ```txt
-styles.button = "Button_button__hash _color_red"
+styles.button = "Button_button__hash _selector_q0dmug_color_red"
 ```
 
 普通 CSS adapter 可以选择只使用 diagnostics 和 report，而不使用 `suggestedClassName`。
@@ -504,11 +584,11 @@ resolvedClassName + atomicClassNames
 
 adapter 可以使用它，也可以基于自己的运行环境忽略或二次加工。
 
-### 7. `ScopeStrategy` v1 保持克制
+### 7. `ScopeStrategy` 保持克制
 
-`ScopeStrategy` 的第一版只解决 class name 解析，不支持 arbitrary selector rewrite。
+`ScopeStrategy` 只解决 class name 解析，不支持 arbitrary selector rewrite。
 
-确认后的 v1 结构为：
+当前结构为：
 
 ```ts
 type ScopeStrategy = {
@@ -524,7 +604,7 @@ class name，而不是返回 `undefined`。
 `result.classes`。CSS Modules 场景通常会导出所有 local class，普通 CSS 或 analysis-only 场景
 可以选择不导出。
 
-`ResolveClassNameContext` v1 保持为最小上下文：
+`ResolveClassNameContext` 保持为最小上下文：
 
 ```ts
 type ResolveClassNameContext = {
@@ -541,54 +621,67 @@ type ResolveClassNameContext = {
 - global class 不调用 resolver，由 core selector 层识别并跳过。
 - source location 暂不传给 resolver，后续如有真实需求再扩展。
 
-### 8. selector analysis 使用通用 source class 概念
+### 8. selector rewrite 使用通用 source class 概念
 
-selector analysis 不再使用 CSS Modules 语义较强的 `localName`，而是使用更通用的
+selector rewrite 不使用 CSS Modules 语义较强的 `localName`，而是使用更通用的
 `sourceClassName` / `sourceClassNames`。
 
-它的职责是判断 selector 能否安全转换，并为后续 atomizer、preserved renderer、diagnostics
-和 class mapping 提供结构化信息。
+它的职责是通过单一 plan 判断 selector 能否安全转换，并为后续 atomizer、preserved renderer、
+diagnostics 和 class mapping 提供结构化信息。
 
-确认后的 v1 结构方向为：
+当前 engine 使用的内部结构为：
 
 ```ts
-type SelectorAnalysis =
-  | SafeSelectorAnalysis
-  | UnsafeSelectorAnalysis
+type SelectorRewriteDecision =
+  | EligibleSelectorRewrite
+  | PreservedSelectorRewrite
 
-type SafeSelectorAnalysis = {
-  kind: 'safe'
-  selector: string
-  sourceClassName: string
-  sourceClassNames: string[]
-  pseudo?: string
+type EligibleSelectorRewrite = {
+  kind: 'eligible'
+  sourceClassNames: readonly string[]
+  globalClassNames: readonly string[]
+  evidenceComplete: boolean
+  arms: ReadonlyArray<{
+    anchorClassName: string
+    identity: string
+    cascadeGuard:
+      | { kind: 'base' }
+      | { kind: 'pseudo'; name: string }
+      | { kind: 'attribute'; name: string; operator: 'presence' | '='; value?: string }
+    renderAtomicSelector(className: string): string
+  }>
+  renderPreservedSelector(scope, context): string
 }
 
-type UnsafeSelectorAnalysis = {
-  kind: 'unsafe'
-  selector: string
-  sourceClassNames: string[]
-  globalClassNames: string[]
+type PreservedSelectorRewrite = {
+  kind: 'preserved'
+  sourceClassNames: readonly string[]
+  globalClassNames: readonly string[]
+  evidenceComplete: boolean
   reason: UnsafeSelectorReason
-  details?: UnsafeSelectorReason[]
+  details?: readonly UnsafeSelectorReason[]
+  renderPreservedSelector(scope, context): string
 }
 ```
 
 设计约束：
 
-- v1 safe selector 必须只有一个明确的 `sourceClassName`。
-- unsafe selector 仍需要收集 `sourceClassNames`，用于 preserved CSS scoping。
+- eligible 决策必须包含一个或多个有序 arm，每个 arm 都只有一个明确的
+  `anchorClassName`。
+- preserved selector 仍需要收集 `sourceClassNames`，用于 preserved CSS scoping。
 - `globalClassNames` 单独记录，preserved render 时不调用 resolver。
-- unsafe v1 使用 primary `reason`，`details` 仅作为后续扩展或诊断补充。
-- selector list v1 不拆分，直接 unsafe。
-- `:global` v1 直接 unsafe，但 preserved render 需要保留 global class。
+- preserved 使用 primary `reason`，`details` 仅作为后续扩展或诊断补充。
+- 全 eligible selector list 拆为独立 arm 注册；任一 arm preserved 时完整 list 直接 preserved。
+- `:global` 直接 preserved，但 preserved render 需要保留 global class。
+- public `SelectorAnalysis` 已删除，selector 决策只通过内部 rewrite plan 表达。
 
-`UnsafeSelectorReason` 应稳定为枚举类型，v1 方向包括：
+`UnsafeSelectorReason` 稳定为枚举类型，当前包括：
 
 ```ts
 type UnsafeSelectorReason =
   | 'selector-list'
   | 'missing-source-class'
+  | 'non-exported-class'
   | 'compound-class-selector'
   | 'descendant-selector'
   | 'child-selector'
@@ -597,6 +690,7 @@ type UnsafeSelectorReason =
   | 'tag-selector'
   | 'id-selector'
   | 'attribute-selector'
+  | 'attribute-cascade-order'
   | 'pseudo-element'
   | 'unsupported-pseudo'
   | 'global-selector'
@@ -606,11 +700,27 @@ type UnsafeSelectorReason =
 
 后续不再优先使用粗粒度 `complex-selector`，而是尽量输出可治理的具体 reason。
 
+selector rewrite seam 已实现：
+
+- selector 解析、class/global 证据、capability policy、atomic rewrite 和 preserved scoping
+  已收口到 core `selector/planSelectorRewrite.ts` 内部深模块。
+- 单一 plan interface 返回 eligible/preserved 决策；AST node、template 占位符和
+  clone/mutation 不泄漏到 engine、registry、output 或 adapter。
+- `ScopeStrategy` 继续只解析 class name 和 export evidence，不扩展为 selector-level rewrite interface。
+- engine 与 `scopeCssBlock` 已切换到该 decision，旧分析、class 收集和 scoping 入口已删除。
+- eligible plan 的 identity 是无版本 canonical selector template，renderer 只替换唯一 anchor class。
+- attribute plan 额外携带 parser 解码后的 guard metadata；该 metadata 只供 registry mutation 前的
+  same-class preflight 使用，不进入 public `AtomicSelectorDescriptor` schema。
+- Core 已将 identity/renderer 交给 registry，public atomic data 使用必填 descriptor。
+
+详细 interface、identity、错误模型与实施拆分见
+[Phase 8 Selector Rewrite 基础设计](../../docs/phase-8-selector-rewrite-foundation-design.md)。
+
 ### 9. declaration analysis 默认保守但不绑定文件类型
 
 declaration analysis 的职责是判断 declaration 能否安全 atomize，并给 preserved declaration 输出稳定原因。
 
-确认后的 v1 结构方向为：
+当前结构为：
 
 ```ts
 type DeclarationAnalysis =
@@ -636,19 +746,20 @@ type DeclarationMeta = {
 }
 ```
 
-v1 决策：
+当前决策：
 
 - 后续层优先消费结构化 `DeclarationMeta`，不直接依赖 PostCSS declaration node。
 - CSS custom property declaration 默认 preserved。
 - 使用 `var(...)` 的普通 declaration 可以 atomize。
 - `!important` 可以 atomize，但必须进入 atomic key。
-- vendor-prefixed declaration v1 默认可以 atomize。
-- shorthand / longhand v1 不展开，也不做 property conflict graph。
+- vendor-prefixed declaration 默认可以 atomize。
+- 通用 declaration analysis 不展开 shorthand/longhand，也不做跨 class property conflict graph；
+  attribute cascade preflight 只在 same source class、至少一侧为 attribute 的固定边界内做保守竞争判断。
 - 同一个 source class 内，`atomicClassNames` 必须保留 declaration 原始顺序。
 - safe selector 内可以 mixed declaration：部分 atomize，部分 preserved。
 - 长期原则是不确定 declaration preserved + diagnostic。
 
-v1 preserved reason 先保持克制：
+preserved reason 保持克制：
 
 ```ts
 type PreservedDeclarationReason =
@@ -661,13 +772,13 @@ type PreservedDeclarationReason =
 
 atomic key 是判断两条 declaration 能否复用同一个 atomic class 的唯一依据。
 
-v1 key 应包含：
+当前 key 包含：
 
 ```txt
 prop
 value
 important
-pseudo
+selectorIdentity
 media
 supports
 ```
@@ -677,26 +788,28 @@ supports
 ```ts
 type AtomicKeyInput = {
   declaration: DeclarationMeta
+  selectorIdentity: string
   context: CssTransformContext
 }
 
 type CssTransformContext = {
-  pseudo?: string
   media?: string
   supports?: string
 }
 ```
 
-v1 normalize 策略：
+normalize 策略：
 
 - `prop` 只做 `trim` + `lowercase`。
 - `value` 只做 `trim`。
+- normal `important` 为 `false`，缺失 media/supports 在 key 中为 `null`。
+- key 使用合法 canonical JSON，不包含 version 字段。
 - 不做 `#fff -> #ffffff`、`0px -> 0`、`rgb(...) -> red` 这类激进 value canonicalization。
 
 原因是 CSS value canonicalization 很复杂，错误 normalize 可能改变语义或降低调试可读性。
 更激进的压缩应留给成熟 CSS minifier 或后续经过验证的优化阶段。
 
-`!important`、`pseudo`、`media`、`supports` 必须进入 atomic key。以下声明不能共享同一个 key：
+`!important`、`selectorIdentity`、`media`、`supports` 必须进入 atomic key。以下声明不能共享同一个 key：
 
 ```css
 .button { color: red; }
@@ -716,6 +829,8 @@ atomic registry 的职责：
 - 保持首次出现顺序。
 - 支持跨文件复用。
 - 为最终 atomic CSS 输出提供稳定列表。
+- 选定最终 class name 后立即调用 selector renderer，只存储 `{ identity, css }` 纯数据。
+- key reuse 时用已有 class name 重新 render；与已存 CSS 不一致则 fail fast。
 
 长期设计中，registry 应由 `createTransformer()` 实例持有，以支持跨文件复用：
 
@@ -726,7 +841,7 @@ transformer.getAtomicCss()
 transformer.getReport()
 ```
 
-当前 v1 transformer 按一次性 build 聚合器实现，是 append-only 语义；同一个 `id` 多次 transform 会被视为
+当前 transformer 按一次性 build 聚合器实现，是 append-only 语义；同一个 `id` 多次 transform 会被视为
 多次输入追加，不会自动移除旧 atomic/report 数据。dev/HMR adapter 需要在接入前补充失效策略。
 
 同时可以提供无状态 helper：
@@ -765,11 +880,11 @@ render 层负责把结构化转换结果输出为稳定 CSS 字符串。它不�
 atomic CSS render 基于 `AtomicDeclaration` 输出：
 
 ```css
-._color_red {
+._selector_q0dmug_color_red {
   color: red;
 }
 
-._hover_color_blue:hover {
+._selector_qf5xvc_color_blue:hover {
   color: blue;
 }
 ```
@@ -778,13 +893,13 @@ atomic CSS render 基于 `AtomicDeclaration` 输出：
 
 ```css
 @media (min-width: 768px) {
-  ._media_x_color_red {
+  ._media_x_selector_q0dmug_color_red {
     color: red;
   }
 }
 ```
 
-media 与 supports 同时存在时，v1 沿用当前语义：按 core 处理得到的 context 包裹，不额外重排。
+media 与 supports 同时存在时，按 core 处理得到的 context 包裹，不额外重排。
 
 preserved CSS render 需要处理两类来源：
 
@@ -796,7 +911,7 @@ preserved selector scoping 规则：
 - source class 调用 `scope.resolveClassName`。
 - global class 不调用 resolver。
 - `:global(...)` 在 preserved 输出中展开为标准 selector。
-- v1 不支持 selector 级 arbitrary rewrite。
+- 当前不支持 selector 级 arbitrary rewrite。
 - resolver 只返回 class name，不返回完整 selector。
 
 示例：
@@ -823,17 +938,17 @@ CSS Modules adapter resolver 输出：
 }
 ```
 
-unknown at-rule v1 整段 preserved，例如 `@keyframes` 不进入 selector 分析。media / supports 下的
+unknown at-rule 整段 preserved，例如 `@keyframes` 不进入 selector 分析。media / supports 下的
 preserved rule 必须保留外层 at-rule。
 
 formatting 策略：
 
-- v1 不追求格式化保真，追求稳定输出。
+- 当前不追求格式化保真，追求稳定输出。
 - 使用 2 spaces indentation。
 - rule 之间空一行。
 - declaration 每行一个。
 - `!important` 必须保留。
-- 普通 comment v1 不作为核心保证。
+- 普通 comment 不作为核心保证。
 - license comment 后续单独讨论。
 
 最终 CSS 输出顺序保持：
@@ -913,6 +1028,7 @@ type TransformManifest = {
 type AtomicManifestEntry = {
   key: string
   className: string
+  selector: AtomicSelectorDescriptor
   declaration: DeclarationMeta
   context: CssTransformContext
   sources: SourceLocation[]
@@ -935,6 +1051,7 @@ ${id}::${sourceClassName}
 ```
 
 manifest 是机器可读索引，不应承载过多展示文案，也不负责 warning 策略。
+`atomic` 以 atomic class name 为键；manifest 不增加 schema version 或旧结构 reader。
 
 #### Report
 
@@ -1027,10 +1144,8 @@ packages/core/src/
     types.ts
 
   selector/
-    analyzeSelector.ts
-    scopeSelector.ts
-    collectClassNames.ts
-    types.ts
+    planSelectorRewrite.ts
+    scopeCssBlock.ts
 
   declaration/
     analyzeDeclaration.ts
@@ -1203,7 +1318,7 @@ selector/declaration/atomizer/output
 - `Map`：用于 key 到 declaration、className、class mapping 的稳定映射。
 - `Set`：用于 unsafe reason、source class 去重。
 - `Array`：用于保留首次出现顺序，不要用对象 key 排序替代。
-- discriminated union：用于 `SelectorAnalysis`、`DeclarationAnalysis`、diagnostic 等分支结果。
+- discriminated union：用于 `SelectorRewriteDecision`、`DeclarationAnalysis`、diagnostic 等分支结果。
 - builder / collector：用于聚合 diagnostics、class mapping、preserved CSS，避免到处传可变散装对象。
 
 ### 禁止事项
@@ -1239,7 +1354,6 @@ type TransformCssInput = {
 
 ```ts
 type TransformCssOptions = {
-  preserveResolvedClass?: boolean
   className?: AtomicClassNameOptions
 }
 ```
@@ -1304,7 +1418,6 @@ type TransformCssResult = {
 
 以下问题还没有最终定案，后续推进时需要继续补充到本文档：
 
-- `ScopeStrategy` 后续是否需要支持 selector 级 rewrite。
 - selector unsafe reason 是否要稳定为枚举类型。
 - `analysis` mode 是否只输出 diagnostics/report，还是也生成模拟转换结果；当前 public API 暂不暴露。
 - manifest/report 是否默认生成，还是作为可选能力。
@@ -1315,7 +1428,7 @@ type TransformCssResult = {
 
 ## 当前阶段结论
 
-core 包的 Phase 2 方向是：
+core 包的长期方向是：
 
 ```txt
 从 CSS Modules 原型编译器

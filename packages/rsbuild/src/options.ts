@@ -22,7 +22,6 @@ export function resolveOptions(
     include: toArray(options.include ?? ['**/*.module.css', '**/*.module.scss', '**/*.module.less']),
     exclude: toArray(options.exclude ?? '**/node_modules/**'),
     core: {
-      preserveResolvedClass: options.core?.preserveResolvedClass ?? true,
       className: options.core?.className
     },
     cssFilename: options.cssFilename ?? 'static/css/semantic-atomic.css',

@@ -66,6 +66,82 @@ Analyzer 指标：
 | estimated total diff | `-15658` bytes |
 | health | `risky` |
 
+## 2026-07-27 SEL-02 同语料 artifact 复盘
+
+本节是在已完成 Pilot 上追加的 SEL-02 产物复盘，不改变 2026-07-17 的历史收口结论。adapter 的
+自动静态/浏览器边界见
+[Phase 6 Rsbuild acceptance](phase-6-rsbuild-rspack-adapter-acceptance.md)。
+
+- 2026-07-25 `FOUND-02-D` semantic artifact 与 2026-07-27 SEL-02 semantic artifact 的
+  `files / sourceClasses / beforeRawCssBytes` 都保持 `23 / 228 / 46943`，可按同语料计算差值；
+  semantic/native 两次重建均通过。
+- 与 Vite 共享业务语料一致，实际释放 5 个 class、52 个 declaration occurrences，拆分为
+  15 个 atomic definitions 与 37 个 reused occurrences。
+- 旧 11 条 `attribute-selector` 中 9 条释放；`InspectorApp.card` 的 risk arm 直接命中同 class
+  原始顺序竞争并报 1 条 `attribute-cascade-order`，pass arm 只因 class-wide 传播继续 fallback，
+  不产生第二条 public diagnostic。
+- preserved rules/declarations 从 `86 / 324` 降至 `71 / 272`，preserved CSS ratio 从
+  `0.5158` 降至 `0.4569`。after raw/gzip/brotli CSS 从 `24285 / 5078 / 4455` bytes 变为
+  `23143 / 5052 / 4436` bytes；计入 class string 后 estimated total diff 从 `-12628`
+  改善到 `-13250` bytes，即改善 622 bytes。
+- 复杂 descendant/pseudo/compound evidence 继续保守 fallback。这里只把同语料 report/manifest
+  的实际差值记为 SEL-02 收益；早期 exact-only class 与历史 token links 不作为因果值。
+
+## 2026-07-28 SEL-03 selector list 同语料收口
+
+- Modules route 使用与 Vite 完全相同的 3 条业务 list；Rsbuild 原生 CSS 管线另在
+  Inspector、Diagnostics 和 Overview 聚合出 7 条全 eligible list，因此 baseline 共有
+  10 条 `selector-list`、15 个只受该原因阻断的 class。
+- baseline/current 的 `files / sourceClasses / beforeCssBytes / beforeRawCssBytes` 均为
+  `23 / 228 / 46899 / 46943`，与 native 使用同一业务 source。
+- 10 条 `selector-list` 全部消失，15/15 目标 class 保留 semantic token 并获得非空
+  atomic mapping。连接分量传播同时解锁关联 eligible rules，preserved rules/declarations
+  由 `71 / 272` 降为 `48 / 178`。
+- 94 个 source declaration 被释放；registry 新增 135 个 registration/token links，拆为
+  16 个 definitions 和 119 个 reuse。arm occurrence 与 source declaration 分开报告。
+- preserved ratio 由 `0.4569` 降为 `0.3369`；after raw/gzip/brotli 由
+  `23143 / 5052 / 4436` 降为 `20082 / 4773 / 4199`。class-string increase 由
+  `10550` 增至 `11900`，estimated total diff 从 `-13250` 改善到 `-14961`。
+- semantic/native preview 在 `1280 × 844` 和 `390 × 844` 下的 Modules route 普通、
+  focus-visible computed style、semantic token 与单-arm CSSOM 全部一致。
+- artifact 位于 `/private/tmp/gss-selector-list-pilot/{baseline,current}`，详细验收见
+  [SEL-03 验收](phase-8-selector-list-acceptance.md)。
+
+## 2026-07-29 SEL-01 pseudo-element 同语料 artifact
+
+- 冻结 baseline SHA 清单逐项校验通过，native baseline/current 目录完全相同；未修改 Pilot CSS/JSX。
+- `files/sourceClasses/beforeCssBytes/beforeRawCssBytes` 保持 `23/228/46899/46943`。
+- Rspack baseline 的 3 条 `unsupported-pseudo` blocker 全消失；只有 `selectorValue` 获得 11 个
+  mapping，`taskCard` 与 `diagnosticProbe` 继续由 descendant/compound evidence 保留且保持零 mapping。
+- atomic definitions/reuse 为 `283/907 → 287/914`；preserved rules/declarations 为
+  `48/178 → 46/167`；preserved ratio 为 `0.3369 → 0.3235`。
+- after raw/gzip/brotli 为 `20082/4773/4199 → 19915/4762/4180`；class-string increase
+  `11900 → 12010`，estimated total diff `-14961 → -15018`，改善 57 bytes。
+- artifact 位于 `/private/tmp/gss-pseudo-element-pilot/{baseline,current}`；完整 hash 与边界见
+  [SEL-01 验收](phase-8-pseudo-element-acceptance.md)。Pilot corpus/delta 未因 reason/CSSOM matcher 修复改变；
+  独立 Test/Review 与最终 Rsbuild full visual 已通过，SEL-01 状态为 `completed`。
+
+## 2026-07-29 FOUND-04 多 local foundation 评估
+
+- 使用当前 Rsbuild Pilot 的真实 post-CSS-Modules capture 进行一次性 shadow replay；未修改 Pilot source，
+  未把 candidate 结果接入 CSS、manifest、report、diagnostic 或 tokens。
+- compound 为 `1 exact-only / +16 B`；two-local descendant 为 `6 / +1170 B`；child 为
+  `2 / +173 B`；single-local descendant-tag 为 `0 / 0 B`。四项都未通过“双 Pilot 各至少
+  2 个 exact-only 且 estimated total diff 不恶化”的门禁。
+- 两次 evaluation SHA-256 均为
+  `c402d38773f06dd1b33248f50b86d30dda160a0d46089380a1e5cf5ed3695466`，capture aggregate
+  SHA-256 为 `a789dbe3057314da4760b2c1d6e77612eb491e192d176c11e26202e8033de7cc`。
+- current report 只有 1 条 direct attribute risk 与 1 条 class-wide follower，不是 2 条 public
+  diagnostic；report hash 刷新为
+  `c0b811dbf8003982a3fbf474fad690321b8b11d0c0f3ec4c3d86c7cf850b8e87`，CSS、manifest 与 tokens 不变。
+- `FOUND-04` 已 `closed-no-go`，shadow prototype 已回滚；`SEL-04` / `SEL-05` / `SEL-06`
+  deferred，不授权 production rewrite。独立 Test/Review 已 PASS；Rsbuild full visual 报告
+  `/private/tmp/gss-found04-rsbuild-independent.json` 为 `8 runs / 204 cases / 464 comparisons /
+  0 differences`，`passed=true`。adapter pre-image/hash 可独立复核，但任务前正式 Core 完整
+  checksum/pre-image 未持久化，Core byte-identical 独立比较为 `not_run`；当前只依赖开发阶段
+  比对结论、无 shadow/正式入口未接入与全门禁，继续 semantic fallback 且不扩展 `FOUND-05`。完整口径见
+  [FOUND-04 评估](phase-8-multi-local-selector-foundation-evaluation.md)。
+
 ## 浏览器旅程
 
 | 编号 | 模式 | 旅程 | 状态 |

@@ -85,6 +85,45 @@
   font-weight: 700;
 }
 
+.selectorListTarget,
+.selectorListPeer {
+  color: #2563eb;
+}
+
+.selectorListInteractive,
+.selectorListInteractivePeer {
+  background-color: #f8fafc;
+}
+
+.selectorListInteractive:hover,
+.selectorListInteractivePeer:hover {
+  background-color: #dbeafe;
+}
+
+.selectorListInteractive:focus-visible,
+.selectorListInteractivePeer:focus-visible {
+  outline: 3px solid #f0abfc;
+}
+
+.selectorListAttribute,
+.selectorListAttributePeer {
+  background-color: #f8fafc;
+}
+
+.selectorListAttribute[data-list-state='open'],
+[data-list-state='open'].selectorListAttributePeer {
+  background-color: #dcfce7;
+}
+
+.selectorListTarget {
+  color: #dc2626;
+}
+
+.selectorListIndependent {
+  padding: 13px;
+  color: #475569;
+}
+
 @supports (display: grid) {
   .supportsGrid {
     display: grid;
@@ -96,5 +135,81 @@
   .responsiveStack {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+
+.oracleNonCompetingAtomic {
+  color: #4338ca;
+}
+
+.oracleNonCompetingFallback[data-oracle='non-competing'] {
+  background: #fef3c7;
+}
+
+.oracleImportantAtomic {
+  color: #9f1239 !important;
+}
+
+.oracleImportantFallback,
+button.oracleImportantPeer {
+  color: #6b7280;
+}
+
+.oracleSpecificityFallback[data-oracle='specificity'] {
+  color: #0e7490;
+}
+
+.oracleSpecificityAtomic {
+  color: #7c3aed;
+}
+
+.oracleStableOrderAtomic {
+  color: #7c2d12;
+}
+
+.oracleStableOrderFallback,
+button.oracleStableOrderPeer {
+  color: #0369a1;
+}
+
+.oracleMediaAtomic {
+  color: #1e3a8a;
+}
+
+@media (min-width: 600px) {
+  .oracleMediaAtomic {
+    color: #2563eb;
+  }
+}
+
+@media (min-width: 900px) {
+  .oracleMediaAtomic {
+    color: #be123c;
+  }
+}
+
+.oracleMediaFallback,
+button.oracleMediaPeer {
+  background: #f1f5f9;
+}
+
+.oracleSupportsAtomic {
+  color: #4338ca;
+}
+
+.oracleSupportsFallback {
+  background: #f8fafc;
+}
+
+@supports (display: grid) {
+  .oracleSupportsFallback {
+    background: #dbeafe;
+  }
+}
+
+@supports (display: flex) {
+  .oracleSupportsFallback,
+  button.oracleSupportsPeer {
+    background: #dcfce7;
   }
 }

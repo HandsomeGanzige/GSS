@@ -59,6 +59,35 @@ build 默认生成 `assets/semantic-atomic.css`。显式开启后还会生成：
 - `semantic-atomic-report.json`
 
 build 聚合顺序、基础/条件规则分区和简单宽度断点顺序属于 cascade 正确性约束，不是格式化细节。
+聚合 renderer 直接使用 core 为每条 atomic declaration 预渲染的 `selector.css`，不解析
+`selector.identity`，也不自行拼接 class 或 pseudo。manifest 的 atomic entry 保留必填
+`selector.identity` / `selector.css`；build analysis conflict 保留 `selectorIdentity`。
+
+dev report 使用当前唯一的 `adapter/status/environments` envelope，不包含人为 `schemaVersion`。
+包入口只导出 `semanticAtomicCss` factory，不提供历史别名。
+
+## Selector 能力边界
+
+Vite adapter 不维护 selector 白名单，也不解析 `selector.identity`。当前直接消费 Core 输出的
+classes、预渲染 `selector.css`、diagnostics 与 report：
+
+- 单 local anchor 的基础 selector、五种 pseudo class 和独立 before/after pseudo element 由 Core
+  生成对应 atomic selector；legacy/modern pseudo element spelling 由 descriptor 保留。
+- 单个 local class 上的 attribute presence、exact equality 和 attribute-before-class node order
+  可以生成带原 attribute guard 的 atomic selector，Vite tokens 同时保留原生 scoped class。
+- selector list 仅在全部 arm 都安全、可导出且未被 class-wide evidence 阻断时转换；含 pseudo element
+  arm 或任一 unsafe arm 时完整 fallback，不做混合拆分。
+- 同一 `data-*` exact equality 的互斥 value 可以保持独立 guarded atomic rule。
+- attribute rule 与 supported pseudo rule 出现同 importance property 竞争时，Core 以
+  `attribute-cascade-order` 整类保留 scoped fallback；adapter 不追加 partial atomic token。
+- `^=` 等未支持 operator、flag、namespace、多个 attribute 等 near-miss 继续以
+  `attribute-selector` 保守保留。
+- `.module.scss` 的 nested attribute selector 先由 Vite/Sass 编译，再走同一通用链路；adapter
+  不读取 authored Sass bytes 重建 selector。
+
+运行时增加、切换或移除 attribute 只改变 selector 是否匹配，不改变 CSS Modules className。
+真实 fixture 会在 semantic/native dev 与 preview 中比较 absent、open、closed、removed 四个状态，
+并从 CSSOM 精确确认 atomic class 与 attribute guard 绑定。
 
 ## 已知非目标
 
@@ -83,6 +112,9 @@ build 聚合顺序、基础/条件规则分区和简单宽度断点顺序属于 
 pnpm --filter @semantic-atomic-css/vite verify
 pnpm verify
 ```
+
+`pnpm verify` 还会运行两个真实 fixture 的静态门禁。阶段性测试数量和历史失败只记录在对应 acceptance /
+tracking 文档中，不在当前包 README 维护易过期的快照。
 
 涉及浏览器渲染、cascade 或响应式行为时还应运行：
 

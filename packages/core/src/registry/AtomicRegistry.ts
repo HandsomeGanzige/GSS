@@ -3,9 +3,14 @@
  *
  * @module core/registry/AtomicRegistry
  */
-import type { AtomicClassNameOptions, AtomicDeclaration, AtomicKeyInput, SourceLocation } from '../public/types.js';
+import type {
+  AtomicClassNameOptions,
+  AtomicDeclaration,
+  AtomicSelectorDescriptor,
+  SourceLocation
+} from '../public/types.js';
 import { createAtomicClassName } from '../atomizer/createAtomicClassName.js';
-import { createAtomicKey } from '../atomizer/createAtomicKey.js';
+import { createAtomicKey, type AtomicKeyInput } from '../atomizer/createAtomicKey.js';
 import { hashString } from '../utils/hash.js';
 
 /**
@@ -30,41 +35,65 @@ export class AtomicRegistry {
    * 注册或复用一条 atomic declaration。
    *
    * @param input - declaration 与完整 atomic context。
+   * @param renderAtomicSelector - 使用 registry 选定的 class name 渲染完整 selector。
    * @param source - 当前使用位置；存在时追加到 declaration sources。
    * @returns 稳定 key/class name，以及本次是否命中已有 declaration。
    */
-  register(input: AtomicKeyInput, source?: SourceLocation): { key: string; className: string; reused: boolean } {
+  register(
+    input: AtomicKeyInput,
+    renderAtomicSelector: (className: string) => string,
+    source?: SourceLocation
+  ): { key: string; className: string; selector: AtomicSelectorDescriptor; reused: boolean } {
     const key = createAtomicKey(input);
     const existing = this.declarationsByKey.get(key);
-    this.totalRegisterCount += 1;
 
     if (existing) {
+      const renderedCss = renderAtomicSelector(existing.className);
+
+      if (existing.selector.identity !== input.selectorIdentity || existing.selector.css !== renderedCss) {
+        throw new Error(
+          `Atomic selector renderer produced inconsistent CSS for identity "${input.selectorIdentity}" and key "${key}".`
+        );
+      }
+
       if (source) {
         existing.sources.push(source);
       }
+      this.totalRegisterCount += 1;
 
       return {
         key,
         className: existing.className,
+        selector: { ...existing.selector },
         reused: true
       };
     }
 
     const className = this.createAvailableClassName(input, key);
+    const selector: AtomicSelectorDescriptor = {
+      identity: input.selectorIdentity,
+      css: renderAtomicSelector(className)
+    };
     const declaration: AtomicDeclaration = {
       key,
       className,
-      declaration: input.declaration,
-      context: input.context,
+      selector,
+      declaration: {
+        ...input.declaration,
+        source: input.declaration.source && { ...input.declaration.source }
+      },
+      context: { ...input.context },
       sources: source ? [source] : []
     };
 
     this.declarationsByKey.set(key, declaration);
     this.keyByClassName.set(className, key);
+    this.totalRegisterCount += 1;
 
     return {
       key,
       className,
+      selector: { ...selector },
       reused: false
     };
   }
@@ -118,6 +147,7 @@ function cloneAtomicDeclaration(declaration: AtomicDeclaration): AtomicDeclarati
   return {
     key: declaration.key,
     className: declaration.className,
+    selector: { ...declaration.selector },
     declaration: { ...declaration.declaration, source: declaration.declaration.source && { ...declaration.declaration.source } },
     context: { ...declaration.context },
     sources: declaration.sources.map((source) => ({ ...source }))

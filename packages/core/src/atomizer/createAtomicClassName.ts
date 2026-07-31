@@ -6,7 +6,8 @@
  *
  * @module core/atomizer/createAtomicClassName
  */
-import type { AtomicClassNameOptions, AtomicKeyInput } from '../public/types.js';
+import type { AtomicClassNameOptions } from '../public/types.js';
+import type { AtomicKeyInput } from './createAtomicKey.js';
 import { hashString } from '../utils/hash.js';
 import { ensureValidClassName, sanitizeClassNamePart } from '../utils/sanitize.js';
 import { createAtomicKey } from './createAtomicKey.js';
@@ -28,7 +29,7 @@ export function createAtomicClassName(input: AtomicKeyInput, options: Required<A
   const parts = [
     input.context.media ? `media_${hashString(input.context.media, 6)}` : undefined,
     input.context.supports ? `supports_${hashString(input.context.supports, 6)}` : undefined,
-    input.context.pseudo ? sanitizeClassNamePart(input.context.pseudo.replace(/^:/, '')) : undefined,
+    `selector_${hashString(input.selectorIdentity, 6)}`,
     sanitizeClassNamePart(input.declaration.prop),
     sanitizeClassNamePart(input.declaration.value),
     input.declaration.important ? 'important' : undefined

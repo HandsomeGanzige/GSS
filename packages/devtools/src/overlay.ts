@@ -77,6 +77,34 @@ export function createBrowserOverlayRuntime(options: BrowserOverlayRuntimeOption
     }
   };
   let refreshInFlight = false;
+  // 只验证 overlay 实际展示的当前字段，避免在浏览器中复制完整 report 模型。
+  const invalidPayload = () => {
+    throw new Error('[semantic-atomic-css] invalid-dev-report-payload');
+  };
+  const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
+  const validatePayload = (payload) => {
+    if (!isRecord(payload)) invalidPayload();
+    if (payload.adapter !== 'vite' && payload.adapter !== 'rsbuild') invalidPayload();
+    if (payload.status !== 'idle' && payload.status !== 'ready') invalidPayload();
+    if (!Array.isArray(payload.environments)) invalidPayload();
+    if (payload.status === 'idle' && payload.environments.length !== 0) invalidPayload();
+    if (payload.status === 'ready' && payload.environments.length === 0) invalidPayload();
+    if (payload.status === 'idle') return payload;
+    for (const environment of payload.environments) {
+      if (!isRecord(environment) || !isRecord(environment.report)) invalidPayload();
+      const report = environment.report;
+      if (!isRecord(report.summary) || !isRecord(report.analysis)) invalidPayload();
+      if (!isRecord(report.analysis.health) || !isRecord(report.analysis.size)) invalidPayload();
+      if (!['ready', 'risky', 'blocked'].includes(report.analysis.health.status)) invalidPayload();
+      if (!isFiniteNumber(report.summary.files)) invalidPayload();
+      if (!isFiniteNumber(report.summary.atomicDeclarations)) invalidPayload();
+      if (!isFiniteNumber(report.summary.unsafeRules)) invalidPayload();
+      if (!isFiniteNumber(report.summary.preservedRules)) invalidPayload();
+      if (!isFiniteNumber(report.analysis.size.estimatedTotalDiffBytes)) invalidPayload();
+    }
+    return payload;
+  };
   // 同一时刻只允许一个 report 请求，避免旧响应覆盖新状态。
   const refresh = async () => {
     if (refreshInFlight) return;
@@ -84,15 +112,15 @@ export function createBrowserOverlayRuntime(options: BrowserOverlayRuntimeOption
     try {
       const response = await fetch(endpoint, { headers: { accept: 'application/json' }, cache: 'no-store' });
       if (!response.ok) throw new Error('HTTP ' + response.status);
-      const payload = await response.json();
-      const reports = Array.isArray(payload.environments) ? payload.environments.map((item) => item && item.report).filter(Boolean) : [];
-      if (reports.length === 0) {
+      const payload = validatePayload(await response.json());
+      if (payload.status === 'idle') {
         button.dataset.health = 'idle';
         button.textContent = 'GSS · idle';
-        setRows([['Adapter', payload.adapter || 'unknown'], ['Modules', 0]]);
+        setRows([['Adapter', payload.adapter], ['Modules', 0]]);
         note.textContent = '等待 CSS Modules 完成首次转换。';
         return;
       }
+      const reports = payload.environments.map((environment) => environment.report);
       const priority = { ready: 0, risky: 1, blocked: 2 };
       let health = 'ready';
       let files = 0;
@@ -101,17 +129,17 @@ export function createBrowserOverlayRuntime(options: BrowserOverlayRuntimeOption
       let preserved = 0;
       let sizeDiff = 0;
       for (const report of reports) {
-        const next = report.analysis && report.analysis.health ? report.analysis.health.status : 'risky';
-        if ((priority[next] ?? 1) > (priority[health] ?? 0)) health = next;
-        files += report.summary && report.summary.files || 0;
-        atomic += report.summary && report.summary.atomicDeclarations || 0;
-        unsafe += report.summary && report.summary.unsafeRules || 0;
-        preserved += report.summary && report.summary.preservedRules || 0;
-        sizeDiff += report.analysis && report.analysis.size ? report.analysis.size.estimatedTotalDiffBytes || 0 : 0;
+        const next = report.analysis.health.status;
+        if (priority[next] > priority[health]) health = next;
+        files += report.summary.files;
+        atomic += report.summary.atomicDeclarations;
+        unsafe += report.summary.unsafeRules;
+        preserved += report.summary.preservedRules;
+        sizeDiff += report.analysis.size.estimatedTotalDiffBytes;
       }
       button.dataset.health = health;
       button.textContent = 'GSS · ' + health;
-      setRows([['Adapter', payload.adapter || 'unknown'], ['Files', files], ['Atomic declarations', atomic], ['Unsafe rules', unsafe], ['Preserved rules', preserved], ['Estimated diff', (sizeDiff >= 0 ? '+' : '') + sizeDiff + ' B']]);
+      setRows([['Adapter', payload.adapter], ['Files', files], ['Atomic declarations', atomic], ['Unsafe rules', unsafe], ['Preserved rules', preserved], ['Estimated diff', (sizeDiff >= 0 ? '+' : '') + sizeDiff + ' B']]);
       note.textContent = 'Report API: ' + endpoint;
     } catch (error) {
       button.dataset.health = 'offline';

@@ -617,6 +617,14 @@ JSX / TSX，不把同模块不同 class 共享属性直接视为冲突。Pilot �
 - analyzer 单元测试和 Vite build report 测试已覆盖输出与误报边界。
 - Pilot 最终确定 1 组 `border -> border-left-color` shorthand / longhand 顺序依赖。
 
+2026-07-22，Analyzer 已跟进 Core selector descriptor 契约：
+
+- conflict detail 必填输出 `selectorIdentity`。
+- 只在 selector identity、media、supports 和 important 都相同时分析属性竞争。
+- 分组读取 `atomic.selector.identity`，不使用包含具体 atomic class 的
+  `atomic.selector.css`。
+- 不再读取 `context.pseudo`，也不保留旧 manifest 或缺失 boolean 的兼容分支。
+
 ## 验收标准
 
 ### 1. 继承 Phase 3 基线
@@ -658,7 +666,8 @@ pnpm verify:phase4:full
   CSS asset。
 - 显式开启 report 后，build JSON report 包含 analyzer analysis 数据。
 - analyzer analysis 包含同一 semantic class 内可证明的 declaration conflict 摘要与详情，
-  且不误报跨 class、跨 pseudo 或跨 important 层级的声明。
+  detail 可追踪 selector identity，且不误报不同 identity、media、supports、important
+  或 semantic class 的声明。
 - 默认仍不输出 manifest/report。
 - `pnpm verify:phase4` 是静态验收；`pnpm verify:phase4:full` 额外包含 visual computed style 对照。
 

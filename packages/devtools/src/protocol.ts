@@ -1,5 +1,5 @@
 /**
- * Phase 7 dev report API 的构建工具无关协议。
+ * Dev report API 的构建工具无关当前契约。
  *
  * @module devtools/protocol
  */
@@ -10,14 +10,12 @@ import type { TransformReport } from '@semantic-atomic-css/core';
 export type DevReportEnvironment = {
   /** 构建工具提供的 environment 名；单 environment adapter 使用 `client`。 */
   name: string;
-  /** 沿用 build asset 的 core report 与 analyzer analysis，不改变既有 report schema。 */
+  /** 沿用 build asset 的 core report 与 analyzer analysis，不改变 nested report。 */
   report: TransformReport & { analysis: BuildAnalysis };
 };
 
 /** Vite 与 Rsbuild 共用的 dev report API envelope。 */
 export type DevReportEnvelope = {
-  /** 协议主版本；不兼容变更必须递增。 */
-  schemaVersion: 1;
   /** 产生当前快照的 adapter。 */
   adapter: 'vite' | 'rsbuild';
   /** 尚无已转换模块时为 `idle`，否则为 `ready`。 */
@@ -31,7 +29,7 @@ export type DevReportEnvelope = {
  *
  * @param adapter - 当前 adapter 名。
  * @param environments - 当前可用的 environment report 快照。
- * @returns 可直接 JSON 序列化的版本化协议对象。
+ * @returns 可直接 JSON 序列化的当前协议对象。
  */
 export function createDevReportEnvelope(
   adapter: DevReportEnvelope['adapter'],
@@ -42,7 +40,6 @@ export function createDevReportEnvelope(
     .map(({ name, report }) => ({ name, report }));
 
   return {
-    schemaVersion: 1,
     adapter,
     status: stableEnvironments.length === 0 ? 'idle' : 'ready',
     environments: stableEnvironments

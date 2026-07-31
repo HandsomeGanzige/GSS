@@ -1,3 +1,4 @@
+import attributeStyles from './cases/AttributeCase.module.css';
 import cascadeStyles from './cases/CascadeCase.module.css';
 import duplicateStyles from './cases/DuplicateCase.module.css';
 import fallbackStyles from './cases/FallbackCase.module.css';
@@ -47,6 +48,92 @@ export function App() {
         <div className={cascadeStyles.camelToken} data-gss-case="camel-token">
           camelCase CSS Modules export key
         </div>
+        <div className={cascadeStyles.selectorListTarget} data-gss-case="selector-list-cascade">
+          later same-class declaration must win over the selector list
+        </div>
+        <div className={cascadeStyles.selectorListPeer} data-gss-case="selector-list-peer">
+          selector-list peer shares the first atomic token
+        </div>
+        <button
+          className={cascadeStyles.selectorListInteractive}
+          data-gss-case="selector-list-interactive"
+        >
+          selector-list hover arm
+        </button>
+        <button
+          className={cascadeStyles.selectorListInteractivePeer}
+          data-gss-case="selector-list-interactive-peer"
+        >
+          selector-list focus arm
+        </button>
+        <div
+          className={cascadeStyles.selectorListAttribute}
+          data-gss-case="selector-list-attribute"
+        >
+          selector-list attribute mutation arm
+        </div>
+        <div
+          className={cascadeStyles.selectorListAttributePeer}
+          data-list-state="open"
+          data-gss-case="selector-list-attribute-peer"
+        >
+          selector-list attribute-before-class arm
+        </div>
+        <div
+          className={`${cascadeStyles.selectorListAttribute} ${cascadeStyles.selectorListAttributePeer}`}
+          data-list-state="open"
+          data-gss-case="selector-list-attribute-coincident"
+        >
+          one element matches both selector-list arms
+        </div>
+        <div
+          className={cascadeStyles.selectorListIndependent}
+          data-gss-case="selector-list-independent"
+        >
+          unrelated class must remain atomic
+        </div>
+      </section>
+
+      <section className="case-section" aria-label="cascade oracle cases">
+        <h2>Atomic and fallback cascade oracle</h2>
+        <div
+          className={`${cascadeStyles.oracleNonCompetingAtomic} ${cascadeStyles.oracleNonCompetingFallback}`}
+          data-oracle="non-competing"
+          data-gss-case="oracle-non-competing"
+        >
+          atomic color and fallback background both apply
+        </div>
+        <div
+          className={`${cascadeStyles.oracleImportantAtomic} ${cascadeStyles.oracleImportantFallback}`}
+          data-gss-case="oracle-important"
+        >
+          important atomic color wins over later normal fallback
+        </div>
+        <div
+          className={`${cascadeStyles.oracleSpecificityFallback} ${cascadeStyles.oracleSpecificityAtomic}`}
+          data-oracle="specificity"
+          data-gss-case="oracle-specificity"
+        >
+          higher-specificity fallback wins over later atomic color
+        </div>
+        <div
+          className={`${cascadeStyles.oracleStableOrderAtomic} ${cascadeStyles.oracleStableOrderFallback}`}
+          data-gss-case="oracle-stable-order"
+        >
+          later equal-specificity fallback keeps its winner
+        </div>
+        <div
+          className={`${cascadeStyles.oracleMediaAtomic} ${cascadeStyles.oracleMediaFallback}`}
+          data-gss-case="oracle-media-overlap"
+        >
+          overlapping media conditions keep their original order
+        </div>
+        <div
+          className={`${cascadeStyles.oracleSupportsAtomic} ${cascadeStyles.oracleSupportsFallback}`}
+          data-gss-case="oracle-supports-overlap"
+        >
+          overlapping supports conditions keep their original order
+        </div>
       </section>
 
       <section className="case-section" aria-label="later module duplicate cases">
@@ -56,6 +143,41 @@ export function App() {
         </div>
         <div className={duplicateStyles.duplicateAlign} data-gss-case="duplicate-align">
           later module repeats the same align-items center declaration
+        </div>
+      </section>
+
+      <section className="case-section" aria-label="attribute selector cases">
+        <h2>Attribute selector guards</h2>
+        <div className={attributeStyles.attributeState} data-gss-case="attribute-state">
+          attribute state mutation target
+        </div>
+        <div
+          className={attributeStyles.presenceGuard}
+          data-present
+          data-gss-case="attribute-presence"
+        >
+          presence guard atomic selector
+        </div>
+        <div
+          className={attributeStyles.nodeOrder}
+          data-placement="before"
+          data-gss-case="attribute-node-order"
+        >
+          attribute-before-class node order
+        </div>
+        <button
+          className={attributeStyles.orderRisk}
+          data-state="ready"
+          data-gss-case="attribute-order-risk"
+        >
+          attribute and hover order-risk fallback
+        </button>
+        <div
+          className={attributeStyles.nearMiss}
+          data-kind="danger-zone"
+          data-gss-case="attribute-near-miss"
+        >
+          unsupported operator fallback
         </div>
       </section>
 
@@ -80,6 +202,9 @@ export function App() {
         </div>
         <div className={fallbackStyles.pseudoMarker} data-gss-case="pseudo-marker">
           pseudo-element marker
+        </div>
+        <div className={fallbackStyles.pseudoAfter} data-gss-case="pseudo-after">
+          legacy after marker
         </div>
       </section>
 

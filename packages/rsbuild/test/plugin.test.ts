@@ -75,12 +75,13 @@ describe('pluginSemanticAtomicCss options', () => {
     );
 
     expect(headers.get('cache-control')).toBe('no-store');
-    expect(JSON.parse(body)).toEqual({
-      schemaVersion: 1,
+    const payload = JSON.parse(body);
+    expect(payload).toEqual({
       adapter: 'rsbuild',
       status: 'idle',
       environments: []
     });
+    expect(payload).not.toHaveProperty('schemaVersion');
     expect(tags.headTags[0]).toMatchObject({
       tag: 'script',
       attrs: { 'data-semantic-atomic-css-overlay-runtime': '' }

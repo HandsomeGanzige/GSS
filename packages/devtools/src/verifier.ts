@@ -72,9 +72,8 @@ export type ComputedStyleDifference = {
   candidate: string | null;
 };
 
-/** 可持久化、可合并的 Phase 7 style diff report。 */
+/** 可持久化、可合并的 computed style diff report。 */
 export type StyleDiffReport = {
-  schemaVersion: 1;
   baselineLabel: string;
   candidateLabel: string;
   summary: {
@@ -194,7 +193,6 @@ export function createStyleDiffReport(input: {
   }
 
   return {
-    schemaVersion: 1,
     baselineLabel: input.baselineLabel ?? 'native',
     candidateLabel: input.candidateLabel ?? 'semantic',
     summary: {

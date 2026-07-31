@@ -19,9 +19,14 @@ export type DevStyleSource = {
   preservedCss: string;
 };
 
+/** 一个 runtime bridge owner 注册到浏览器的当前样式快照。 */
+export type DevStyleSnapshot = {
+  sources: DevStyleSource[];
+};
+
 type DevStyleOwnerRecord = {
   sequence: number;
-  sources: DevStyleSource[];
+  snapshot: DevStyleSnapshot;
 };
 
 const styleOwnerAttribute = 'data-semantic-atomic-css-rsbuild-dev';
@@ -32,13 +37,13 @@ let registrationSequence = 0;
  * 登记一个 CSS Module owner，并返回只会清理本次登记的 dispose callback。
  *
  * @param ownerId - 顶层 CSS Module 的稳定绝对路径。
- * @param sources - 该 owner 的 css-loader rows 转换快照。
+ * @param snapshot - 该 owner 的当前 `{ sources }` 转换快照。
  * @returns HMR dispose 时调用的清理函数。
  */
-export function registerDevStyles(ownerId: string, sources: DevStyleSource[]): () => void {
+export function registerDevStyles(ownerId: string, snapshot: DevStyleSnapshot): () => void {
   const record = {
     sequence: registrationSequence++,
-    sources
+    snapshot
   };
   owners.set(ownerId, record);
   updateStyleElement();
@@ -89,7 +94,7 @@ function collectCurrentSources(): DevStyleSource[] {
   const sources = new Map<string, { sequence: number; source: DevStyleSource }>();
 
   for (const owner of owners.values()) {
-    for (const source of owner.sources) {
+    for (const source of owner.snapshot.sources) {
       const current = sources.get(source.id);
       if (!current || current.sequence <= owner.sequence) {
         sources.set(source.id, { sequence: owner.sequence, source });

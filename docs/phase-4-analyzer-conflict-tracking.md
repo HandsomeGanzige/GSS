@@ -7,10 +7,14 @@
 - 完成日期：2026-07-14
 - 目标：把中型 Pilot 暴露的同属性 cascade 风险转化为 analyzer 中的结构化提示，
   不改写 CSS，不改变 core 编译语义。
+- 2026-07-22 迁移：冲突 selector 维度已从 `context.pseudo` 切换为必填
+  `selectorIdentity`，不保留旧读取路径。
+- 2026-07-25 consumer contract：`attribute-cascade-order` 通过既有通用 unsafe reason
+  分布、high-risk module 与 health 路径消费，不增加 reason whitelist 或专用 health 状态。
 
 ## 目标
 
-- 识别同一 semantic class 内，在同一 pseudo / media / supports 上下文和同一
+- 识别同一 semantic class 内，在同一 selector identity / media / supports 上下文和同一
   `!important` 层级中的不同值同属性竞争。
 - 以保守属性关系表识别明确的 shorthand / longhand 竞争，第一批覆盖
   `margin`、`padding`、`border`、`background`、`font`、`outline`、`inset`、`gap`。
@@ -30,7 +34,7 @@
 确定冲突需要同时满足：
 
 1. atomic declarations 属于同一 manifest class entry。
-2. pseudo、media、supports 上下文完全相同。
+2. `selector.identity`、media、supports 上下文完全相同。
 3. `important` 层级相同。
 4. declaration 值不同。
 5. 属性相同，或命中 analyzer 明确维护的 shorthand / longhand 关系。
@@ -53,9 +57,12 @@
 - `@semantic-atomic-css/analyzer` 已在 `analysis.risk` 输出
   `declarationConflictSummary` 和 `declarationConflicts`。
 - 冲突详情包含文件、scoped semantic class、冲突类型、cascade 上下文、
-  important 层级、属性和按 token 顺序排列的 atomic declarations。
-- analyzer 当前为 4 项测试，覆盖同属性、shorthand / longhand，以及跨 class、
-  跨 pseudo、跨 `!important` 层级不误报的边界。
+  selector identity、important 层级、属性和按 token 顺序排列的 atomic declarations。
+- analyzer 当前为 9 项测试，覆盖同属性、shorthand / longhand、同 identity 不同
+  class-specific selector CSS 仍分组，`attribute-selector` 与 `attribute-cascade-order`
+  的通用聚合，以及不同 identity、media、supports、`!important` 和 semantic class 不误报的边界。
+- 不同 attribute selector identity 的零 conflict 只证明 Analyzer 按 exact identity 隔离分组；
+  Analyzer 不判断 attribute conditions 是否互斥，也不复制 Core 的 overlap guard。
 - Vite adapter 当前为 24 项测试，新增 Route A 真实 build report 正向用例。
 - 2026-07-14 已通过 `pnpm verify:phase4`、`pnpm verify:phase3:visual`以及 Pilot
   semantic/native build。首次在 sandbox 内的 visual 启动因不允许监听 `127.0.0.1`
@@ -75,12 +82,12 @@
   顺序依赖。
 - 若仅按“同一 CSS Module 的多个 class 具有同属性不同值”统计，会产生 164 组
   候选，其中包含大量正常的布局、排版和互斥状态 class，因此不纳入第一版报告。
-- core manifest 中非 important declaration 的运行时值可能是 `undefined`；analyzer 在入口边界
-  统一规范为 `false`，保证 JSON schema 与连续构建稳定。该处理不改变 core atomic key。
+- Core 当前契约保证 `important` 必填 boolean；analyzer 直接消费该值，不再做
+  `undefined` 或缺失字段的兼容归一化。
 
 ## 最终结论
 
-第一版 declaration conflict 提示已完成，它只消费 core manifest，不读文件且不依赖
+当前 declaration conflict 提示只消费 core manifest，不读文件且不依赖
 Vite。当同一 semantic class 的 declaration 顺序可能被全局 atomic 复用影响时，报告会
-输出确定的 `risky` 信号，但不替开发者改写 CSS。跨 semantic class 冲突仍需要来自 JSX / TSX
+输出必填 selector identity 和确定的 `risky` 信号，但不替开发者改写 CSS。跨 semantic class 冲突仍需要来自 JSX / TSX
 或其他 usage graph 的共现证据，本阶段继续保持为显式边界。

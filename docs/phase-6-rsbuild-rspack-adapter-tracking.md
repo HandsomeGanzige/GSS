@@ -12,6 +12,41 @@
 [Phase 6 接入点研究](phase-6-rsbuild-rspack-research.md)，最终矩阵见
 [Phase 6 验收](phase-6-rsbuild-rspack-adapter-acceptance.md)。
 
+## SEL-02 attribute selector consumer（2026-07-27）
+
+- Architecture 审计确认现有 build/dev renderer、manifest stabilizer、runtime snapshot 和 token augmentation
+  已通用消费 Core selector descriptor；本批没有修改 `packages/rsbuild/src/**`，也没有在 adapter 复制
+  attribute grammar、identity 或 cascade guard。
+- package tests 新增 presence、exact equality、attribute-before-class、Rsbuild serializer spelling、
+  `attribute-cascade-order` report/analyzer 以及 guarded selector HMR update/remove/stale dispose 契约；
+  Rsbuild package 4 files/20 tests、typecheck/build 通过。
+- base fixture 使用独立 `AttributeCase.module.css` 覆盖 absent → open → closed → removed、className 稳定、
+  presence、两种 node order、order-risk hover 与 unsupported operator fallback。两个历史 cascade oracle
+  改用明确不支持的 `^=`，继续承担原有 scoped fallback 角色，避免与 SEL-02 正向 case 混用。
+- preprocessor fixture 新增 Sass nested exact attribute case；static 同时证明 Core identity/descriptor 保留
+  双引号，而 Rsbuild/Lightning CSS 最终 stylesheet 可移除安全 ident quotes，token、完整 guarded selector
+  和 computed style 仍自洽。partial 更新和移除 import 会清除 guarded atomic selector，不留下 stale CSS。
+- `pnpm verify` 通过：五个产品包共 19 files/213 tests、全部 typecheck/build，以及 Vite/Rsbuild static
+  fixture 均通过。
+- base visual：4 runs、124 cases、296 comparisons、0 differences；full visual：8 runs、148 cases、
+  360 comparisons、0 differences。报告分别为
+  `/private/tmp/gss-rsbuild-attribute-selector-base.json` 和
+  `/private/tmp/gss-rsbuild-attribute-selector-full.json`。
+
+## 当前 selector descriptor consumer（2026-07-22）
+
+- build/dev 共用 renderer 只消费 `selector.css`，继续保留 atomic key 去重、readable class collision、
+  declaration/important、media/supports、base/context 分区和简单宽度断点顺序。
+- build manifest 显式复制 selector descriptor；Analyzer conflict 保留 `selectorIdentity`；
+  dev report 使用无 `schemaVersion` 的当前 envelope。
+- runtime bridge 只序列化当前 `{ sources }` 对象及必填 descriptor，并调用
+  `registerDevStyles(ownerId, { sources })`；不读取旧数组或版本字段。
+- HMR update/remove 与 stale dispose 已覆盖旧 pseudo selector/class 清理；资源、ICSS、tokens、
+  preservation 和 state reset 既有断言保持。
+- 已删除已移除 core 配置的专用 tombstone guard；当前生产错误文本不再携带阶段生命周期。
+- Rsbuild package verify 共 4 个测试文件、18 项测试，typecheck/build 通过；fixture、Playground、
+  root 与 visual 不属于本批次。
+
 ## 总体进度
 
 | Batch | 主题 | 状态 | 结果 |
@@ -97,7 +132,7 @@ GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Goo
   pnpm --filter @semantic-atomic-css/rsbuild-fixture test:visual
 ```
 
-- adapter：4 个 test files、12 项测试，typecheck/build 通过。
+- adapter：当前 4 个 test files、18 项测试，typecheck/build 通过。
 - static fixture：CSS/SCSS/Less、semantic/native、连续 build、lazy、ICSS/composes、inline/external、
   query/hash、asset prefix、publicDir、manifest/report/analysis、原生 Sass 错误和 config fail-fast 通过。
 - visual fixture：base/preprocessor 的 semantic/native dev/preview、desktop/narrow、hover/focus、lazy、

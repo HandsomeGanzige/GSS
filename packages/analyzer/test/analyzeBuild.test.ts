@@ -23,6 +23,56 @@ describe('analyzeBuild', () => {
     expect(analysis.health.status).toBe('risky');
   });
 
+  it('把 attribute cascade order 作为通用 unsafe reason 聚合到 report 与 module', () => {
+    const input = createInput();
+    input.report.diagnostics[0]!.reason = 'attribute-cascade-order';
+    input.modules[0]!.diagnostics[0]!.reason = 'attribute-cascade-order';
+
+    const analysis = analyzeBuild(input);
+
+    expect(input.report.summary.unsafeRules).toBe(1);
+    expect(analysis.risk.unsafeReasonDistribution).toEqual({
+      'attribute-cascade-order': 1
+    });
+    expect(analysis.risk.highRiskFiles[0]).toMatchObject({
+      id: '/project/src/Button.module.css',
+      unsafeRules: 1,
+      unsafeReasons: {
+        'attribute-cascade-order': 1
+      }
+    });
+    expect(analysis.health.status).toBe('risky');
+    expect(analysis.health.reasons).toContain('存在 unsafe selector fallback');
+    expect(analysis.health.reasons.some((reason) => reason.includes('attribute-cascade-order'))).toBe(false);
+  });
+
+  it('安全 selector list 不产生风险，unsafe mixed list 仍按 selector-list 聚合', () => {
+    const unsafeInput = createInput();
+    unsafeInput.report.diagnostics[0]!.reason = 'selector-list';
+    unsafeInput.report.diagnostics[0]!.selector = '.button, .parent .link';
+    unsafeInput.modules[0]!.diagnostics[0]!.reason = 'selector-list';
+    unsafeInput.modules[0]!.diagnostics[0]!.selector = '.x_button, .x_parent .x_link';
+
+    expect(analyzeBuild(unsafeInput).risk.unsafeReasonDistribution).toEqual({
+      'selector-list': 1
+    });
+
+    const safeInput = createInput();
+    safeInput.report.summary.unsafeRules = 0;
+    safeInput.report.summary.preservedRules = 0;
+    safeInput.report.summary.preservedDeclarations = 0;
+    safeInput.report.diagnostics = [];
+    safeInput.modules[0]!.diagnostics = [];
+    safeInput.modules[0]!.preservedCss = '';
+    safeInput.outputCss = safeInput.modules[0]!.atomicCss;
+
+    const safeAnalysis = analyzeBuild(safeInput);
+
+    expect(safeAnalysis.risk.unsafeReasonDistribution).toEqual({});
+    expect(safeAnalysis.risk.highRiskFiles).toEqual([]);
+    expect(safeAnalysis.health.reasons).not.toContain('存在 unsafe selector fallback');
+  });
+
   it('存在 unsupported feature 时输出 blocked', () => {
     const analysis = analyzeBuild({
       ...createInput(),
@@ -30,7 +80,7 @@ describe('analyzeBuild', () => {
         {
           feature: 'modules.namedExports',
           id: '/project/vite.config.ts',
-          reason: 'Phase 4 未实现 named exports'
+          reason: '当前未实现 named exports'
         }
       ]
     });
@@ -68,6 +118,7 @@ describe('analyzeBuild', () => {
         id: '/project/src/Button.module.css',
         sourceClassName: 'button',
         kind: 'same-property',
+        selectorIdentity: '.__GSS_ANCHOR__',
         context: {},
         important: false,
         properties: ['color'],
@@ -88,6 +139,7 @@ describe('analyzeBuild', () => {
         id: '/project/src/Button.module.css',
         sourceClassName: 'button',
         kind: 'shorthand-longhand',
+        selectorIdentity: '.__GSS_ANCHOR__',
         context: {},
         important: false,
         properties: ['border', 'border-color'],
@@ -108,7 +160,7 @@ describe('analyzeBuild', () => {
     expect(analysis.health.reasons).toContain('存在同一 semantic class 的 declaration 顺序冲突');
   });
 
-  it('不把跨 class、跨 pseudo 或跨 important 层级的声明当作确定冲突', () => {
+  it('不把不同 selector identity、media、supports、important 或 semantic class 的声明当作冲突', () => {
     const input = createInput();
     input.manifest = createIsolatedManifest();
 
@@ -116,6 +168,127 @@ describe('analyzeBuild', () => {
 
     expect(analysis.risk.declarationConflictSummary.total).toBe(0);
     expect(analysis.risk.declarationConflicts).toEqual([]);
+  });
+
+  it('相同 attribute selector identity 正向成组，另一个 exact identity 不并入', () => {
+    const input = createInput();
+    input.manifest = {
+      atomic: {
+        _state_open_red: createAtomicEntry('_state_open_red', 'color', 'red', {
+          selectorIdentity: ".__GSS_ANCHOR__[data-state='open']",
+          selectorCss: "._state_open_red[data-state='open']"
+        }),
+        _state_open_blue: createAtomicEntry('_state_open_blue', 'color', 'blue', {
+          selectorIdentity: ".__GSS_ANCHOR__[data-state='open']",
+          selectorCss: "._state_open_blue[data-state='open']"
+        }),
+        _state_closed_green: createAtomicEntry('_state_closed_green', 'color', 'green', {
+          selectorIdentity: ".__GSS_ANCHOR__[data-state='closed']",
+          selectorCss: "._state_closed_green[data-state='closed']"
+        })
+      },
+      classes: {
+        '/project/src/Button.module.css::button': {
+          id: '/project/src/Button.module.css',
+          sourceClassName: 'button',
+          resolvedClassName: 'x_button',
+          atomicClassNames: ['_state_open_red', '_state_open_blue', '_state_closed_green'],
+          suggestedClassName: 'x_button _state_open_red _state_open_blue _state_closed_green'
+        }
+      }
+    };
+
+    const analysis = analyzeBuild(input);
+
+    expect(analysis.risk.declarationConflictSummary.total).toBe(1);
+    expect(analysis.risk.declarationConflicts).toEqual([
+      expect.objectContaining({
+        kind: 'same-property',
+        selectorIdentity: ".__GSS_ANCHOR__[data-state='open']",
+        declarations: [
+          expect.objectContaining({
+            atomicClassName: '_state_open_red',
+            value: 'red'
+          }),
+          expect.objectContaining({
+            atomicClassName: '_state_open_blue',
+            value: 'blue'
+          })
+        ]
+      })
+    ]);
+  });
+
+  it('同一 selector identity 下使用各自 class-specific selector CSS 仍归入同一组', () => {
+    const input = createInput();
+    input.manifest = {
+      atomic: {
+        _color_blue: createAtomicEntry('_color_blue', 'color', 'blue', {
+          selectorCss: '._color_blue'
+        }),
+        _color_red: createAtomicEntry('_color_red', 'color', 'red', {
+          selectorCss: '._color_red'
+        })
+      },
+      classes: {
+        '/project/src/Button.module.css::button': {
+          id: '/project/src/Button.module.css',
+          sourceClassName: 'button',
+          resolvedClassName: 'x_button',
+          atomicClassNames: ['_color_blue', '_color_red'],
+          suggestedClassName: 'x_button _color_blue _color_red'
+        }
+      }
+    };
+
+    const conflicts = analyzeBuild(input).risk.declarationConflicts;
+
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      selectorIdentity: '.__GSS_ANCHOR__',
+      declarations: [
+        { atomicClassName: '_color_blue', value: 'blue' },
+        { atomicClassName: '_color_red', value: 'red' }
+      ]
+    });
+  });
+
+  it('按文件与 semantic class 稳定排序 conflict，并保留 class token 内的 declaration 顺序', () => {
+    const input = createInput();
+    input.manifest = {
+      atomic: {
+        _z_red: createAtomicEntry('_z_red', 'color', 'red'),
+        _z_blue: createAtomicEntry('_z_blue', 'color', 'blue'),
+        _a_black: createAtomicEntry('_a_black', 'color', 'black'),
+        _a_white: createAtomicEntry('_a_white', 'color', 'white')
+      },
+      classes: {
+        '/project/src/Button.module.css::zeta': {
+          id: '/project/src/Button.module.css',
+          sourceClassName: 'zeta',
+          resolvedClassName: 'x_zeta',
+          atomicClassNames: ['_z_blue', '_z_red'],
+          suggestedClassName: 'x_zeta _z_blue _z_red'
+        },
+        '/project/src/Button.module.css::alpha': {
+          id: '/project/src/Button.module.css',
+          sourceClassName: 'alpha',
+          resolvedClassName: 'x_alpha',
+          atomicClassNames: ['_a_white', '_a_black'],
+          suggestedClassName: 'x_alpha _a_white _a_black'
+        }
+      }
+    };
+
+    const conflicts = analyzeBuild(input).risk.declarationConflicts;
+
+    expect(conflicts.map(({ sourceClassName, declarations }) => ({
+      sourceClassName,
+      tokens: declarations.map(({ atomicClassName }) => atomicClassName)
+    }))).toEqual([
+      { sourceClassName: 'alpha', tokens: ['_a_white', '_a_black'] },
+      { sourceClassName: 'zeta', tokens: ['_z_blue', '_z_red'] }
+    ]);
   });
 });
 
@@ -153,8 +326,19 @@ function createIsolatedManifest(): AnalyzeBuildInput['manifest'] {
   return {
     atomic: {
       _color_red: createAtomicEntry('_color_red', 'color', 'red'),
-      _color_blue_hover: createAtomicEntry('_color_blue_hover', 'color', 'blue', { pseudo: ':hover' }),
-      _color_green_important: createAtomicEntry('_color_green_important', 'color', 'green', {}, true),
+      _color_blue_hover: createAtomicEntry('_color_blue_hover', 'color', 'blue', {
+        selectorIdentity: '.__GSS_ANCHOR__:hover',
+        selectorCss: '._color_blue_hover:hover'
+      }),
+      _color_green_media: createAtomicEntry('_color_green_media', 'color', 'green', {
+        context: { media: '(min-width: 768px)' }
+      }),
+      _color_white_supports: createAtomicEntry('_color_white_supports', 'color', 'white', {
+        context: { supports: '(display: grid)' }
+      }),
+      _color_purple_important: createAtomicEntry('_color_purple_important', 'color', 'purple', {
+        important: true
+      }),
       _color_black: createAtomicEntry('_color_black', 'color', 'black')
     },
     classes: {
@@ -162,8 +346,15 @@ function createIsolatedManifest(): AnalyzeBuildInput['manifest'] {
         id: '/project/src/Button.module.css',
         sourceClassName: 'button',
         resolvedClassName: 'x_button',
-        atomicClassNames: ['_color_red', '_color_blue_hover', '_color_green_important'],
-        suggestedClassName: 'x_button _color_red _color_blue_hover _color_green_important'
+        atomicClassNames: [
+          '_color_red',
+          '_color_blue_hover',
+          '_color_green_media',
+          '_color_white_supports',
+          '_color_purple_important'
+        ],
+        suggestedClassName:
+          'x_button _color_red _color_blue_hover _color_green_media _color_white_supports _color_purple_important'
       },
       '/project/src/Button.module.css::label': {
         id: '/project/src/Button.module.css',
@@ -182,16 +373,19 @@ function createIsolatedManifest(): AnalyzeBuildInput['manifest'] {
  * @param className - atomic class 名称。
  * @param property - CSS declaration 属性名。
  * @param value - CSS declaration 值。
- * @param context - declaration 所属 pseudo、media 与 supports 上下文。
- * @param important - declaration 是否带有 `!important`。
+ * @param options - selector identity/CSS、条件上下文与 `!important` 语义。
  * @returns 可直接写入 manifest.atomic 的条目。
  */
 function createAtomicEntry(
   className: string,
   property: string,
   value: string,
-  context: AnalyzeBuildInput['manifest']['atomic'][string]['context'] = {},
-  important = false
+  options: {
+    selectorIdentity?: string;
+    selectorCss?: string;
+    context?: AnalyzeBuildInput['manifest']['atomic'][string]['context'];
+    important?: boolean;
+  } = {}
 ): AnalyzeBuildInput['manifest']['atomic'][string] {
   const source = {
     id: '/project/src/Button.module.css',
@@ -199,9 +393,18 @@ function createAtomicEntry(
     column: 1
   };
 
+  const selectorIdentity = options.selectorIdentity ?? '.__GSS_ANCHOR__';
+  const selectorCss = options.selectorCss ?? `.${className}`;
+  const context = options.context ?? {};
+  const important = options.important ?? false;
+
   return {
-    key: `${property}:${value}:${important}`,
+    key: JSON.stringify({ selectorIdentity, property, value, important, context }),
     className,
+    selector: {
+      identity: selectorIdentity,
+      css: selectorCss
+    },
     declaration: {
       prop: property,
       value,

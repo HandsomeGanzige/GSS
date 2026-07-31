@@ -47,7 +47,7 @@ viewports、cases 和每个 case 的 properties 必须非空；case id 和同一
 
 ### 输出
 
-`StyleDiffReport` 使用 `schemaVersion: 1`，包含：
+`StyleDiffReport` 使用当前唯一结构，包含：
 
 - baseline/candidate label，不持久化动态 URL 或端口。
 - 每个 run 的 viewport 与双方完整属性快照。
@@ -82,7 +82,6 @@ API envelope：
 
 ```json
 {
-  "schemaVersion": 1,
   "adapter": "vite",
   "status": "ready",
   "environments": [
@@ -104,7 +103,8 @@ API envelope：
 - Rsbuild 从当前 environment state 创建 snapshot；environment 名按稳定顺序输出。
 - response 使用 `application/json` 与 `cache-control: no-store`。
 - 两个 adapter 只处理 GET；同路径的其他 HTTP method 继续交给 dev server middleware chain。
-- build report 的既有 schema 不变；dev API 只增加版本化 envelope。
+- dev envelope 仅表达 adapter/status/environments，nested build report 原样透传。
+- 当前契约不使用人为 schema version，也不读取旧 payload。
 
 ## Browser overlay
 
@@ -116,6 +116,9 @@ overlay 仅注入 semantic dev HTML，build/preview/native 对照不注入。run
 - 页面隐藏时暂停请求，`pagehide` 时清理 timer。
 - 同一时刻只发出一个 report 请求；BFCache `pageshow` 恢复后重启唯一 timer。
 - report 中的 source id、reason 等动态内容只通过 `textContent` 写入。
+- 仅校验展示依赖的 adapter/status/environments、idle/ready 一致性与 ready report
+  的 summary/analysis health/analysis size 字段；非法 payload 进入 offline 并展示
+  `invalid-dev-report-payload`。
 
 使用严格 CSP 且不允许 inline module script 的项目可配置 `overlay: false`，继续使用 JSON API。Phase 7
 不擅自修改消费方 CSP。

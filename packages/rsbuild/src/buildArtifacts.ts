@@ -146,6 +146,7 @@ function stabilizeManifest(manifest: TransformManifest): TransformManifest {
           key,
           {
             ...entry,
+            selector: { ...entry.selector },
             declaration: {
               ...entry.declaration,
               source: sources[0] ? { ...sources[0] } : entry.declaration.source

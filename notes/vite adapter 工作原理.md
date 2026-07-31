@@ -13,6 +13,9 @@
 当前真实实现以 `packages/vite/src/plugin.ts` 和 Phase 5 原生管线方案为准。Phase 3 tracking 前半部分保留了
 Route B、手动 `preprocessCSS` Route A 等历史记录，不应把这些历史线路视为当前行为。
 
+selector grammar、cascade guard 与 fallback reason 的权威说明位于 `packages/core/CORE_DESIGN.md`；本文只解释
+Vite adapter 如何消费 Core 结果，不复制会随能力批次变化的 selector 白名单。
+
 ## 核心结论
 
 GSS 不自行编译 CSS Modules。它让 Vite 完成预处理、CSS Modules scoping、tokens、资源解析和依赖图管理，
@@ -304,7 +307,7 @@ IR 层保留：
 
 ### Selector 安全判断
 
-selector 使用 `postcss-selector-parser` 分析。允许的 safe selector 是：
+selector 使用 `postcss-selector-parser` 分析。当前代表性的 safe selector 是：
 
 ```css
 .button
@@ -313,17 +316,23 @@ selector 使用 `postcss-selector-parser` 分析。允许的 safe selector 是�
 .button:active
 .button:disabled
 .button:focus-visible
+.button::before
+.button:after
+.button[data-state]
+.button[data-state='open']
+[data-state=open].button
+.button, .link:hover
 ```
 
 要求：
 
-- 恰好一个 local/scoped class；
-- 没有 tag、id、attribute；
-- 没有 combinator；
-- 没有额外 class；
-- 没有 pseudo element；
-- 没有 `:global`；
-- 最多一个受支持的 pseudo class。
+- 每个 arm 恰好一个 local/scoped class；
+- 没有 tag、id、combinator、额外 class 或 `:global`；
+- 除基础 selector 外，只能带一个受支持 pseudo class、一个末尾 before/after pseudo element，
+  或一个 presence / exact-equality attribute；
+- selector list 的所有 arm 都必须安全、可导出且未被 class-wide evidence 阻断；
+- 含 pseudo element arm 的 selector list 当前仍整体 fallback；
+- attribute 与 pseudo element 的 spelling、spacing 和 node order 由 Core selector descriptor 保留。
 
 以下 selector 会整体进入 fallback：
 
@@ -331,8 +340,9 @@ selector 使用 `postcss-selector-parser` 分析。允许的 safe selector 是�
 .card .title {}
 .card > .title {}
 button.primary {}
-.button[data-state="open"] {}
-.button::before {}
+.button[data-state^="open"] {}
+.button:hover::before {}
+.button::before, .link {}
 .button:hover:focus {}
 :global(.external) {}
 ```
@@ -379,16 +389,18 @@ semantic scoped class 仍在 token 中，因此 custom property 仍然能作用�
 
 ```ts
 {
+  selectorIdentity,
   prop,
   value,
   important,
-  pseudo,
   media,
   supports
 }
 ```
 
-这意味着下面四种情况是四个不同的 atomic key：
+selector identity 来自 Core 的 anchor template，例如 `.__GSS_ANCHOR__`、
+`.__GSS_ANCHOR__:hover` 或 `.__GSS_ANCHOR__[data-state='open']`。这意味着下面四种情况是四个不同的
+atomic key：
 
 ```css
 color: red;
@@ -688,7 +700,7 @@ GET /__semantic-atomic-css/report
 2. 创建一个新的临时 transformer；
 3. 按稳定 source id 重放当前 `devResults`；
 4. 用当前浏览器实际消费的共享 dev CSS 执行 analyzer；
-5. 包装为 `schemaVersion: 1` 的 Vite dev envelope。
+5. 包装为当前无版本的 `adapter/status/environments` Vite dev envelope。
 
 所以 dev report 是“当前有效快照”，不是历史累计数据。
 
@@ -766,7 +778,7 @@ GSS 当前主动拒绝或保守处理以下场景：
 - `packages/vite/src/options.ts`：配置默认值和归一化；
 - `packages/core/src/engine/createTransformer.ts`：core transform pipeline 与 append-only registry 生命周期；
 - `packages/core/src/ast/collectIr.ts`：PostCSS AST 到 core IR；
-- `packages/core/src/selector/analyzeSelector.ts`：safe selector 判定；
+- `packages/core/src/selector/planSelectorRewrite.ts`：selector eligibility、fallback evidence 与 clone-based render；
 - `packages/core/src/declaration/analyzeDeclaration.ts`：declaration 判定；
 - `packages/core/src/atomizer/createAtomicKey.ts`：atomic key；
 - `packages/core/src/registry/AtomicRegistry.ts`：跨声明复用、class name 和 sources；

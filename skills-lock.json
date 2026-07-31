@@ -5,31 +5,31 @@
       "source": "HandsomeGanzige/orchestrate-engineering-team",
       "sourceType": "github",
       "skillPath": ".agents/skills/architect-work-item/SKILL.md",
-      "computedHash": "4bda24e4eb2aa53ecbd8586f7405440ffa7694d16c3eca1776ed35e4d68ebf4a"
+      "computedHash": "c035ccb4414323869c5e293be93ec7a1116df8ee0f8c0fa49c18bea59fdbf1da"
     },
     "develop-work-item": {
       "source": "HandsomeGanzige/orchestrate-engineering-team",
       "sourceType": "github",
       "skillPath": ".agents/skills/develop-work-item/SKILL.md",
-      "computedHash": "8fc1c76d1c12303a7cc05bfb3215ef76cb392387855699c8e01957ae584334b7"
+      "computedHash": "7abd2e26767664b087d903a9bdfc0c433f8cb164fdad981ca04c10b368efc6ce"
     },
     "orchestrate-engineering-team": {
       "source": "HandsomeGanzige/orchestrate-engineering-team",
       "sourceType": "github",
       "skillPath": ".agents/skills/orchestrate-engineering-team/SKILL.md",
-      "computedHash": "343fa713bf8c772e361695d360647e8c362265f74f429dbb39408752e7145660"
+      "computedHash": "e8754edc79f785c9361bd9185793fb3f616abd01460747b5b66bab7635de1fe6"
     },
     "review-work-item": {
       "source": "HandsomeGanzige/orchestrate-engineering-team",
       "sourceType": "github",
       "skillPath": ".agents/skills/review-work-item/SKILL.md",
-      "computedHash": "02b802efe6fb65ee95047f3802eacefbe7f63f1d29eb9fb040bbf6931618cf67"
+      "computedHash": "9cc28e5b193408c7d744bed119ca596cd2ea079e11966d33e5b3df34d5c88b5a"
     },
     "verify-work-item": {
       "source": "HandsomeGanzige/orchestrate-engineering-team",
       "sourceType": "github",
       "skillPath": ".agents/skills/verify-work-item/SKILL.md",
-      "computedHash": "e92310eb8350cbb91a9da811aa49a607a38e30878ae9a9dcefd8442e5f27c5dd"
+      "computedHash": "61e843db07847d7660038d6a92fc52b0de5bfa49086c7dfab9d84caccfcd8900"
     }
   }
 }

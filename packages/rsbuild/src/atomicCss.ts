@@ -5,10 +5,10 @@
  */
 import type { AtomicDeclaration } from '@semantic-atomic-css/core';
 
-/** dev runtime 只需要渲染相关字段，不把 source locations 序列化进浏览器 bundle。 */
+/** dev runtime 只序列化渲染字段及 collision 检查所需 className，不携带 source locations。 */
 export type RenderableAtomicDeclaration = Pick<
   AtomicDeclaration,
-  'key' | 'className' | 'declaration' | 'context'
+  'key' | 'className' | 'selector' | 'declaration' | 'context'
 >;
 
 /** 基础规则优先，条件规则随后，并保持已验证的简单断点覆盖顺序。 */
@@ -78,11 +78,10 @@ function readSimpleWidthBreakpoint(media: string | undefined): { kind: 'min' | '
   };
 }
 
-/** 渲染单条 atomic declaration，并恢复 pseudo/supports/media。 */
+/** 使用 Core 预渲染 selector 渲染 atomic declaration，并恢复 supports/media。 */
 function renderAtomicDeclaration(declaration: RenderableAtomicDeclaration): string {
-  const selector = `.${declaration.className}${declaration.context.pseudo ?? ''}`;
   let output = [
-    `${selector} {`,
+    `${declaration.selector.css} {`,
     `  ${declaration.declaration.prop}: ${declaration.declaration.value}${declaration.declaration.important ? ' !important' : ''};`,
     '}'
   ].join('\n');

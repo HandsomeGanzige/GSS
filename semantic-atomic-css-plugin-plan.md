@@ -1,5 +1,8 @@
 # Semantic Atomic CSS Plugin 技术方案文档
 
+本文档维护长期产品边界与总体架构。当前实现细节以 `packages/core/CORE_DESIGN.md`、各 package README
+和对应 acceptance 文档为准；阶段优先级统一维护在 Phase 8 backlog，不在本文重复保存动态任务清单。
+
 ## 1. 背景与目标
 
 ### 1.1 项目背景
@@ -225,7 +228,7 @@ CSS Modules 不只是降低实现复杂度，它提供了 GSS 的核心产品支
 
 ---
 
-### 3.4 Safe mode 暂不支持或默认保留
+### 3.4 Safe mode 当前不支持或默认保留
 
 Safe mode 暂不转换：
 
@@ -234,8 +237,12 @@ Safe mode 暂不转换：
 .card > .button {}
 .button.primary {}
 button.button {}
-.button[data-active='true'] {}
-.button::before {}
+.button[data-active^='true'] {}
+.button[data-active='true' i] {}
+.button[data-active][data-ready] {}
+.button[data-active='true']:hover {}
+.button::marker {}
+.button:hover::before {}
 .button + .desc {}
 :global(.ant-btn) {}
 ```
@@ -244,11 +251,11 @@ button.button {}
 
 - 依赖 DOM 上下文
 - 依赖 class 组合
-- 依赖 attribute 状态
+- 使用未支持的 attribute operator、flag、多个 attribute 或 attribute+pseudo 组合
 - 依赖结构关系
-- 涉及伪元素
+- 使用未支持的伪元素或把伪元素与其他状态组合
 - 涉及 global scope
-- 无法在第一版安全证明语义等价
+- 无法在当前边界内安全证明语义等价
 
 处理策略：
 
@@ -552,17 +559,16 @@ export default {
 
 ## 7. 数据结构设计
 
-### 7.1 CssContext
+### 7.1 CssTransformContext
 
 ```ts
-export type CssContext = {
-  pseudo?: string
+export type CssTransformContext = {
   media?: string
   supports?: string
-  container?: string
-  layer?: string
 }
 ```
+
+当前只建模已验证的 `@media` 和 `@supports`。其他条件 at-rule 必须保留为 fallback，不能提前进入 key。
 
 ---
 
@@ -579,16 +585,17 @@ export type DeclarationMeta = {
 
 ---
 
-### 7.3 AtomicKey
+### 7.3 AtomicKeyInput
 
 ```ts
-export type AtomicKey = {
-  prop: string
-  value: string
-  important: boolean
-  context: CssContext
+type AtomicKeyInput = {
+  declaration: DeclarationMeta
+  selectorIdentity: string
+  context: CssTransformContext
 }
 ```
+
+该输入只在 Core 内部使用，不属于 public API。
 
 注意：
 
@@ -597,7 +604,7 @@ export type AtomicKey = {
 ```txt
 color:red
 color:red!important
-hover|color:red
+selector(.__GSS_ANCHOR__:hover)|color:red
 media(min-width:768px)|color:red
 supports(display:grid)|display:grid
 ```
@@ -610,25 +617,27 @@ supports(display:grid)|display:grid
 export type AtomicDeclaration = {
   key: string
   className: string
-  prop: string
-  value: string
-  important: boolean
-  context: CssContext
+  selector: {
+    identity: string
+    css: string
+  }
+  declaration: DeclarationMeta
+  context: CssTransformContext
   sources: SourceLocation[]
 }
 ```
 
 ---
 
-### 7.5 ClassMapping
+### 7.5 TransformClassMapping
 
 ```ts
-export type ClassMapping = {
-  localName: string
-  scopedName: string
-  atomicClasses: string[]
-  finalClassName: string
-  unsafeReasons?: string[]
+export type TransformClassMapping = {
+  sourceClassName: string
+  resolvedClassName: string
+  atomicClassNames: string[]
+  suggestedClassName: string
+  unsafeReasons?: UnsafeSelectorReason[]
 }
 ```
 
@@ -636,41 +645,46 @@ export type ClassMapping = {
 
 ```json
 {
-  "localName": "button",
-  "scopedName": "Button_button__hash",
-  "atomicClasses": ["_a1", "_b2", "_c3"],
-  "finalClassName": "Button_button__hash _a1 _b2 _c3"
+  "sourceClassName": "button",
+  "resolvedClassName": "Button_button__hash",
+  "atomicClassNames": ["_a1", "_b2", "_c3"],
+  "suggestedClassName": "Button_button__hash _a1 _b2 _c3"
 }
 ```
 
 ---
 
-### 7.6 CompileWarning
+### 7.6 Diagnostic
 
 ```ts
-export type CompileWarning = {
-  file: string
-  selector?: string
-  reason: string
+export type Diagnostic = {
+  code: DiagnosticCode
+  level: DiagnosticLevel
   message: string
-  loc?: SourceLocation
+  id: string
+  selector?: string
+  sourceClassName?: string
+  reason?: string
+  source?: SourceLocation
 }
 ```
 
 ---
 
-### 7.7 CompileResult
+### 7.7 TransformCssResult
 
 ```ts
-export type CompileResult = {
-  file: string
-  atomicCss: string
-  preservedCss: string
-  classMap: Record<string, ClassMapping>
-  atomicDeclarations: AtomicDeclaration[]
-  warnings: CompileWarning[]
-  manifest: AtomicManifest
-  sizeReport: SizeReport
+export type TransformCssResult = {
+  id: string
+  css: {
+    atomic: string
+    preserved: string
+  }
+  classes: Record<string, TransformClassMapping>
+  atomic: AtomicDeclaration[]
+  diagnostics: Diagnostic[]
+  manifest: TransformManifest
+  report: TransformReport
 }
 ```
 
@@ -678,9 +692,9 @@ export type CompileResult = {
 
 ## 8. Selector 安全判断
 
-### 8.1 Safe Selector
+### 8.1 当前 Safe Selector
 
-MVP 中可以安全转换的 selector：
+当前可以安全转换的 selector：
 
 ```css
 .button {}
@@ -688,6 +702,13 @@ MVP 中可以安全转换的 selector：
 .button:focus {}
 .button:active {}
 .button:disabled {}
+.button:focus-visible {}
+.button::before {}
+.button:after {}
+.button[data-state] {}
+.button[data-state=open] {}
+[data-state='open'].button {}
+.button, .link:hover {}
 ```
 
 在 at-rule 下也可以：
@@ -705,16 +726,26 @@ MVP 中可以安全转换的 selector：
 判断标准：
 
 ```txt
-- 只包含一个 local class
+- 单个 selector arm 只包含一个 local class
 - 不包含 global
 - 不包含 id
 - 不包含 tag
-- 不包含 attribute selector
 - 不包含 combinator
 - 不包含多个 class
-- 不包含 pseudo element
-- pseudo class 必须在白名单内
+- 除基础 selector 外，只能带一个白名单 pseudo class、一个末尾 before/after pseudo element，
+  或同 compound 内恰好一个受支持 attribute
+- pseudo class 白名单为 :hover、:focus、:active、:disabled、:focus-visible
+- pseudo element 只支持 ::before、::after、:before、:after，并保留实际输入 spelling
+- attribute 只支持 presence 与 = equality，可位于 local class 前后
+- attribute name 经 parser 解码后不得为 class，且不得有 namespace、flag、其他 operator 或组合结构
+- selector list 只在全部 arm 均满足上述条件、可导出且未被 class-wide evidence 阻断时转换
+- 含 pseudo element arm 的 selector list 当前仍完整 fallback
+- 任一 arm unsafe 时完整 rule 以 selector-list reason fallback，不做混合拆分
 ```
+
+attribute identity 与 renderer 只替换唯一 local class node；attribute 的 name、operator、value、
+quote、escape、spacing 和 node order 使用 Core 输入 AST serializer 的结果。`.class[attr]` 与
+`[attr].class` 不归并，不为 quote 或 escape 建立语义 canonicalization。
 
 ---
 
@@ -728,8 +759,13 @@ MVP 中可以安全转换的 selector：
 .button.primary {}
 button.button {}
 #app .button {}
-.button[data-state='open'] {}
-.button::before {}
+.button[class] {}
+.button[data-state^='open'] {}
+.button[data-state='open']:hover {}
+.button[data-a][data-b] {}
+.button::marker {}
+.button:hover::before {}
+.button::before, .link {}
 .button + .desc {}
 :global(.ant-btn) {}
 ```
@@ -738,10 +774,12 @@ Unsafe reason 示例：
 
 ```txt
 complex-selector
+selector-list
 compound-class-selector
 descendant-selector
 child-selector
 attribute-selector
+attribute-cascade-order
 tag-selector
 id-selector
 pseudo-element
@@ -749,24 +787,52 @@ global-selector
 unsupported-pseudo
 ```
 
+`attribute-selector` 表示 grammar 不受支持；`attribute-cascade-order` 表示 selector 本身已进入
+支持 grammar，但 Core 无法证明 same-class、等 specificity declaration occurrence 在 registry
+去重后仍保持原生 cascade winner。后者必须在第一次 registry mutation 前判定，并将整个 source
+class 保留为 scoped fallback；semantic scoped class 始终保留在 DOM token 中。
+
 ---
 
-### 8.3 建议 API
+### 8.3 当前实现接口边界
 
 ```ts
-type SelectorAnalyzeResult =
+type SelectorRewriteDecision =
   | {
-      safe: true
-      localName: string
-      pseudo?: string
+      kind: 'eligible'
+      arms: Array<{
+        anchorClassName: string
+        identity: string
+        cascadeGuard:
+          | { kind: 'base' }
+          | { kind: 'pseudo'; name: string }
+          | { kind: 'pseudo-element'; name: 'before' | 'after' }
+          | { kind: 'attribute'; name: string; operator: 'presence' | '='; value?: string }
+        renderAtomicSelector(className: string): string
+      }>
     }
   | {
-      safe: false
-      reason: string
+      kind: 'preserved'
+      reason: UnsafeSelectorReason
     }
-
-function analyzeSelector(selector: string): SelectorAnalyzeResult
 ```
+
+selector parse、grammar、有序 arm planner、identity、renderer、当前 input class 连接图与
+same-class cascade preflight 只在 Core 内实现。每个 arm 的 identity/renderer 不包含逗号；
+成功转换按 declaration 顺序优先、arm 顺序次之注册，任一 evidence 阻断时在首次
+registry mutation 前完成整个 list 连接分量的 preservation plan。
+adapter 只消费 Core 返回的 descriptor/token/diagnostic，不重新解析 selector grammar；Analyzer/Devtools
+传播 `pseudo-element` / `attribute-cascade-order`，但不引入 DOM usage evidence 或跨 identity 共现推断。public
+`AtomicSelectorDescriptor` 仍为 `{ identity, css }`，不新增 schema/version compatibility。
+
+详细边界与验收矩阵见：
+
+- `docs/phase-8-attribute-selector-design.md`
+- `docs/phase-8-attribute-selector-acceptance.md`
+- `docs/phase-8-pseudo-element-design.md`
+- `docs/phase-8-pseudo-element-acceptance.md`
+- `docs/phase-8-selector-list-design.md`
+- `docs/phase-8-selector-list-acceptance.md`
 
 ---
 
@@ -941,22 +1007,22 @@ className: {
 prop
 value
 important
-pseudo
+selectorIdentity
 media
 supports
-container
-layer
 ```
 
 伪代码：
 
 ```ts
-function createAtomicKey(input: AtomicKey): string {
+function createAtomicKey(input: AtomicKeyInput): string {
   return stableStringify({
-    prop: normalizeProp(input.prop),
-    value: normalizeValue(input.value),
-    important: input.important,
-    context: input.context,
+    prop: input.declaration.prop.trim().toLowerCase(),
+    value: input.declaration.value.trim(),
+    important: input.declaration.important === true,
+    selectorIdentity: input.selectorIdentity,
+    media: input.context.media ?? null,
+    supports: input.context.supports ?? null,
   })
 }
 ```
@@ -1191,6 +1257,9 @@ emit 继续由 Vite 拥有；GSS 只负责 token 增强、聚合 CSS、fallback 
 
 ## 14. Vite 插件实现草图
 
+本节保留项目早期方案形成过程，不是当前实现说明。当前 Vite 6 接入、配置和生命周期以
+`packages/vite/README.md`、`docs/phase-3-vite-adapter-design.md` 与实际 package exports 为准。
+
 ### 14.1 插件职责
 
 MVP Vite 插件需要：
@@ -1282,6 +1351,9 @@ export function semanticAtomicCssPlugin(options = {}): Plugin {
 
 ## 15. Core Compiler API 草案
 
+本节是早期未采用的 compiler facade 草图。当前 Core public runtime API 只有 `transformCss()` 和
+`createTransformer()`，类型契约以 `packages/core/src/public/types.ts` 与 `packages/core/CORE_DESIGN.md` 为准。
+
 ### 15.1 createCompiler
 
 ```ts
@@ -1332,7 +1404,7 @@ export type CompileCssModuleResult = {
   atomicCss: string
   preservedCss: string
   virtualCssId: string
-  warnings: CompileWarning[]
+  warnings: Diagnostic[]
 }
 ```
 
@@ -1340,7 +1412,9 @@ export type CompileCssModuleResult = {
 
 ## 16. 配置设计
 
-### 16.1 MVP 配置
+### 16.1 早期配置草图（非当前 API）
+
+当前 Vite/Rsbuild adapter 配置以各 package README 和导出类型为准；以下内容仅保留产品选项的早期讨论。
 
 ```ts
 semanticAtomicCss({
@@ -1372,7 +1446,7 @@ semanticAtomicCss({
 
 ---
 
-### 16.2 严格模式
+### 16.2 严格模式历史设想
 
 后续可以支持：
 
@@ -1552,7 +1626,7 @@ Manifest 需要用于：
 - className 生成
 - safe rule 转换
 - unsafe rule 保留
-- pseudo class 转换
+- selector descriptor 与 pseudo class 转换
 - media query 转换
 - important 转换
 - custom property 保留
@@ -1751,6 +1825,37 @@ Shadow DOM host 对根级结构 selector 的影响已明确为 opt-in dev overla
 
 ---
 
+### 21.8 阶段八：Selector 能力稳健扩展
+
+SEL-01 已完成单 local anchor 的 `::before`、`::after`、`:before`、`:after`。identity/renderer 保留
+实际输入 spelling，legacy/modern alias 只在 cascade guard 中按 generated box 归一；含伪元素 arm 的
+selector list 继续整体 fallback。实现边界与浏览器 CSSOM 序列化修复记录见对应设计和验收文档。
+
+SEL-02 已按 Core → Analyzer/Devtools → Vite → Rsbuild 的顺序完成窄 grammar 与 consumer 实现。
+支持范围仅为单 local anchor 加单个 presence / exact-equality attribute，并由 registry mutation
+前的 same-class cascade guard 保护；unsupported grammar 与顺序风险继续 class-wide fallback，
+semantic scoped class 不移除。Pilot 同语料构建已记录实际释放 class 与 declaration occurrence；
+最终收口状态以验收文档为准。
+
+SEL-03 在不放宽单-arm grammar 的前提下完成全分支安全 selector list。任一 arm
+unsafe、non-exported、配置保留或 cascade evidence 阻断时整 list fallback；当前 input 内的
+list class 连接分量在 registry mutation 前完成固定点传播。不引入混合拆分、组合
+descriptor、跨 module 连接图或 adapter grammar。
+
+- `docs/phase-8-attribute-selector-design.md`
+- `docs/phase-8-attribute-selector-acceptance.md`
+- `docs/phase-8-pseudo-element-design.md`
+- `docs/phase-8-pseudo-element-acceptance.md`
+- `docs/phase-8-selector-list-design.md`
+- `docs/phase-8-selector-list-acceptance.md`
+- `docs/phase-8-capability-hardening-backlog.md`
+
+本阶段不引入 JSX/TSX usage evidence、通用 specificity/attribute overlap solver、descriptor schema
+版本或 adapter grammar 复制。未来扩 operator、flag、namespace、组合结构或 `[class...]` 前，
+必须重新给出 DOM mutation 与 cascade 等价证据。
+
+---
+
 ## 22. 主要风险
 
 ### 22.1 技术风险
@@ -1791,53 +1896,25 @@ Shadow DOM host 对根级结构 selector 的影响已明确为 opt-in dev overla
 
 ---
 
-## 23. Code Agent 当前优先任务清单
+## 23. 当前工作入口
 
-### 23.1 第一优先级
-
-```txt
-1. 维护 Phase 6 锁定版本和真实 fixture 门禁
-2. 维护 Phase 7 verifier、dev report/overlay 协议与真实浏览器门禁
-3. 在独立任务中评估 Rsbuild 其他版本与 multi-environment 扩展
-```
-
----
-
-### 23.2 第二优先级
-
-```txt
-1. 收口中型 Rsbuild Pilot 已发现的 ICSS token 歧义，并继续观察多 entry/lazy route
-2. 评估 CSS source map 与 named exports 的独立兼容方案
-3. 第二 adapter 已证明相同契约后，再以重复代码证据评估小型 adapter tools 抽取
-```
-
----
-
-### 23.3 暂缓优先级
-
-```txt
-1. 普通全局 CSS 自动 atomic 化
-2. aggressive atomization
-3. Less / Sass 非 CSS Modules 输入
-4. 独立 raw Rspack adapter 与非 web target
-5. named exports、strict mode、CSS-only HMR 和完整 source map
-```
+动态优先级、候选能力、完成状态和停止条件统一维护在
+`docs/phase-8-capability-hardening-backlog.md`。具体批次只有在 owner 确认后才进入设计与实现；
+本文档不复制会过期的当前任务列表。
 
 ---
 
 ## 24. 最小验收标准
 
-第一版 prototype 只要满足以下条件即可认为可用：
+当前产品改动至少需要满足以下条件：
 
 ```txt
-1. Vite React playground 可以正常启动
-2. .module.css 被插件拦截
-3. styles.button 返回 semantic hash + atomic classes
-4. atomic CSS 被正确注入页面
-5. unsafe selector 被保留
-6. 页面视觉效果和原始 CSS 基本一致
-7. manifest 能反查 atomic class 来源
-8. report 能展示转换数量和 unsafe 数量
+1. 根 pnpm verify 通过，并包含五个产品包与双 fixture 静态门禁
+2. 涉及渲染、cascade 或响应式行为时，Vite/Rsbuild 双 fixture visual 与 native 一致
+3. eligible selector 生成稳定 atomic CSS，semantic scoped class 始终保留
+4. 无法证明安全的 selector/declaration 完整 fallback，并输出可追踪 diagnostic/report
+5. manifest 能从 class mapping 追踪 atomic selector、declaration 与 source
+6. dev/build、连续构建与 HMR 不残留 stale token、selector 或 CSS
 ```
 
 ---
@@ -1869,6 +1946,7 @@ CSS Modules only + Safe Atomization + Preserve Semantic Class + Unsafe CSS Fallb
 阶段五：Vite CSS Modules 预处理器支持
 阶段六：Rsbuild / Rspack CSS Modules adapter
 阶段七：验证器、调试体验与可视化分析工具
+阶段八：Selector 正确性基础与可证明的能力扩展
 ```
 
 一句话总结：

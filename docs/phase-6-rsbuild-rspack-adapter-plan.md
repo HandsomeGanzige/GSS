@@ -34,6 +34,12 @@ build 保持默认 extraction；dev 使用 Rsbuild 官方 `output.injectStyles` 
 adapter 不猜测 export 类型：同值中包含的已知 class 按 `ambiguous-export-value` 整类保留，所有相关
 default export 保持原生字符串。该保守边界已加入包测试、真实 fixture 与 Pilot 验收。
 
+2026-07-22 当前 selector descriptor consumer 已收口：build/dev renderer 只读取 Core 预渲染的
+`selector.css`，manifest 显式复制 descriptor，browser runtime 只接受
+`registerDevStyles(ownerId, { sources })` 当前快照。`className` 仅用于跨 module collision 保护；
+dev report 使用无 `schemaVersion` 的当前 envelope。该迁移没有改变 Rsbuild 2.1.x、css-loader array、
+target、source map、named exports 或 strict 的既有 fail-fast 边界。
+
 ## 背景与目标
 
 Phase 5 已证明以下分层在 Vite 6 下可行：

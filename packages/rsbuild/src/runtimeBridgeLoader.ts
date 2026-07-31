@@ -20,7 +20,7 @@ import {
   type TransformCssOptions,
   type TransformCssResult
 } from '@semantic-atomic-css/core';
-import type { DevStyleSource } from './devStyles.js';
+import type { DevStyleSnapshot } from './devStyles.js';
 
 /** css-loader 默认 array export 中的单个结构化 CSS row。 */
 export type CssRuntimeRow = [
@@ -163,7 +163,7 @@ export async function pitch(this: RuntimeBridgeLoaderContext, remainingRequest: 
   ];
   const devRegistration = options.isDev
     ? [
-        `const disposeDevStyles = registerDevStyles(${JSON.stringify(this.resourcePath)}, ${JSON.stringify(createDevStyleSources(transforms))});`,
+        `const disposeDevStyles = registerDevStyles(${JSON.stringify(this.resourcePath)}, ${JSON.stringify(createDevStyleSnapshot(transforms))});`,
         'if (module.hot) module.hot.dispose(disposeDevStyles);'
       ]
     : [];
@@ -182,22 +182,27 @@ export async function pitch(this: RuntimeBridgeLoaderContext, remainingRequest: 
   ].join('\n');
 }
 
-/** 把 core 结果缩减为浏览器 shared owner 渲染所需的稳定字段。 */
-function createDevStyleSources(transforms: RuntimeBridgeResult['transforms']): DevStyleSource[] {
-  return transforms.map(({ id, transform }) => ({
-    id,
-    atomic: transform.atomic.map((declaration) => ({
-      key: declaration.key,
-      className: declaration.className,
-      declaration: {
-        prop: declaration.declaration.prop,
-        value: declaration.declaration.value,
-        important: declaration.declaration.important
-      },
-      context: { ...declaration.context }
-    })),
-    preservedCss: transform.css.preserved
-  }));
+/** 把 core 结果缩减为浏览器 shared owner 使用的当前 `{ sources }` 快照。 */
+export function createDevStyleSnapshot(
+  transforms: RuntimeBridgeResult['transforms']
+): DevStyleSnapshot {
+  return {
+    sources: transforms.map(({ id, transform }) => ({
+      id,
+      atomic: transform.atomic.map((declaration) => ({
+        key: declaration.key,
+        className: declaration.className,
+        selector: { ...declaration.selector },
+        declaration: {
+          prop: declaration.declaration.prop,
+          value: declaration.declaration.value,
+          important: declaration.declaration.important
+        },
+        context: { ...declaration.context }
+      })),
+      preservedCss: transform.css.preserved
+    }))
+  };
 }
 
 /**

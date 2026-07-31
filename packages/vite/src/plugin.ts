@@ -132,7 +132,7 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
      * @throws 未支持配置或原生 CSS pipeline 顺序不兼容时抛错。
      */
     configResolved(resolvedConfig): void {
-      validatePhase4Options(resolvedConfig, resolvedOptions);
+      validateSupportedOptions(resolvedConfig, resolvedOptions);
       validateNativePipelineOrder(resolvedConfig);
       config = resolvedConfig;
     },
@@ -469,25 +469,18 @@ async function trackDevTransform(
 }
 
 /**
- * `semanticAtomicCss` 的早期命名兼容别名。
- *
- * @deprecated 请改用 {@link semanticAtomicCss}；该别名只为已有调用方保留。
- */
-export const semanticAtomicCssPlugin = semanticAtomicCss;
-
-/**
  * 校验尚未实现或无法安全继承的配置。
  *
  * @param config - Vite resolved config。
  * @param options - GSS resolved options。
  * @throws strict、named exports、禁用原生 modules 或 Lightning CSS 等边界命中时抛错。
  */
-function validatePhase4Options(config: ResolvedConfig, options: ResolvedSemanticAtomicCssOptions): void {
+function validateSupportedOptions(config: ResolvedConfig, options: ResolvedSemanticAtomicCssOptions): void {
   if (options.diagnostics.strict) {
     throw createUnsupportedFeatureError({
       feature: 'diagnostics.strict',
       id: 'semanticAtomicCss.diagnostics.strict',
-      reason: 'diagnostics.strict: true 尚未在 Phase 4 实现，请关闭该配置。'
+      reason: 'diagnostics.strict: true 当前尚未实现，请关闭该配置。'
     });
   }
 
@@ -496,7 +489,7 @@ function validatePhase4Options(config: ResolvedConfig, options: ResolvedSemantic
       feature: 'modules.namedExports',
       id: options.modules.namedExports ? 'semanticAtomicCss.modules.namedExports' : 'vite.css.modules.namedExports',
       reason:
-        'modules.namedExports: true 尚未在 Phase 4 实现，请关闭 semanticAtomicCss({ modules.namedExports }) 或 Vite css.modules.namedExports。'
+        'modules.namedExports: true 当前尚未实现，请关闭 semanticAtomicCss({ modules.namedExports }) 或 Vite css.modules.namedExports。'
     });
   }
 
@@ -513,7 +506,7 @@ function validatePhase4Options(config: ResolvedConfig, options: ResolvedSemantic
     throw createUnsupportedFeatureError({
       feature: 'vite.css.transformer.lightningcss',
       id: 'vite.css.transformer',
-      reason: 'Phase 5 仅验证 Vite 6 默认 PostCSS Modules 管线，暂不接管 Lightning CSS tokens。'
+      reason: '当前只验证 Vite 6 默认 PostCSS Modules 管线，暂不接管 Lightning CSS tokens。'
     });
   }
 }
@@ -1058,12 +1051,11 @@ function readSimpleWidthBreakpoint(media: string | undefined): { kind: 'min' | '
 /**
  * 渲染单条 atomic declaration。
  *
- * @param declaration - 带 class、declaration 和 context 的 atomic record。
- * @returns 恢复 pseudo、supports 和 media 的 CSS。
+ * @param declaration - 带 selector descriptor、declaration 和 context 的 atomic record。
+ * @returns 使用 Core 预渲染 selector，并恢复 supports 和 media 的 CSS。
  */
 function renderAtomicDeclaration(declaration: AtomicDeclaration): string {
-  const selector = `.${declaration.className}${declaration.context.pseudo ?? ''}`;
-  const rule = renderCssRule(selector, declaration.declaration);
+  const rule = renderCssRule(declaration.selector.css, declaration.declaration);
   return wrapAtomicAtRules(rule, declaration);
 }
 
@@ -1281,6 +1273,7 @@ function stabilizeManifest(manifest: TransformManifest): TransformManifest {
           key,
           {
             ...entry,
+            selector: { ...entry.selector },
             declaration: {
               ...entry.declaration,
               source: sources[0] ? { ...sources[0] } : entry.declaration.source

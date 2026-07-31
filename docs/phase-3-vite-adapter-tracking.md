@@ -7,6 +7,54 @@
 2026-07-07 Phase 4 已在此基础上完成 Route A 迁移。本文前半部分保留 Phase 3 Route B 历史记录；
 当前实现状态以本节补记和 `docs/phase-4-production-readiness-plan.md` 为准。
 
+## 当前 selector descriptor consumer（2026-07-22）
+
+- Vite dev/build 聚合继续按 atomic key 去重，并保留 base/context 分区、简单宽度断点顺序、
+  declaration/important 与 media/supports wrapper；selector 只读取 Core 预渲染的 `selector.css`。
+- manifest 稳定化显式复制 `selector` descriptor，build analyzer conflict 输出 `selectorIdentity`；
+  dev report 使用无 `schemaVersion` 的当前 envelope。
+- HMR update/remove 会清理旧 pseudo selector/class，旧异步 transform 和移除 import 的 stale cache
+  保护继续有效。
+- public package 只导出 `semanticAtomicCss`；已删除旧 factory alias 和已移除 core 配置的专用 tombstone guard。
+- `namedExports`、`diagnostics.strict` 与 Lightning CSS 继续 fail fast，但错误文本只描述当前能力边界。
+- Vite package verify 共 4 个测试文件、37 项测试，typecheck/build 通过；Rsbuild、fixture 与 Playground
+  不属于本批次。
+
+## SEL-02 attribute selector Vite 批次（2026-07-27）
+
+本批确认 Vite production source 无需修改。adapter 继续沿用通用消费链路：Vite 原生 scoped CSS/tokens
+交给 Core，随后直接消费 class mapping、预渲染 `selector.css`、diagnostics、manifest/report 与 Analyzer
+analysis；没有增加 attribute grammar、identity renderer、cascade guard 或 reason-specific branch。
+
+已完成：
+
+- package build integration 同时覆盖 presence、exact equality、attribute-before-class、native scoped +
+  atomic tokens、manifest descriptor/CSS，以及 `attribute-cascade-order` class-wide fallback/report。
+- dev report 以真实 order-risk 输入验证 diagnostic、Analyzer distribution 和当前无版本 envelope；HMR
+  验证 attribute name/value/declaration 更新后旧 guarded selector/token/fallback 全部清理。
+- base fixture 新增独立 AttributeCase。static 明确区分 guarded atomic selector 与 scoped fallback，
+  默认仍不输出 manifest/report。
+- visual 在 semantic/native dev 与 preview、desktop/narrow 中依次执行 absent → open → closed → removed；
+  双方各自 className 全程稳定，CSSOM 精确匹配完整 guarded atomic selector。
+- preprocessor fixture 使用 Sass nested `&[data-state='ready']`；静态产物证明 Vite/Sass 编译后的
+  `[data-state=ready]` descriptor、CSS、token 与 report 通过通用链路，visual computed style 与 native 一致。
+- order-risk class 继续以 `attribute-cascade-order` 整类 fallback，`^=` near-miss 继续以
+  `attribute-selector` fallback，均未出现 partial atomic registry/token 污染。
+
+验证结果：
+
+- `pnpm --filter @semantic-atomic-css/vite verify`：4 files、38 tests，typecheck/build 通过。
+- `pnpm --filter @semantic-atomic-css/vite-fixture verify`：typecheck/static 通过。
+- base visual：32 runs、136 cases、444 comparisons、0 differences，`passed=true`；report 为
+  `/private/tmp/gss-vite-attribute-selector-base.json`。
+- full visual：40 runs、176 cases、596 comparisons、0 differences，`passed=true`；report 为
+  `/private/tmp/gss-vite-attribute-selector-full.json`。
+- 根 `pnpm verify` 已运行；Core 128、Analyzer 9、Devtools 18、Vite 38、Rsbuild package 18 tests
+  均通过。唯一失败是 Rsbuild fixture 仍期待 `oracleNonCompetingFallback` 只有 scoped token，实际已经
+  追加 guarded attribute atomic token；按批次边界留给后续 Rsbuild 迁移，不在 Vite 批次修复。
+
+当前只完成 SEL-02 的 Vite adapter/fixture 批次，不提前把 Rsbuild、Pilot 或全仓 SEL-02 标记为完成。
+
 已完成：
 
 - 新增 `packages/vite`，包名为 `@semantic-atomic-css/vite`。

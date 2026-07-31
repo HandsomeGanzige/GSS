@@ -325,7 +325,7 @@ function resolveCoreOptions(core: TransformCssOptions, isDev: boolean): Transfor
 /** 配置保护：只允许已验证的 web/default-export/css-loader array 路线。 */
 function validateEnvironment(config: NormalizedEnvironmentConfig, target: string): void {
   if (target !== 'web') {
-    throw createUnsupportedFeatureError('rsbuild.target', String(target), 'Phase 6 第一版只支持 web target。');
+    throw createUnsupportedFeatureError('rsbuild.target', String(target), '当前 adapter 只支持 web target。');
   }
   if (config.output.cssModules.namedExport) {
     throw createUnsupportedFeatureError(
@@ -339,7 +339,7 @@ function validateEnvironment(config: NormalizedEnvironmentConfig, target: string
     throw createUnsupportedFeatureError(
       'rsbuild.output.sourceMap.css',
       'output.sourceMap.css',
-      'Phase 6 第一版不承诺转换后完整 CSS source map，请关闭 CSS source map。'
+      '当前 adapter 不承诺转换后完整 CSS source map，请关闭 CSS source map。'
     );
   }
 }

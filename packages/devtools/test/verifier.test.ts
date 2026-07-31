@@ -70,6 +70,7 @@ describe('style diff report', () => {
       differences: 1,
       passed: false
     });
+    expect(report).not.toHaveProperty('schemaVersion');
     expect(report.differences).toEqual([
       {
         runId: 'base/dev@1280x900',
@@ -97,10 +98,12 @@ describe('style diff report', () => {
 
     try {
       await expect(writeAndAssertStyleDiffReport(report, filename)).rejects.toThrow(/computed-style-diff/);
-      expect(JSON.parse(await readFile(filename, 'utf8'))).toMatchObject({
+      const written = JSON.parse(await readFile(filename, 'utf8'));
+      expect(written).toMatchObject({
         summary: { differences: 1, passed: false },
         differences: [{ caseId: 'button', property: 'color' }]
       });
+      expect(written).not.toHaveProperty('schemaVersion');
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -127,6 +130,7 @@ describe('style diff report', () => {
       differences: 0,
       passed: true
     });
+    expect(report).not.toHaveProperty('schemaVersion');
     expect(() => assertNoStyleDifferences(report)).not.toThrow();
   });
 

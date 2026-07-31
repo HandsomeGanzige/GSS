@@ -4,7 +4,7 @@
 
 - Status: completed
 - 验收日期：2026-07-15
-- 最近回归：2026-07-17（ICSS 同值保守路径与中型 Pilot preview/partial reload）
+- 最近完整回归：2026-07-28（SEL-03 selector list Rsbuild consumer 静态门禁与 full visual）
 - 生产入口：`@semantic-atomic-css/rsbuild`
 - 自动 fixture：`@semantic-atomic-css/rsbuild-fixture`
 - 锁定基线：Node `22.22.3`、pnpm `8.6.2`、Rsbuild `2.1.6`、Rspack `2.1.4`、
@@ -37,7 +37,7 @@ style owner，按稳定 source order 渲染并按 atomic key 去重。preview �
 | --- | --- |
 | 输入 | `.module.css`、`.module.scss`、`.module.less`、普通 CSS 对照 |
 | tokens | default export、`camelCaseOnly`、custom ident、`composes`、`:export`、`@value`、class/value 完整同值保守保留 |
-| selector | safe、hover/focus-visible/disabled、media/supports、descendant fallback |
+| selector | safe、hover/focus-visible/disabled、media/supports、presence/exact attribute、attribute-before-class、全 eligible selector list、unsafe mixed list/order-risk/descendant fallback |
 | declaration | custom property、`var()`、`!important`、shorthand/longhand、重复属性 |
 | 资源 | 阈值 inline、external、query/hash、asset prefix、publicDir URL 与文件复制 |
 | output | atomic/fallback CSS、HTML link 顺序、manifest、report、analyzer analysis |
@@ -49,6 +49,44 @@ style owner，按稳定 source order 渲染并按 atomic key 去重。preview �
 浏览器验收不是截图相似度比较；脚本逐项读取 computed style、CSS Modules tokens 和资源 HTTP 状态。
 semantic token 必须以 native token 为前缀，差异只允许追加 atomic classes。
 
+## 2026-07-28 SEL-03 selector list 回归
+
+- production adapter 保持 generic Core descriptor consumer，未复制 selector grammar、list planner 或
+  class 连接图/cascade guard。
+- package verify 通过 4 files / 21 tests 与 typecheck/build；覆盖 base/pseudo/attribute list、
+  unsafe mixed list、manifest 单-arm descriptor 和 selector-list update/remove/stale dispose。
+- static fixture 通过；真实 bundle 中的两个 base arm 保留 semantic token 并共享 atomic token，
+  后置 same-class winner 不泄漏给 peer，unsafe mixed list 无 partial registry 污染。
+- full visual 通过 semantic/native dev + preview、desktop + narrow、hover/focus-visible、attribute
+  absent/open/change/remove、attribute-before-class、同元素多 arm winner、token/CSSOM 边界。
+- Rsbuild preview 的原生 minifier 可将声明相同的单-arm descriptor 合并为一条 CSSOM
+  selector-list；浏览器验收逐 arm 精确匹配，manifest/static 另外证明 Core descriptor
+  不含逗号。
+- 报告：`/private/tmp/gss-rsbuild-selector-list-closeout.json`。Rsbuild Pilot baseline 10 条
+  `selector-list` 清零，15/15 目标 class 获得 mapping；详见
+  [SEL-03 验收](phase-8-selector-list-acceptance.md)。
+
+## 2026-07-27 SEL-02 attribute selector 回归
+
+- production adapter 保持零修改；现有 consumer 直接复制/渲染 Core selector descriptor，不解析 identity、
+  不重建 attribute selector，也不复制 Core same-class cascade guard。
+- package verify 通过：4 个 test files、20 项测试、typecheck/build。契约覆盖 presence、exact、两种 node
+  order、guarded token/manifest/CSS、`attribute-cascade-order` diagnostic/analyzer，以及 dev
+  update/remove/stale dispose。
+- static fixture 通过：eligible guarded selector 不再以 scoped class 重复输出；near-miss/order-risk 保持
+  单 scoped token fallback；真实 bundle suggested token、manifest mapping、完整 selector rule 和 dev report
+  reason 均有门禁。
+- Sass nested case 证明 Core identity/descriptor 使用带双引号 spelling；Rsbuild/Lightning CSS 最终 minifier
+  可移除安全 ident quotes。两层 serializer 输出分别被精确检查，adapter 没有 canonicalization，浏览器
+  CSSOM 与 semantic/native computed style 保持一致。
+- base visual 通过：4 runs、124 cases、296 comparisons、0 differences；覆盖 dev/preview、desktop/narrow、
+  absent/open/closed/removed、className 稳定、guarded CSSOM 和 order-risk hover。
+- full visual 通过：8 runs、148 cases、360 comparisons、0 differences；额外覆盖 preprocessor 与 Sass
+  partial/import-removal 后 guarded selector stale cleanup。
+- 根 `pnpm verify` 通过：五个产品包共 19 files/213 tests、全部 typecheck/build 与两套 static fixture。
+- 报告：`/private/tmp/gss-rsbuild-attribute-selector-base.json`、
+  `/private/tmp/gss-rsbuild-attribute-selector-full.json`。
+
 ## 验收命令
 
 ```bash
@@ -56,21 +94,84 @@ pnpm --filter @semantic-atomic-css/rsbuild verify
 pnpm --filter @semantic-atomic-css/rsbuild-fixture verify
 
 GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
-  pnpm --filter @semantic-atomic-css/rsbuild-fixture test:visual
+  pnpm --filter @semantic-atomic-css/rsbuild-fixture test:visual \
+  -- --suite base --report /private/tmp/gss-rsbuild-attribute-selector-base.json
+
+GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  pnpm --filter @semantic-atomic-css/rsbuild-fixture test:visual \
+  -- --report /private/tmp/gss-rsbuild-attribute-selector-full.json
 
 pnpm verify
 ```
 
-执行结果：
+## 2026-07-25 C4 cascade oracle canonical 重验
 
-- adapter：4 个 test files、12 项测试通过，覆盖 ICSS 同值 preservation、dev atomic key 去重和 readable class 碰撞保护；
-  typecheck/build 通过。
+- 根 `pnpm verify` 通过：Core 8 files/74 tests、Analyzer 1 file/7 tests、Devtools
+  2 files/17 tests、Vite 4 files/37 tests、Rsbuild 4 files/18 tests，五个产品包合计
+  19 files/153 tests；全部 typecheck/build 与 Vite/Rsbuild fixture static 通过。
+- Rsbuild full visual 覆盖 `base`、`preprocessor` 的 semantic/native dev、preview、desktop/narrow、
+  交互与 partial reload，共 8 runs、108 cases、220 次属性比较、0 differences，`passed=true`。
+- canonical report：
+  `/private/tmp/gss-rsbuild-cascade-oracle-closeout.json`。
+- 绿色结果证明当前支持范围和已列代表场景中的 fixed winner、native token preservation 与
+  精确 CSSOM atomic rule 绑定；不证明任意 DOM class/module 共现，也不开放新的 selector。
+
+## 2026-07-25 C3 Rsbuild cascade oracle 实施批次历史结果
+
+- adapter：4 个 test files、18 项测试通过，typecheck/build 通过。
+- fixture static：semantic atomic asset、Rspack extracted fallback CSS 与 HTML link 顺序分别通过；
+  六个 mixed case 的 safe token、fallback 单 scoped token、media/supports 顺序与跨模块
+  `#334155` 单次 atomic rule 复用均有真实 bundle/asset 证据。
+- fixture base visual：dev/preview × desktop/narrow 共 4 runs、88 cases、172 次属性比较、
+  0 differences，`passed=true`。
+- fixture full visual：base/preprocessor 的 dev/preview/desktop/narrow/交互/partial reload 共
+  8 runs、108 cases、220 次属性比较、0 differences，`passed=true`。
+- 六个 mixed case 与现有 `duplicate-late-reuse` 均同时验证固定 computed winner、native scoped
+  token 保留、semantic-only atomic token 数量，以及对应 property/value/priority/media 的递归
+  CSSOM rule；这使 semantic/native 同时产生相同错误时也不能只靠 parity 通过。
+- visual 初次在受限环境绑定 `127.0.0.1` 时得到 `listen EPERM`；授权 localhost/Chrome 后，base
+  与 full 两轮均通过。这是环境权限限制，不是产品或 fixture 失败。
+- 报告：
+  `/private/tmp/found-02-c3-rsbuild-base.json`、
+  `/private/tmp/found-02-c3-rsbuild-full.json`。
+- 以上 C3 reports 是实施批次历史证据；该批次当时没有重跑根 `pnpm verify`。随后 C4 已在同一
+  组合状态下完成根总门禁与 canonical full visual，不改写这里的历史事实。
+
+## 2026-07-25 selector descriptor 完整回归（此前基线）
+
+- adapter：4 个 test files、18 项测试通过，覆盖 descriptor renderer/manifest/report、当前 browser
+  snapshot、HMR update/remove/stale dispose、ICSS 同值 preservation、dev atomic key 去重和 readable
+  class 碰撞保护；typecheck/build 通过。
 - fixture static：semantic/native、连续构建、资源、错误边界和配置保护通过。
 - fixture visual：`base`、`preprocessor` 的 dev/preview/desktop/narrow/交互/partial reload 通过；跨模块
-  cascade 回归证明 semantic/native 均由预期的后声明 class 获胜。
-- 根静态门禁：`pnpm verify` 通过，包含 core/analyzer/Vite/Rsbuild 包门禁及两套 static fixture。
+  cascade 回归证明 semantic/native 均由预期的后声明 class 获胜；该批次当时报告为
+  8 runs、80 cases、180 次属性比较、0 differences，`passed=true`。
+- fixture current descriptor static：exact selector rule、manifest class mapping → atomic index →
+  `selector.css` → stylesheet 与真实 JS suggested token mutation 门禁通过。
+- 根静态门禁：`pnpm verify` 通过，包含五个产品包 18 个 test files、144 项测试、全部
+  typecheck/build 及两套 current static fixture。
+- visual report：`/tmp/gss-rsbuild-selector-descriptor-style-diff.json`。
 
 visual 需要本地端口和 Chrome，不进入根 `pnpm verify`；受限环境必须显式授权 localhost/Chrome。
+
+## 历史验收结果
+
+### 2026-07-15 初始验收
+
+- adapter：4 个 test files、12 项测试通过，覆盖 ICSS 同值 preservation、dev atomic key 去重和
+  readable class 碰撞保护；typecheck/build 通过。
+- fixture static：semantic/native、连续构建、资源、错误边界和配置保护通过。
+- fixture visual：base/preprocessor 的 dev/preview/desktop/narrow/交互/partial reload 通过；
+  跨模块 cascade 回归中 semantic/native 均由预期的后声明 class 获胜。
+- 根静态门禁：`pnpm verify` 通过，包含当时的 core、analyzer、Vite、Rsbuild package 门禁及
+  两套 static fixture。
+
+### 2026-07-22 selector descriptor package-only 回归
+
+- 该 consumer 批次只运行 Rsbuild package verify：4 个 test files、18 项测试及
+  typecheck/build 通过。
+- fixture、根门禁和 visual 未在该批次重跑；这些门禁随后于 2026-07-25 按当前 descriptor
+  契约完成完整收口。
 
 ## 当前公共边界
 
@@ -83,3 +184,16 @@ visual 需要本地端口和 Chrome，不进入根 `pnpm verify`；受限环境�
   adapter 会按 `ambiguous-export-value` 整类保留；因为公开 contract 无法区分 class/value，这也会保守
   覆盖 `camelCase` alias。中型 Rsbuild Pilot 不进入自动 fixture 门禁，其完整验收见
   [Phase 6 Rsbuild Pilot tracking](phase-6-rsbuild-real-project-pilot-tracking.md)。
+
+## 2026-07-29 SEL-01 Rsbuild 验收增量
+
+- Status: completed。
+- package build/dev 测试证明生产 adapter 继续只消费 Core descriptor；mapping、alias/list fallback 与
+  HMR stale dispose 均无需复制 selector grammar 或 cascade guard。
+- 真实 Rspack compiled CSS 会把 authored `::before` 序列化为 `:before`；fixture static 锁定 Core
+  identity、atomic selector 与最终 CSS 使用该实际输入 spelling，而非从业务源码反向恢复。
+- visual 脚本覆盖 semantic/native dev + preview、desktop + narrow 的 before/after computed style、
+  semantic token 与 CSSOM。首轮 full visual 因 Chrome 将 legacy selector 标准化为双冒号而失败；
+  CSSOM assertion 修复未改变 Core/static input spelling contract，最终报告
+  `/private/tmp/gss-rsbuild-pseudo-element-retest.json` PASS：`8 / 204 / 464 / 0`。
+- 双 Pilot 同语料证据见 [SEL-01 验收](phase-8-pseudo-element-acceptance.md)。

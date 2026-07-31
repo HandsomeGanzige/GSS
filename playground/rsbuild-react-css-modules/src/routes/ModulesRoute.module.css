@@ -12,15 +12,7 @@
   padding: 16px;
 }
 
-.searchField {
-  display: grid;
-  gap: 8px;
-  color: #64748b;
-  font-size: 12px;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
+.searchField,
 .selectField {
   display: grid;
   gap: 8px;
@@ -30,17 +22,7 @@
   text-transform: uppercase;
 }
 
-.textControl {
-  min-height: 40px;
-  padding: 8px 11px;
-  color: #0f172a;
-  background: #ffffff;
-  border: 1px solid #cbd5e1;
-  border-radius: 8px;
-  font: inherit;
-  text-transform: none;
-}
-
+.textControl,
 .selectControl {
   min-height: 40px;
   padding: 8px 11px;
@@ -52,11 +34,7 @@
   text-transform: none;
 }
 
-.textControl:focus-visible {
-  outline: 3px solid #bfdbfe;
-  outline-offset: 2px;
-}
-
+.textControl:focus-visible,
 .selectControl:focus-visible {
   outline: 3px solid #bfdbfe;
   outline-offset: 2px;
