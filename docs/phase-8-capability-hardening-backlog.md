@@ -4,9 +4,9 @@
 
 - Status: backlog
 - 建立日期：2026-07-19
-- 最近更新：2026-07-29
+- 最近更新：2026-08-17
 - 当前阶段：`SEL-01` / `SEL-02` / `SEL-03` 已完成；`FOUND-04` 已 `closed-no-go`，
-  `SEL-04` / `SEL-05` / `SEL-06` deferred
+  `PERF-03` 已完成；`SEL-04` 至 `SEL-09` 的所有未开放 selector 扩展持续 deferred
 - 实施方式：一次只选择一个小批次，单独设计、实现、验证和收口
 
 本文档记录 Phase 7 之后的能力强化候选项、依赖关系、决策门禁和建议顺序。
@@ -118,7 +118,7 @@ SEL-01 / SEL-02 / SEL-03 completed；SEL-04 deferred
     ↓
 FOUND-04   closed-no-go；未形成 production foundation
     ↓
-SEL-05 / SEL-06 deferred；SEL-07 不提前实施
+SEL-05 / SEL-06 / SEL-07 / SEL-08 / SEL-09 deferred
 ```
 
 底层改写引擎能够解析某种 selector，不等于产品 policy 已经批准转换它。
@@ -372,20 +372,20 @@ SEL-05 / SEL-06 deferred；SEL-07 不提前实施
 
 ### SEL-07：adjacent/sibling combinator
 
-- Status: `candidate`
+- Status: `deferred`
 - 代表输入：`.item + .item` 和 `.trigger ~ .panel`。
 - 依赖 `SEL-06` 的多 anchor/guard/cascade 设计，不单独提前实施。
 
 ### SEL-08：`:global` 与 local anchor 混合 selector
 
-- Status: `candidate`
+- Status: `deferred`
 - 仅评估同时包含可导出 local anchor 的结构，例如 `:global(.theme) .button`。
 - 只包含 global class 或无 local anchor 的 rule 继续 fallback，因为没有可证明的 atomic class 注入点。
 - global node 不得进入 local resolver，现有 preserved scoping 行为必须回归。
 
 ### SEL-09：functional pseudo 与复杂 specificity
 
-- Status: `candidate`
+- Status: `deferred`
 - 候选：`:not()`、`:is()`、`:where()`、`:has()`、`:nth-child(... of ...)` 等。
 - 每一类需单独证明内部 selector scoping、specificity 与 relative selector 行为。
 - 不采用“原字符串拼回即视为安全”的快捷路径。
@@ -488,6 +488,37 @@ SEL-05 / SEL-06 deferred；SEL-07 不提前实施
   report 与 dev API 一致。
 - 不依赖文件遍历或 Promise 完成顺序产生隐式稳定性。
 
+### PERF-03：低 retained-heap finalization cache
+
+- Status: `completed`
+- Core 聚合 finalization 已改为内部同步 borrowed visitor 与轻量 cache；`AtomicRegistry.list()`
+  深防御性契约保持，reader 不从 package root 导出，manifest 不缓存。
+- report-only 使用 byte sink；完整 atomic CSS string 只在 `getAtomicCss()` 被实际调用后
+  缓存。canonical report 不含 declaration 引用，public report/manifest 与 transform result 均与
+  聚合状态深隔离。
+- 每次 transform 进入统一失效 cache，已覆盖 new-key、reuse-only、empty、parse-error
+  与 throw 后 freshness；getter 工作次数按实际 material 发生，不为了强制任意顺序单次
+  visit 而保留大对象图。
+- 同机修订 benchmark 对比结果（candidate / baseline）：
+
+  | 指标 | 1x | 10x |
+  | --- | ---: | ---: |
+  | cold Vite | `1.110 / 1.558 ms` (`0.712x`) | `19.479 / 36.609 ms` (`0.532x`) |
+  | hot Vite | `7.475 / 13.881 ms` (`0.539x`) | `150.686 / 350.518 ms` (`0.430x`) |
+  | all getters | `0.649 / 1.294 ms` (`0.501x`) | `11.621 / 29.218 ms` (`0.398x`) |
+  | end-to-end | `41.372 / 40.980 ms` (`1.010x`) | `2261.909 / 2462.809 ms` (`0.918x`) |
+
+- 10x heap 中位数原始值：baseline setup/total/signed incremental/positive incremental 为
+  `33,932,400 / 33,930,744 / -1,640 / 0 B`，candidate 为
+  `34,073,528 / 34,068,784 / -13,592 / 0 B`；total retained 比例 `1.004x`。baseline/candidate
+  observed peak 为 `83,641,608 / 49,518,464 B`，peak delta 为
+  `49,718,248 / 15,444,936 B` (`0.311x`)，4 MiB positive incremental 门禁通过。
+- 1x/10x CSS、`JSON.stringify(manifest)` 与 `JSON.stringify(report)` 的原始 UTF-8 bytes
+  和 SHA-256 指纹与 baseline 完全一致；10x 指纹分别为
+  `d4d516ad9a18f6df551a4b4c67e8a5cd2288c22dd8c155f6088b6c73fed72833`、
+  `ad587d9f03a6d124473e5310514a5257046e3fd52acaf98c1e54ee1c880d80ff`、
+  `a8ad222249123fc1a67e3ac2761f8eaa7802c7cb99488ed0a0810dbf166384ee`。
+
 ## 单个批次的入口问题
 
 将某个候选项改为 `ready` 前，必须在对应方案或 tracking 中回答：
@@ -527,6 +558,6 @@ SEL-05 / SEL-06 deferred；SEL-07 不提前实施
 `FOUND-05` 所述跨 class/module、等 importance、等 specificity 且依赖原始顺序的竞争仍为
 `deferred` 未覆盖边界。
 `SEL-01` 已单独授权并完成实现、独立 Test/Review 与修复复验。`FOUND-04` 已按四项双 Pilot
-门禁收口为 `closed-no-go`，可执行 shadow prototype 已回滚；`SEL-04` / `SEL-05` / `SEL-06`
+门禁收口为 `closed-no-go`，可执行 shadow prototype 已回滚；`SEL-04` 至 `SEL-09`
 均为 `deferred`，本结论不授权任何 production rewrite。GOV-01 只完成内部 one-shot 研究，产品化
 report/schema/consumer 继续 deferred；`FOUND-05` 在最终 correctness 优化前不重复提请。

@@ -7,6 +7,27 @@
 2026-07-07 Phase 4 已在此基础上完成 Route A 迁移。本文前半部分保留 Phase 3 Route B 历史记录；
 当前实现状态以本节补记和 `docs/phase-4-production-readiness-plan.md` 为准。
 
+## Production atomic CSS serializer（2026-08-17）
+
+- Vite 独立 `semantic-atomic.css` 绕过原生 CSS minifier；build 现在在 adapter 已有 declaration
+  renderer 内选择 production grammar，dev 继续使用 readable grammar。
+- 两种格式共用 base/context 分区、简单断点排序、supports-then-media 套层和同一条
+  declaration 渲染链；production 只生成结构空白/括号/important 标记，所有字段原字节复制。
+- build exact tests 锁定 base、pseudo/attribute、important、supports/media/both、四组 class-name
+  覆盖和 report 实际 asset bytes；dev exact test 防止 production grammar 泄漏。
+
+## Build metadata snapshot 去重（2026-08-17）
+
+- `generateBundle` 只在 manifest 或 report 至少一项开启时读取 Core manifest；两项都关闭时保持零成本。
+- manifest/report 同时开启时只执行一次 `getManifest()` 与 `stabilizeManifest()`，manifest JSON asset
+  和 analyzer 共享该稳定 snapshot；report-only 与 manifest-only 仍各读取一次。
+- Core report 继续只读取一次，Analyzer、JSON schema、key/source 排序和最终 CSS 均不变；dev report
+  在显式取得稳定 report/manifest 后复用同一 analyzer 组合函数。
+- build integration test 覆盖 disabled、manifest-only、report-only、both 四种组合，锁定 Core manifest
+  getter 次数，并要求 both 产物与两个单开产物逐字节一致。
+- Vite package verify 为 4 files / 48 tests，typecheck/build 通过；根 `pnpm verify` 与双 fixture
+  static 通过。Vite Pilot CSS/manifest/report 的 raw bytes 与 SHA-256 相对 baseline 完全一致。
+
 ## 当前 selector descriptor consumer（2026-07-22）
 
 - Vite dev/build 聚合继续按 atomic key 去重，并保留 base/context 分区、简单宽度断点顺序、
@@ -67,7 +88,8 @@ analysis；没有增加 attribute grammar、identity renderer、cascade guard �
 - root 新增 `pnpm verify:phase3:visual`，用于 Playwright computed style 对照验收。
 - 补齐 `localsConvention` 全枚举：`asIs`、`camelCase`、`camelCaseOnly`、`dashes`、`dashesOnly`。
 - 补充 `modules.generateScopedName` 字符串模板与函数形式测试，明确 GSS 只承诺自身 scoped name 稳定性。
-- 固定 atomic class name 策略：dev 默认 readable，build 默认 hash，可通过 `core.className` 显式覆盖。
+- atomic class name 当前策略：dev 默认 `readable + "_"`，build 默认无 prefix 的 32-bit / 7 字符 lower-base36
+  `compact`；可通过 `core.className` 显式覆盖，既有 `hash` 精确输出保持兼容。
 - 补充 manifest/report source location 验收，确认 `id`、`line`、`column` 可反查原 `.module.css`。
 - 补充 dev HMR 写文件单元验收，确认 full reload 策略下不会继续使用过期 tokens、atomic CSS 或 fallback CSS。
 
@@ -80,7 +102,7 @@ analysis；没有增加 attribute grammar、identity renderer、cascade guard �
 - 第一版不支持 named exports。
 - dev/HMR 采用 full reload 作为 Phase 3 最终策略，不承诺 CSS-only HMR。
 - build 必须输出全局聚合 CSS asset。
-- dev 默认 readable atomic class name，build 默认 hash atomic class name。
+- dev 默认 `readable + "_"` atomic class name，build 默认无 prefix 的 `compact` atomic class name。
 - manifest/report 默认不输出。
 - strict mode 只保留设计，不实现 fail build。
 - 不修改 core，不实现 `invalidate(id)` 或 rebuild API。
@@ -212,7 +234,7 @@ dev 阶段：
 
 - [x] 补齐 `localsConvention` 全枚举和重复导出 key 冲突测试。
 - [x] 补齐 `modules.generateScopedName` 字符串模板与函数形式测试。
-- [x] 明确 dev/build atomic class name 默认策略，并覆盖 readable/hash/prefix。
+- [x] 明确 dev/build atomic class name 默认策略，并覆盖 readable/hash/compact/prefix。
 - [x] 验收 manifest/report 中的基础 source location。
 - [x] 补充 HMR 写文件单元验收，证明 full reload 策略不会保留过期 CSS 结果。
 - [x] 在 acceptance fixture 中增加 dashed 与 camelCase CSS Modules export key 场景。

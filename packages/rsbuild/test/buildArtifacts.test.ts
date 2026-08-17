@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createBuildArtifactSnapshot,
   createEnvironmentBuildState,
@@ -7,7 +7,99 @@ import {
 } from '../src/buildArtifacts.js';
 import type { RuntimeBridgeResult } from '../src/runtimeBridgeLoader.js';
 
+const { analyzeBuildSpy, getManifestSpy, getReportSpy } = vi.hoisted(() => ({
+  analyzeBuildSpy: vi.fn(),
+  getManifestSpy: vi.fn(),
+  getReportSpy: vi.fn()
+}));
+
+vi.mock('@semantic-atomic-css/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@semantic-atomic-css/core')>();
+
+  return {
+    ...actual,
+    createTransformer(...args: Parameters<typeof actual.createTransformer>) {
+      const transformer = actual.createTransformer(...args);
+      return {
+        ...transformer,
+        getManifest() {
+          getManifestSpy();
+          return transformer.getManifest();
+        },
+        getReport() {
+          getReportSpy();
+          return transformer.getReport();
+        }
+      };
+    }
+  };
+});
+
+vi.mock('@semantic-atomic-css/analyzer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@semantic-atomic-css/analyzer')>();
+
+  return {
+    ...actual,
+    analyzeBuild(...args: Parameters<typeof actual.analyzeBuild>) {
+      analyzeBuildSpy();
+      return actual.analyzeBuild(...args);
+    }
+  };
+});
+
 describe('Rsbuild build artifacts', () => {
+  it('build metadata 按配置惰性 finalization，report 共享一次 manifest snapshot', () => {
+    const state = createEnvironmentBuildState(false);
+    state.inputs.set('/project/Button.module.css', {
+      id: '/project/Button.module.css',
+      scopedCss: '.Button_button__hash { color: red; }',
+      exportedClassNames: ['Button_button__hash'],
+      preserveClassNames: {}
+    });
+    const options = { className: { strategy: 'readable' as const } };
+    const resetSpies = () => {
+      getManifestSpy.mockClear();
+      getReportSpy.mockClear();
+      analyzeBuildSpy.mockClear();
+    };
+
+    resetSpies();
+    const disabled = createBuildArtifactSnapshot(state, options, { manifest: false, report: false });
+    expect(getManifestSpy).not.toHaveBeenCalled();
+    expect(getReportSpy).not.toHaveBeenCalled();
+    expect(analyzeBuildSpy).not.toHaveBeenCalled();
+    expect(disabled).not.toHaveProperty('outputCss');
+    expect(disabled).not.toHaveProperty('manifest');
+    expect(disabled).not.toHaveProperty('report');
+
+    resetSpies();
+    const manifestOnly = createBuildArtifactSnapshot(state, options, { manifest: true, report: false });
+    expect(getManifestSpy).toHaveBeenCalledTimes(1);
+    expect(getReportSpy).not.toHaveBeenCalled();
+    expect(analyzeBuildSpy).not.toHaveBeenCalled();
+    expect(manifestOnly).not.toHaveProperty('outputCss');
+    expect(manifestOnly.manifest).toBeDefined();
+    expect(manifestOnly).not.toHaveProperty('report');
+
+    resetSpies();
+    const reportOnly = createBuildArtifactSnapshot(state, options, { manifest: false, report: true });
+    expect(getManifestSpy).toHaveBeenCalledTimes(1);
+    expect(getReportSpy).toHaveBeenCalledTimes(1);
+    expect(analyzeBuildSpy).toHaveBeenCalledTimes(1);
+    expect(reportOnly).not.toHaveProperty('manifest');
+    expect(reportOnly.outputCss).toContain('color: red');
+    expect(reportOnly.report).toBeDefined();
+
+    resetSpies();
+    const both = createBuildArtifactSnapshot(state, options, { manifest: true, report: true });
+    expect(getManifestSpy).toHaveBeenCalledTimes(1);
+    expect(getReportSpy).toHaveBeenCalledTimes(1);
+    expect(analyzeBuildSpy).toHaveBeenCalledTimes(1);
+    expect(both.outputCss).toBe(reportOnly.outputCss);
+    expect(both.manifest).toEqual(manifestOnly.manifest);
+    expect(both.report).toEqual(reportOnly.report);
+  });
+
   it('按 source id 聚合、跨文件复用，并把基础规则放在条件规则之前', () => {
     const state = createEnvironmentBuildState(false);
     state.inputs.set('/project/a.module.css', {
@@ -23,10 +115,19 @@ describe('Rsbuild build artifacts', () => {
       preserveClassNames: {}
     });
 
-    const first = createBuildArtifactSnapshot(state, { className: { strategy: 'hash' } });
-    const second = createBuildArtifactSnapshot(state, { className: { strategy: 'hash' } });
+    const options = { className: { strategy: 'compact' as const } };
+    const first = createBuildArtifactSnapshot(state, options);
+    const second = createBuildArtifactSnapshot(state, options);
+
+    const reversedState = createEnvironmentBuildState(false);
+    for (const input of [...state.inputs.values()].reverse()) {
+      reversedState.inputs.set(input.id, input);
+    }
+    const reversed = createBuildArtifactSnapshot(reversedState, options);
 
     expect(first).toEqual(second);
+    expect(first).toEqual(reversed);
+    expect(Object.keys(first.manifest.atomic).every((className) => /^[ab][0-9a-z]{6}$/.test(className))).toBe(true);
     expect(first.atomicCss.indexOf('padding: 8px')).toBeLessThan(first.atomicCss.indexOf('@media'));
     expect(first.report.summary.files).toBe(2);
     expect(first.report.analysis.benefit.atomicDeclarations).toBe(3);
@@ -122,6 +223,30 @@ describe('Rsbuild build artifacts', () => {
           }
         })
       ])
+    );
+  });
+
+  it('build snapshot 保持 readable grammar 与 supports-then-media 套层，由 native minifier 拥有最终序列化', () => {
+    const state = createEnvironmentBuildState(false);
+    state.inputs.set('/project/Readable.module.css', {
+      id: '/project/Readable.module.css',
+      scopedCss: [
+        '.Readable_base__hash { color: red !important; }',
+        '@media (min-width: 600px) {',
+        '  @supports (display: grid) { .Readable_both__hash:hover { display: grid; } }',
+        '}'
+      ].join('\n'),
+      exportedClassNames: ['Readable_base__hash', 'Readable_both__hash'],
+      preserveClassNames: {}
+    });
+
+    const snapshot = createBuildArtifactSnapshot(state, { className: { strategy: 'readable' } });
+
+    expect(snapshot.atomicCss).toBe(
+      [
+        '._selector_q0dmug_color_red_important {\n  color: red !important;\n}',
+        '@media (min-width: 600px) {\n  @supports (display: grid) {\n    ._media_1ltocy_supports_1gj8cx_selector_qf5xvc_display_grid:hover {\n      display: grid;\n    }\n  }\n}'
+      ].join('\n\n')
     );
   });
 

@@ -31,6 +31,22 @@ Rsbuild module graph、HMR/live-reload，并避免 Rspack 2.1.4 在 extraction �
 `importModule` 时出现的增量编译 panic。目标 CSS Modules rows 不逐模块注入；转换快照集中到一个浏览器
 style owner，按稳定 source order 渲染并按 atomic key 去重。preview 使用 build extraction 产物。
 
+## 当前 build metadata 惰性验收（2026-08-17）
+
+- package exact test 覆盖 manifest/report 四种组合：默认关闭不读取 Core
+  manifest/report 且不运行 Analyzer；manifest-only 调用次数为 `1/0/0`；
+  report-only 和两者开启都为 `1/1/1`。
+- 默认与 manifest-only 路径不生成 atomic + preserved `outputCss`；report-only 和两者
+  开启生成的 `outputCss` 完全相同，Analyzer 仍消费完整 CSS 代理。
+- 对应的 manifest-only/report-only snapshot 与两者开启时逐字段相等；没有改变
+  public options、JSON schema、CSS 或 HTML 输出。
+- `pnpm --filter @semantic-atomic-css/rsbuild verify` 通过：4 个 test files、32 tests、
+  typecheck/build 通过；根 `pnpm verify` 及两套 static fixture 通过。
+- 同时开启 metadata 的 Rsbuild Pilot 修改前后产物一致：atomic CSS
+  `9087 B / 3f694b1c…d7ab`，manifest `590156 B / 52fcfa07…f1790`，report
+  `19731 B / 6150e8e6…a3a7d`。本项的可证收益是关闭或只开 manifest 时消除不必要
+  finalization/Analyzer，不宣称同时开启 metadata 的 Pilot 有端到端提速。
+
 ## 自动验收矩阵
 
 | 维度 | 已验证场景 |
@@ -48,6 +64,15 @@ style owner，按稳定 source order 渲染并按 atomic key 去重。preview �
 
 浏览器验收不是截图相似度比较；脚本逐项读取 computed style、CSS Modules tokens 和资源 HTTP 状态。
 semantic token 必须以 native token 为前缀，差异只允许追加 atomic classes。
+
+## 2026-08-17 production serialization owner 回归
+
+- package snapshot 继续精确输出 readable rule、` !important`、空行分隔与缩进的
+  supports-then-media wrapper，未新增 Rsbuild production serializer。
+- fresh Pilot 以最终 `static/css/semantic-atomic.css` 逐字节对比 baseline/candidate；同时重测
+  gzip/brotli、全部 CSS+JS 与连续构建 SHA-256，以证明 native minifier/lifecycle 无回退。
+- fresh 结果 byte-equal：atomic raw/gzip/brotli 均为 `9087/3413/3038`，18 个 CSS+JS 总量均为
+  `280236/93032/79106`；连续两次 candidate 的 24 个产物路径与 SHA-256 全等。
 
 ## 2026-07-28 SEL-03 selector list 回归
 

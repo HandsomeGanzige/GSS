@@ -1,6 +1,8 @@
 import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import postcss from 'postcss';
+import selectorParser from 'postcss-selector-parser';
 
 const playgroundRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const semanticRoot = path.join(playgroundRoot, 'dist/semantic');
@@ -45,14 +47,15 @@ async function main() {
   assert(sourceIds.some((id) => id.endsWith('/ASourceOrder.module.css')), 'manifest 应包含 source-order A probe');
   assert(sourceIds.some((id) => id.endsWith('/ZSourceOrder.module.css')), 'manifest 应包含 source-order Z probe');
   assert(report.analysis?.size?.beforeRawCssBytes > 0, 'report 应包含 analyzer size');
-  verifyAtomicSelectors(manifest, atomicCss);
+  const atomicRules = collectSelectorRules(atomicCss);
+  verifyAtomicSelectors(manifest, atomicRules);
 
   const [nativeInspectorCss, semanticInspectorJs, nativeInspectorJs] = await Promise.all([
     readEntryAsset(nativeRoot, 'static/css', 'inspector.', '.css'),
     readEntryAsset(semanticRoot, 'static/js', 'inspector.', '.js'),
     readEntryAsset(nativeRoot, 'static/js', 'inspector.', '.js')
   ]);
-  const sourceOrder = inspectSourceOrder(manifest, atomicCss, nativeInspectorCss);
+  const sourceOrder = inspectSourceOrder(manifest, atomicRules, nativeInspectorCss);
   const icss = inspectIcssCollision(semanticInspectorJs, nativeInspectorJs);
 
   const result = {
@@ -82,15 +85,15 @@ async function main() {
 }
 
 /** 比较 native scoped rules 与 semantic atomic rules 对两个 probe class 的最终覆盖顺序。 */
-function inspectSourceOrder(manifest, atomicCss, nativeCss) {
+function inspectSourceOrder(manifest, atomicRules, nativeCss) {
   const aEntry = findClassEntry(manifest, '/ASourceOrder.module.css');
   const zEntry = findClassEntry(manifest, '/ZSourceOrder.module.css');
   const aColor = findAtomicDeclaration(manifest, aEntry, 'color');
   const zColor = findAtomicDeclaration(manifest, zEntry, 'color');
   const nativeAIndex = nativeCss.indexOf(`.${aEntry.resolvedClassName}`);
   const nativeZIndex = nativeCss.indexOf(`.${zEntry.resolvedClassName}`);
-  const semanticAIndex = findExactSelectorRulePosition(atomicCss, aColor.selector.css);
-  const semanticZIndex = findExactSelectorRulePosition(atomicCss, zColor.selector.css);
+  const semanticAIndex = findExactSelectorRulePosition(atomicRules, aColor.selector.css);
+  const semanticZIndex = findExactSelectorRulePosition(atomicRules, zColor.selector.css);
 
   assert(Math.min(nativeAIndex, nativeZIndex, semanticAIndex, semanticZIndex) >= 0, '无法定位 source-order probe rules');
   const nativeWinner = nativeAIndex < nativeZIndex ? 'ZSourceOrder' : 'ASourceOrder';
@@ -140,7 +143,7 @@ function findAtomicDeclaration(manifest, classEntry, property) {
 }
 
 /** 校验 atomic entry 的当前 descriptor 必填，且 stylesheet 直接包含 descriptor CSS。 */
-function verifyAtomicSelectors(manifest, atomicCss) {
+function verifyAtomicSelectors(manifest, rules) {
   const entries = Object.entries(manifest.atomic ?? {});
   assert(entries.length > 0, 'manifest 应包含 atomic entries');
 
@@ -155,37 +158,115 @@ function verifyAtomicSelectors(manifest, atomicCss) {
       `atomic selector.css 必填: ${className}`
     );
     assert(
-      findExactSelectorRulePosition(atomicCss, atomic.selector.css) >= 0,
+      findExactSelectorRulePosition(rules, atomic.selector.css) >= 0,
       `atomic stylesheet 缺少完整 selector.css rule: ${className}`
     );
   }
 }
 
-/** 定位 descriptor selector 作为完整 rule prelude 的位置，拒绝更长 selector 前缀误命中。 */
-function findExactSelectorRulePosition(css, selector) {
-  let searchFrom = 0;
-  while (searchFrom <= css.length) {
-    const position = css.indexOf(selector, searchFrom);
-    if (position < 0) return -1;
-
-    let before = position - 1;
-    while (before >= 0 && /\s/u.test(css[before])) before -= 1;
-    let after = position + selector.length;
-    while (after < css.length && /\s/u.test(css[after])) after += 1;
-    const startsAtRuleBoundary = before < 0 || css[before] === '{' || css[before] === '}';
-    if (startsAtRuleBoundary && css[after] === '{') return position;
-    searchFrom = position + 1;
-  }
-  return -1;
+/**
+ * 用 PostCSS 提取完整 rule prelude，并保留每条 rule 的 source offset。
+ *
+ * @param css - 待检查的完整 stylesheet。
+ * @returns 按原始出现顺序记录的 selector AST 投影。
+ */
+function collectSelectorRules(css) {
+  const rules = [];
+  postcss.parse(css).walkRules((rule) => {
+    rules.push({
+      normalizedSelector: normalizeEqualityAttributeQuotes(rule.selector),
+      position: rule.source?.start?.offset ?? 0
+    });
+  });
+  return rules;
 }
 
-/** 以更长 selector mutation、顶层和条件嵌套规则自检 exact rule boundary。 */
+/** 定位 descriptor selector 作为完整 rule prelude 的位置。 */
+function findExactSelectorRulePosition(rules, selector) {
+  const normalizedSelector = normalizeEqualityAttributeQuotes(selector);
+  return rules.find((rule) => rule.normalizedSelector === normalizedSelector)?.position ?? -1;
+}
+
+/**
+ * 只将无 escape、无 namespace/flag 的 equality attribute 值规范为无引号 ident。
+ *
+ * @remarks
+ * selector 其余 AST 节点和 raw spacing 保持不变；这仅容忍 native minifier
+ * 对 `[data-density="compact"]` / `[data-density=compact]` 的等价序列化。
+ */
+function normalizeEqualityAttributeQuotes(selector) {
+  const root = selectorParser().astSync(selector);
+  root.walkAttributes((attribute) => {
+    const hasFlag = attribute.insensitive === true || Boolean(attribute.raws.insensitiveFlag);
+    const hasEscape = attribute.raws.attribute?.includes('\\') || attribute.raws.value?.includes('\\');
+    const canBeUnquoted = attribute.value !== undefined && attribute.smartQuoteMark({}) === null;
+
+    if (
+      attribute.operator === '=' &&
+      attribute.namespace === undefined &&
+      !hasFlag &&
+      !hasEscape &&
+      canBeUnquoted
+    ) {
+      attribute.setValue(attribute.value, { quoteMark: null });
+    }
+  });
+  return root.toString();
+}
+
+/** 以 quote 等价、更长 selector mutation、顶层和条件嵌套规则自检 exact rule boundary。 */
 function verifyExactSelectorRulePositionGuard() {
-  assert(findExactSelectorRulePosition('.foo_suffix {}', '.foo') === -1, 'exact selector 不得命中更长 class');
-  assert(findExactSelectorRulePosition('.foo {}', '.foo') === 0, 'exact selector 应命中顶层 rule');
+  const find = (css, selector) => findExactSelectorRulePosition(collectSelectorRules(css), selector);
+
+  assert(find('.foo_suffix {}', '.foo') === -1, 'exact selector 不得命中更长 class');
+  assert(find('.foo {}', '.foo') === 0, 'exact selector 应命中顶层 rule');
   assert(
-    findExactSelectorRulePosition('@media (min-width: 1px) {\n  .foo {}\n}', '.foo') > 0,
+    find('@media (min-width: 1px) {\n  .foo {}\n}', '.foo') > 0,
     'exact selector 应命中条件规则中的完整 prelude'
+  );
+  assert(
+    find('.foo[data-density=compact]{}', '.foo[data-density="compact"]') === 0,
+    'exact selector 应接受 equality attribute 的 quoted/unquoted 等价序列化'
+  );
+  assert(
+    find('.foo[data-density="compact"]{}', '.foo[data-density=compact]') === 0,
+    'exact selector 应对称接受 unquoted/quoted equality attribute'
+  );
+  assert(
+    find('.foo_suffix[data-density=compact]{}', '.foo[data-density="compact"]') === -1,
+    'quote 等价不得放宽 class token 边界'
+  );
+  assert(
+    find('.foo[data-density=expanded]{}', '.foo[data-density="compact"]') === -1,
+    'quote 等价不得接受不同 attribute value'
+  );
+  assert(
+    find('.foo[data-density~=compact]{}', '.foo[data-density="compact"]') === -1,
+    'quote 等价不得接受不同 attribute operator'
+  );
+  assert(
+    find('.foo[data-mode=compact]{}', '.foo[data-density="compact"]') === -1,
+    'quote 等价不得接受其他 attribute name'
+  );
+  assert(
+    find('.foo[data-density=compact-mode]{}', '.foo[data-density="compact mode"]') === -1,
+    '非法 unquoted attribute value 不得通过去引号归一化'
+  );
+  assert(
+    find('.foo[data-density=compact]{}', '.foo[data-density="com\\70 act"]') === -1,
+    'escape attribute value 不得通过 quote 归一化'
+  );
+  assert(
+    find('.foo[data-density=compact i]{}', '.foo[data-density="compact"]') === -1,
+    '带 flag 的 attribute selector 不得通过 quote 归一化'
+  );
+  assert(
+    find('.foo[data-density=compact s]{}', '.foo[data-density="compact"]') === -1,
+    '带显式 sensitive flag 的 attribute selector 不得通过 quote 归一化'
+  );
+  assert(
+    find('.foo[ns|data-density=compact]{}', '.foo[data-density="compact"]') === -1,
+    '带 namespace 的 attribute selector 不得通过 quote 归一化'
   );
 }
 

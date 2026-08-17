@@ -13,7 +13,11 @@ import type { DeclarationMeta } from '../public/types.js';
  * @param indent - rule 起始缩进空格数，默认 0。
  * @returns 使用两空格 declaration 缩进的标准 CSS。
  */
-export function renderRule(selector: string, declarations: DeclarationMeta[], indent = 0): string {
+export function renderRule(
+  selector: string,
+  declarations: readonly Readonly<DeclarationMeta>[],
+  indent = 0
+): string {
   const baseIndent = ' '.repeat(indent);
   const declarationIndent = ' '.repeat(indent + 2);
   const lines = [`${baseIndent}${selector} {`];

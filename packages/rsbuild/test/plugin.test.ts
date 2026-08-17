@@ -1,7 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
-import { pluginSemanticAtomicCss } from '../src/plugin.js';
+import { pluginSemanticAtomicCss, resolveCoreOptions } from '../src/plugin.js';
 
 describe('pluginSemanticAtomicCss options', () => {
+  it.each([
+    ['dev 默认', {}, true, { strategy: 'readable', prefix: undefined }],
+    ['build 默认', {}, false, { strategy: 'compact', prefix: undefined }],
+    ['dev 显式 hash', { className: { strategy: 'hash' as const } }, true, { strategy: 'hash', prefix: undefined }],
+    ['build 显式 readable', { className: { strategy: 'readable' as const } }, false, { strategy: 'readable', prefix: undefined }],
+    ['build 显式 compact', { className: { strategy: 'compact' as const } }, false, { strategy: 'compact', prefix: undefined }],
+    ['build 只显式 prefix', { className: { prefix: 'P' } }, false, { strategy: 'compact', prefix: 'P' }],
+    ['dev 显式空 prefix', { className: { prefix: '' } }, true, { strategy: 'readable', prefix: '' }]
+  ])('%s 的 className 环境默认与显式覆盖保持兼容', (_name, core, isDev, expected) => {
+    expect(resolveCoreOptions(core, isDev).className).toEqual(expected);
+  });
+
   it('为当前未支持的 strict mode fail fast', () => {
     expect(() => pluginSemanticAtomicCss({ diagnostics: { strict: true } })).toThrow(
       /unsupported-feature feature=diagnostics\.strict/

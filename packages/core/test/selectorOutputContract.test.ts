@@ -13,6 +13,8 @@ import { createTestScope } from './helpers.js';
 type RemovedAtomicKeyInput = import('../src/index.js').AtomicKeyInput;
 // @ts-expect-error selector 分析已收口为内部 rewrite plan，不应重新出现在 public surface。
 type RemovedSelectorAnalysis = import('../src/index.js').SelectorAnalysis;
+// @ts-expect-error borrowed reader 只是 Core 内部 finalization seam，不得从 package root 导出。
+type RemovedAtomicDeclarationReader = import('../src/index.js').AtomicDeclarationReader;
 
 const selectorCases = [
   {

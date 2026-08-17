@@ -1,7 +1,8 @@
 # Semantic Atomic CSS Plugin 技术方案文档
 
 本文档维护长期产品边界与总体架构。当前实现细节以 `packages/core/CORE_DESIGN.md`、各 package README
-和对应 acceptance 文档为准；阶段优先级统一维护在 Phase 8 backlog，不在本文重复保存动态任务清单。
+和对应 acceptance 文档为准；selector 候选状态统一维护在 Phase 8 backlog，
+本文不重复保存动态任务清单。
 
 ## 1. 背景与目标
 
@@ -492,6 +493,11 @@ core 可以保持为通用 CSS transform engine，但这只是架构边界，不
 
 其中第 2 到第 9 步属于 core 可复用的 CSS transform 能力；第 1、10、11、12、13 步由具体
 CSS Modules adapter / integration layer 负责组织。
+
+atomic class name 提供 `readable`、`hash`、`compact` 三种策略。Core 直接默认保持
+`readable + "_"`；Vite/Rsbuild 在 dev 使用该可读默认，在 build 使用无 prefix、基于完整
+canonical atomic key 的 32-bit / 固定 7 字符 lower-base36 `compact`。显式 `hash` 和 prefix 行为保持兼容，
+不同 key 的命名碰撞仍由 registry 追加稳定 suffix 消解。
 
 ---
 
@@ -1851,8 +1857,9 @@ descriptor、跨 module 连接图或 adapter grammar。
 - `docs/phase-8-capability-hardening-backlog.md`
 
 本阶段不引入 JSX/TSX usage evidence、通用 specificity/attribute overlap solver、descriptor schema
-版本或 adapter grammar 复制。未来扩 operator、flag、namespace、组合结构或 `[class...]` 前，
-必须重新给出 DOM mutation 与 cascade 等价证据。
+版本或 adapter grammar 复制。`SEL-04` 至 `SEL-09` 的所有未开放 selector 扩展当前持续
+deferred。未来扩 operator、flag、namespace、
+组合结构或 `[class...]` 前，必须重新给出 DOM mutation 与 cascade 等价证据。
 
 ---
 

@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createTransformer, transformCss } from '../src/index.js';
+import { AtomicRegistry } from '../src/registry/AtomicRegistry.js';
 import { createTestScope } from './helpers.js';
 
 describe('transformCss fixtures', () => {
@@ -495,6 +496,174 @@ describe('transformCss fixtures', () => {
     });
     expect(manifest.classes['second.css::link']).toMatchObject({
       suggestedClassName: 's_link _selector_q0dmug_color_red'
+    });
+  });
+
+  it('finalization 使用 borrowed visitor 且按 material 的 getter 顺序重用轻量缓存', () => {
+    const visitBorrowed = vi.spyOn(AtomicRegistry.prototype, 'visitBorrowed');
+    const list = vi.spyOn(AtomicRegistry.prototype, 'list');
+
+    try {
+      const transformer = createTransformer();
+      transformer.transformCss({
+        id: 'visits.css',
+        css: '.button { color: red; }',
+        scope: createTestScope()
+      });
+      visitBorrowed.mockClear();
+      list.mockClear();
+
+      transformer.getReport();
+      expect(visitBorrowed).toHaveBeenCalledTimes(1);
+      transformer.getAtomicCss();
+      expect(visitBorrowed).toHaveBeenCalledTimes(2);
+      transformer.getReport();
+      expect(visitBorrowed).toHaveBeenCalledTimes(2);
+      transformer.getManifest();
+      transformer.getManifest();
+      expect(visitBorrowed).toHaveBeenCalledTimes(4);
+      expect(list).not.toHaveBeenCalled();
+    } finally {
+      visitBorrowed.mockRestore();
+      list.mockRestore();
+    }
+  });
+
+  it('隔离单次 result、manifest 与 report 的所有可变嵌套结构', () => {
+    const transformer = createTransformer();
+    const result = transformer.transformCss({
+      id: 'isolation.css',
+      css: '.label { color: red; } .card .button { opacity: 0.5; }',
+      scope: createTestScope()
+    });
+    const className = result.atomic[0]!.className;
+
+    result.atomic[0]!.selector.css = '.mutated';
+    result.atomic[0]!.declaration.prop = 'mutated';
+    result.atomic[0]!.declaration.source!.id = 'mutated.css';
+    result.atomic[0]!.context.media = 'mutated';
+    result.atomic[0]!.sources[0]!.id = 'mutated.css';
+    result.manifest.atomic[className]!.selector.identity = 'mutated';
+    result.manifest.atomic[className]!.declaration.source!.line = 999;
+    result.manifest.atomic[className]!.context.supports = 'mutated';
+    result.manifest.atomic[className]!.sources[0]!.column = 999;
+    result.manifest.classes['isolation.css::label']!.atomicClassNames.push('mutated');
+    result.classes.label!.atomicClassNames.push('mutated');
+    result.diagnostics[0]!.source!.id = 'mutated.css';
+    result.report.summary.files = 999;
+    result.report.size.beforeCssBytes = 999;
+    result.report.diagnostics[0]!.message = 'mutated';
+
+    expect(transformer.getAtomicCss()).toContain(`.${className} {\n  color: red;\n}`);
+    const manifest = transformer.getManifest();
+    expect(manifest.atomic[className]).toMatchObject({
+      selector: { identity: '.__GSS_ANCHOR__', css: `.${className}` },
+      declaration: { prop: 'color', source: { id: 'isolation.css' } },
+      context: {},
+      sources: [{ id: 'isolation.css' }]
+    });
+    expect(manifest.classes['isolation.css::label']!.atomicClassNames).toEqual([className]);
+
+    const report = transformer.getReport();
+    expect(report.summary.files).toBe(1);
+    expect(report.size.beforeCssBytes).not.toBe(999);
+    expect(report.diagnostics[0]).toMatchObject({
+      message: expect.not.stringContaining('mutated'),
+      source: { id: 'isolation.css' }
+    });
+
+    manifest.atomic[className]!.selector.css = '.also-mutated';
+    manifest.atomic[className]!.declaration.source!.id = 'also-mutated.css';
+    manifest.atomic[className]!.context.media = 'also-mutated';
+    manifest.atomic[className]!.sources[0]!.id = 'also-mutated.css';
+    manifest.classes['isolation.css::label']!.atomicClassNames.push('also-mutated');
+    report.summary.files = 888;
+    report.size.afterAtomicCssBytes = 888;
+    report.diagnostics[0]!.source!.id = 'also-mutated.css';
+
+    expect(transformer.getManifest().atomic[className]).toMatchObject({
+      selector: { css: `.${className}` },
+      declaration: { source: { id: 'isolation.css' } },
+      context: {},
+      sources: [{ id: 'isolation.css' }]
+    });
+    expect(transformer.getManifest().classes['isolation.css::label']!.atomicClassNames).toEqual([
+      className
+    ]);
+    expect(transformer.getReport()).toMatchObject({
+      summary: { files: 1 },
+      diagnostics: [{ source: { id: 'isolation.css' } }]
+    });
+    expect(transformer.getReport().size.afterAtomicCssBytes).not.toBe(888);
+  });
+
+  it('每次 transform 进入都失效 finalization cache，覆盖新 key、复用、空输入、parse error 和抛错', () => {
+    const transformer = createTransformer();
+    transformer.transformCss({
+      id: 'initial.css',
+      css: '.initial { color: red; }',
+      scope: createTestScope()
+    });
+    transformer.getAtomicCss();
+    transformer.getManifest();
+    transformer.getReport();
+
+    transformer.transformCss({
+      id: 'new-key.css',
+      css: '.newKey { font-size: 16px; }',
+      scope: createTestScope()
+    });
+    expect(transformer.getAtomicCss()).toContain('font-size: 16px');
+    expect(transformer.getManifest().atomic['_selector_q0dmug_font-size_16px']).toBeDefined();
+    expect(transformer.getReport().summary.atomicDeclarations).toBe(2);
+
+    transformer.transformCss({
+      id: 'reuse.css',
+      css: '.reuse { color: red; }',
+      scope: createTestScope()
+    });
+    expect(
+      transformer.getManifest().atomic._selector_q0dmug_color_red.sources.map((source) => source.id)
+    ).toEqual(['initial.css', 'reuse.css']);
+    expect(transformer.getReport().summary.reusedAtomicDeclarations).toBe(1);
+
+    transformer.transformCss({ id: 'empty.css', css: '', scope: createTestScope() });
+    expect(transformer.getReport().summary.files).toBe(4);
+
+    transformer.transformCss({
+      id: 'parse-error.css',
+      css: '.broken { color: red',
+      scope: createTestScope()
+    });
+    expect(transformer.getReport()).toMatchObject({
+      summary: { files: 5, atomicDeclarations: 2 },
+      diagnostics: [expect.objectContaining({ code: 'parse-error', id: 'parse-error.css' })]
+    });
+
+    transformer.getAtomicCss();
+    transformer.getManifest();
+    transformer.getReport();
+    expect(() =>
+      transformer.transformCss({
+        id: 'throw.css',
+        css: '.partial { padding: 7px; } .boom { margin: 9px; }',
+        scope: {
+          resolveClassName(className) {
+            if (className === 'boom') {
+              throw new Error('scope boom');
+            }
+            return `s_${className}`;
+          }
+        }
+      })
+    ).toThrow('scope boom');
+
+    expect(transformer.getAtomicCss()).toContain('padding: 7px');
+    expect(transformer.getManifest().atomic._selector_q0dmug_padding_7px!.sources).toEqual([
+      expect.objectContaining({ id: 'throw.css' })
+    ]);
+    expect(transformer.getReport()).toMatchObject({
+      summary: { files: 5, atomicDeclarations: 3, reusedAtomicDeclarations: 1 }
     });
   });
 });

@@ -376,19 +376,32 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
         injectCssIntoHtml(bundle, buildCssFileName);
       }
 
-      if (resolvedOptions.manifest.enabled) {
+      const manifest = resolvedOptions.manifest.enabled || resolvedOptions.report.enabled
+        ? stabilizeManifest(buildTransformer.getManifest())
+        : undefined;
+
+      if (resolvedOptions.manifest.enabled && manifest) {
         this.emitFile({
           type: 'asset',
           fileName: resolvedOptions.manifest.filename,
-          source: JSON.stringify(stabilizeManifest(buildTransformer.getManifest()), null, 2)
+          source: JSON.stringify(manifest, null, 2)
         });
       }
 
-      if (resolvedOptions.report.enabled) {
+      if (resolvedOptions.report.enabled && manifest) {
         this.emitFile({
           type: 'asset',
           fileName: resolvedOptions.report.filename,
-          source: JSON.stringify(createBuildReport(buildTransformer, buildResults, css), null, 2)
+          source: JSON.stringify(
+            createBuildReport(
+              stabilizeReport(buildTransformer.getReport()),
+              manifest,
+              buildResults,
+              css
+            ),
+            null,
+            2
+          )
         });
       }
     },
@@ -946,14 +959,24 @@ function collectAtomicDeclarations(results: Iterable<CssModuleTransformResult>):
   return [...declarations.values()];
 }
 
+/** Vite adapter 内部 atomic CSS 序列化模式；不扩展 Core 公共输出契约。 */
+type AtomicCssSerialization = 'readable' | 'production';
+
 /**
  * 渲染 adapter 聚合的 atomic declarations。
  *
  * @param declarations - 尚未执行 adapter 级 cascade 排序的 declarations。
- * @returns 基础规则优先、条件规则随后并以空行分隔的 CSS。
+ * @param serialization - dev 可读或 build 结构紧凑序列化。
+ * @returns 使用同一排序与 wrapper 决策渲染的 CSS。
  */
-function renderAtomicDeclarations(declarations: AtomicDeclaration[]): string {
-  return orderAtomicDeclarations(declarations).map((declaration) => renderAtomicDeclaration(declaration)).join('\n\n');
+function renderAtomicDeclarations(
+  declarations: AtomicDeclaration[],
+  serialization: AtomicCssSerialization = 'readable'
+): string {
+  const separator = serialization === 'production' ? '' : '\n\n';
+  return orderAtomicDeclarations(declarations)
+    .map((declaration) => renderAtomicDeclaration(declaration, serialization))
+    .join(separator);
 }
 
 /**
@@ -1052,11 +1075,15 @@ function readSimpleWidthBreakpoint(media: string | undefined): { kind: 'min' | '
  * 渲染单条 atomic declaration。
  *
  * @param declaration - 带 selector descriptor、declaration 和 context 的 atomic record。
+ * @param serialization - 结构输出模式。
  * @returns 使用 Core 预渲染 selector，并恢复 supports 和 media 的 CSS。
  */
-function renderAtomicDeclaration(declaration: AtomicDeclaration): string {
-  const rule = renderCssRule(declaration.selector.css, declaration.declaration);
-  return wrapAtomicAtRules(rule, declaration);
+function renderAtomicDeclaration(
+  declaration: AtomicDeclaration,
+  serialization: AtomicCssSerialization
+): string {
+  const rule = renderCssRule(declaration.selector.css, declaration.declaration, serialization);
+  return wrapAtomicAtRules(rule, declaration, serialization);
 }
 
 /**
@@ -1064,12 +1091,18 @@ function renderAtomicDeclaration(declaration: AtomicDeclaration): string {
  *
  * @param selector - atomic selector。
  * @param declaration - 要输出的 declaration metadata。
- * @returns 与 core renderRule 格式一致的 rule。
+ * @param serialization - 结构输出模式。
+ * @returns 保持 selector/property/value 原字节的 rule。
  */
 function renderCssRule(
   selector: string,
-  declaration: AtomicDeclaration['declaration']
+  declaration: AtomicDeclaration['declaration'],
+  serialization: AtomicCssSerialization
 ): string {
+  if (serialization === 'production') {
+    return `${selector} {\n  ${declaration.prop}: ${declaration.value}${declaration.important ? '!important' : ''};}`;
+  }
+
   return [
     `${selector} {`,
     `  ${declaration.prop}: ${declaration.value}${declaration.important ? ' !important' : ''};`,
@@ -1082,17 +1115,26 @@ function renderCssRule(
  *
  * @param css - 已渲染 atomic rule。
  * @param declaration - 提供 supports/media context 的 atomic record。
+ * @param serialization - 结构输出模式。
  * @returns 先 supports、后 media 包装的 CSS。
  */
-function wrapAtomicAtRules(css: string, declaration: AtomicDeclaration): string {
+function wrapAtomicAtRules(
+  css: string,
+  declaration: AtomicDeclaration,
+  serialization: AtomicCssSerialization
+): string {
   let output = css;
 
   if (declaration.context.supports) {
-    output = `@supports ${declaration.context.supports} {\n${indentCssBlock(output)}\n}`;
+    output = serialization === 'production'
+      ? `@supports ${declaration.context.supports}{${output}}`
+      : `@supports ${declaration.context.supports} {\n${indentCssBlock(output)}\n}`;
   }
 
   if (declaration.context.media) {
-    output = `@media ${declaration.context.media} {\n${indentCssBlock(output)}\n}`;
+    output = serialization === 'production'
+      ? `@media ${declaration.context.media}{${output}}`
+      : `@media ${declaration.context.media} {\n${indentCssBlock(output)}\n}`;
   }
 
   return output;
@@ -1116,7 +1158,7 @@ function indentCssBlock(css: string): string {
  *
  * @param options - GSS resolved options。
  * @param command - Vite serve 或 build command。
- * @returns build 默认 hash、serve 默认 readable 的 core options。
+ * @returns build 默认 compact、serve 默认 readable 的 core options。
  */
 function resolveCoreOptions(
   options: ResolvedSemanticAtomicCssOptions,
@@ -1125,7 +1167,7 @@ function resolveCoreOptions(
   return {
     ...options.core,
     className: {
-      strategy: options.core.className?.strategy ?? (command === 'build' ? 'hash' : 'readable'),
+      strategy: options.core.className?.strategy ?? (command === 'build' ? 'compact' : 'readable'),
       prefix: options.core.className?.prefix
     }
   };
@@ -1139,7 +1181,7 @@ function resolveCoreOptions(
  */
 function createBuildCss(buildResults: Map<string, CssModuleTransformResult>): string {
   const results = getStableBuildResults(buildResults);
-  const atomicCss = renderAtomicDeclarations(collectAtomicDeclarations(results));
+  const atomicCss = renderAtomicDeclarations(collectAtomicDeclarations(results), 'production');
   const preservedCss = results.map((result) => result.transform.css.preserved);
   return joinCss([atomicCss, ...preservedCss]);
 }
@@ -1163,18 +1205,18 @@ function getStableBuildResults(
 /**
  * 创建 build report 与 analyzer analysis。
  *
- * @param transformer - 当前 build 的 core transformer。
+ * @param report - 已稳定化且只读取一次的 Core 聚合 report。
+ * @param manifest - 当前 finalization 共享的稳定 manifest snapshot。
  * @param buildResults - 当前 build module results。
  * @param outputCss - 资源 placeholder 已解析的最终 CSS。
  * @returns 可直接 JSON 序列化的稳定 report。
  */
 function createBuildReport(
-  transformer: Transformer,
+  report: TransformReport,
+  manifest: TransformManifest,
   buildResults: Map<string, CssModuleTransformResult>,
   outputCss: string
 ): TransformReport & { analysis: BuildAnalysis } {
-  const report = stabilizeReport(transformer.getReport());
-  const manifest = stabilizeManifest(transformer.getManifest());
   const modules = getStableBuildResults(buildResults).map((result) => ({
     id: result.id,
     sourceCss: result.sourceCss,
@@ -1222,10 +1264,13 @@ function createViteDevReport(
     });
   }
 
+  const report = stabilizeReport(transformer.getReport());
+  const manifest = stabilizeManifest(transformer.getManifest());
+
   return createDevReportEnvelope('vite', [
     {
       name: 'client',
-      report: createBuildReport(transformer, devResults, createDevCss(devResults))
+      report: createBuildReport(report, manifest, devResults, createDevCss(devResults))
     }
   ]);
 }

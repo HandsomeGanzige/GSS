@@ -54,6 +54,47 @@ describe('semanticAtomicCss dev plugin', () => {
     }
   });
 
+  it('dev 保持 readable rule、空行分隔与 supports-then-media 条件套层', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gss-vite-dev-readable-'));
+    const srcDir = join(root, 'src');
+    const pluginOption = semanticAtomicCss({ core: { className: { strategy: 'readable' } } });
+    const pipelinePlugin = readPipelinePlugin(pluginOption);
+    tempRoots.push(root);
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(root, 'index.html'), '<div id="root"></div>');
+    await writeFile(
+      join(srcDir, 'Button.module.css'),
+      [
+        '.button { color: red; }',
+        '.button:hover { background: blue; }',
+        '@supports (display: grid) { .supports { display: grid; } }',
+        '@media (min-width: 600px) { .media { display: grid; } }',
+        '@media (min-width: 600px) {',
+        '  @supports (display: grid) { .both:hover { color: red; } }',
+        '}'
+      ].join('\n')
+    );
+
+    const server = await createViteServer(root, pluginOption);
+
+    try {
+      const moduleResult = await server.transformRequest('/src/Button.module.css');
+      const rawCss = await loadRawVirtualCss(pipelinePlugin, readCssImport(moduleResult?.code));
+
+      expect(rawCss).toBe(
+        [
+          '._selector_q0dmug_color_red {\n  color: red;\n}',
+          '._selector_qf5xvc_background_blue:hover {\n  background: blue;\n}',
+          '@supports (display: grid) {\n  ._supports_1gj8cx_selector_q0dmug_display_grid {\n    display: grid;\n  }\n}',
+          '@media (min-width: 600px) {\n  ._media_1ltocy_selector_q0dmug_display_grid {\n    display: grid;\n  }\n}',
+          '@media (min-width: 600px) {\n  @supports (display: grid) {\n    ._media_1ltocy_supports_1gj8cx_selector_qf5xvc_color_red:hover {\n      color: red;\n    }\n  }\n}'
+        ].join('\n\n')
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
   it('显式开启 devtools 后提供当前 report API 并注入隔离 overlay', async () => {
     const root = await mkdtemp(join(tmpdir(), 'gss-vite-devtools-'));
     const srcDir = join(root, 'src');

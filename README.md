@@ -150,12 +150,16 @@ visual 对比 dev/preview、桌面/窄屏、交互、lazy chunk，并修改 Sass
 
 ## Vite adapter 当前边界
 
+- class name 在 dev 默认 `readable + "_"`，build 默认无 prefix 的 32-bit / 7 字符 lower-base36 `compact`；
+  显式 `readable` / `hash` / `compact` / `prefix` 始终优先，既有显式 `hash` 精确输出不变。
 - 默认处理 `.module.css`、`.module.scss` 和 `.module.less`，不处理普通 CSS/SCSS/Less。
 - safe selector 支持单 local anchor 的基础 class、五种 pseudo class、独立 before/after pseudo element，
   以及一个 attribute presence / exact equality；全分支安全且不含 pseudo element arm 的 selector list
   也可以转换。其他 operator、flag、namespace、多个 attribute、复合结构及同 class 顺序风险继续 fallback。
 - adapter 位于 Vite 6 `vite:css` 与 `vite:css-post` 之间，不单独调用 `preprocessCSS`。
 - tokens 由 Vite `css.modules.getJSON` 捕获并原地增强；Vite 继续生成默认 JS exports。
+- dev 保持 readable atomic CSS；build 由 adapter 对结构化 declaration 使用生产 grammar，只收紧
+  rule/wrapper 结构字节，不改写 selector、property 或 value。
 - `composes`、`:import(...)`、`:export`、`@value`、预处理器和资源由 Vite 原生管线处理。
 - 包含 `url()` 的 class 及其 `composes` 闭包完整保留为 fallback，build 在 generate 阶段解析最终资源 URL。
 - manifest/report 默认不输出；显式开启 report 后附带 analyzer `analysis`。
@@ -165,9 +169,13 @@ visual 对比 dev/preview、桌面/窄屏、交互、lazy chunk，并修改 Sass
 
 ## Rsbuild adapter 当前边界
 
+- class name 在 dev 默认 `readable + "_"`，build 默认无 prefix 的 32-bit / 7 字符 lower-base36 `compact`；
+  显式 `readable` / `hash` / `compact` / `prefix` 与 Vite 保持同一兼容矩阵。
 - 默认处理 `.module.css`、`.module.scss` 和 `.module.less`，复用 Rsbuild 原生 css-loader 结果。
 - SEL-02 attribute selector 直接复用 Core descriptor 与 class-wide cascade guard；adapter 不解析 selector
   identity，也不自行重建 attribute selector。
+- build/dev snapshot 保持 readable renderer；Rsbuild production 最终 atomic asset 由既有 native
+  minifier 收紧，adapter 不引入第二套 production serializer。
 - build 保持 extraction；dev 使用 Rsbuild 官方 style injection 维持模块图与 HMR，并把目标 CSS Modules
   快照聚合到单一共享 style owner，按稳定 source order 输出且按 atomic key 去重；这同时避免 Rspack 2.1
   增量编译的嵌套 `importModule` panic 和后加载模块重复同名原子类造成的 cascade 覆盖。
@@ -209,7 +217,8 @@ visual 对比 dev/preview、桌面/窄屏、交互、lazy chunk，并修改 Sass
   [descriptor clean replacement](docs/phase-8-selector-descriptor-migration-plan.md)
 
 `FOUND-04` 多 local selector foundation 已按双 Pilot 门禁评估为 `closed-no-go`；相关 shadow prototype
-已回滚，`SEL-04` / `SEL-05` / `SEL-06` 继续 deferred。本结论不授权 production rewrite，正式 Core
+已回滚，`SEL-04` 至 `SEL-09` 的所有未开放 selector 扩展继续 deferred。本结论不授权
+production rewrite，正式 Core
 仍保持 single-local anchor safe selector 边界与 unsafe scoped fallback。
 
 `verify:phase*` 和 `dev:phase*` 等阶段命令已退役。历史 tracking 文档仍保留当时实际执行记录，

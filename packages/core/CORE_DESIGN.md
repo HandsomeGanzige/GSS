@@ -13,7 +13,7 @@ selector identity 只使用具体语义命名。
 
 当前 Core 已实现以下能力：
 
-- 新 public API：`transformCss(input, options)` 与 `createTransformer(options)`。
+- public API：`transformCss(input, options)` 与 `createTransformer(options)`。
 - public types、IR、selector analysis、declaration analysis、atomic registry、CSS render、
   manifest 和 report。
 - selector safe 范围：单个 selector arm 可为单 source class、可选一个支持的 pseudo class、
@@ -49,7 +49,6 @@ selector identity 只使用具体语义命名。
   mutation 前 fail fast，不原样输出未 scoped CSS，也不静默丢弃 rule。
 - resolved class 是 class mapping 的固定 DOM hook，`suggestedClassName` 始终以它开头；已删除
   可关闭该行为的旧选项，runtime 继续传入旧字段会明确报错。
-
 当前明确不实现：
 
 - 旧 `compileCssModule` API。
@@ -81,7 +80,6 @@ corepack pnpm --filter @semantic-atomic-css/core build
   declaration 和聚合 manifest/report。
 - `createTransformer()` 当前不支持同一 `id` 更新或失效；dev/HMR adapter 必须额外设计
   `invalidate(id)` 或重建 transformer。
-
 ### 输入边界契约
 
 - core 只接收标准 CSS 字符串和 `ScopeStrategy`。
@@ -182,13 +180,34 @@ corepack pnpm --filter @semantic-atomic-css/core build
 
 - 单次 `TransformCssResult` 只描述当前输入的 atomic CSS、preserved CSS、classes、manifest 和 report 快照。
 - `createTransformer().getAtomicCss()` 输出跨文件去重后的 atomic CSS。
-- `createTransformer().getManifest()` 的 atomic 部分来自 registry 快照，复用 atomic class 必须保留所有 sources；
+- `createTransformer().getManifest()` 的 atomic 部分直接从 registry 同步 borrowed visitor
+  投影，不构造 `registry.list()` 中间快照，也不缓存可变 manifest；每次返回都是
+  完整独立对象。复用 atomic class 必须保留所有 sources；
   classes 部分来自每次 transform 的 class manifest 合并。
 - `createTransformer().getReport()` 应使用全局去重后的 atomic CSS size，并重新计算
   `estimatedTotalDiffBytes`，避免跨文件复用时 size 字段内部不一致。
+- finalization cache 按每次 `transformCss()` 进入统一失效，包括新 key、仅复用、
+  空输入、parse error 和抛错。`getReport()` 只缓存不含 declaration 引用的 canonical
+  report 与 atomic CSS bytes；report-only 路径使用单 rule byte sink，不保留完整 CSS string。
+- `getAtomicCss()` 只在实际调用时生成并缓存 immutable string。report-first 后再读 CSS
+  允许第二次 registry visit，这是避免 report-only 路径保留 CSS string 的明确内存取舍。
+- 单次 result 在追加聚合状态前先深复制 report/class manifest；公开 report 每次深复制
+  summary、size、diagnostics 和 diagnostic source。外部修改 result 或 getter 返回值不得污染聚合状态。
 - manifest atomic entry 包含 selector descriptor，并以 atomic class name 索引。
 - manifest/report 是内存结构，core 不负责写入磁盘或决定输出路径；
   当前仓库不为它们增加 schema version 或兼容 reader。
+
+### Atomic class name 契约
+
+- Core 直接调用默认使用 `readable` 与 `_` prefix；integration layer 决定 dev/build 环境策略。
+- `readable`、`hash`、`compact` 共用完整 canonical atomic key，不删减 selector、declaration 或条件上下文。
+- 既有 `hash` 保持 32-bit FNV-1a、8 位 base36 与默认 `_` prefix 的精确输出，不承担默认切换。
+- `compact` 复用 32-bit FNV-1a fingerprint，把 7 位 base36 的首位 `0 | 1` 可逆映射为
+  `a | b`，输出固定 7 字符 `[ab][0-9a-z]{6}`；未显式配置 prefix 时使用空串。
+- prefix 在 strategy 确定后解析；显式空串、自定义 prefix 与数字/负数字开头的既有修复语义保持不变。
+- `AtomicRegistry` 仍是不同 key 的 collision 正确性边界：基名冲突时追加既有稳定 suffix 并继续探测。
+  append-only registry 对相同注册序列可复现，首次注册顺序仍决定 declaration 输出顺序。
+- Vite/Rsbuild 当前在 build 使用 `compact`，dev 使用 `readable`；显式 strategy/prefix 始终优先。
 
 ### 验收契约
 
@@ -198,7 +217,7 @@ Core 收口验收以以下测试为准：
   pseudo-element list fallback、unsafe mixed selector list、missing source class、combinator、compound class、
   tag/id/attribute/pseudo-element near-miss、unsupported pseudo、`:global`。
 - declaration 覆盖 custom property、`var(...)`、vendor prefix、`!important`。
-- atomizer 覆盖 selector-aware readable/hash class name、context key separation、class name collision、
+- atomizer 覆盖 selector-aware readable/hash/compact class name、32-bit lower-base36 编码向量、context key separation、class name collision、
   renderer 一致性与跨文件复用。
 - selector output contract 覆盖 base、五种 pseudo、exact attribute 与单-arm list descriptor 的
   identity/key/class/descriptor/CSS，media/supports/important、collision 和 descriptor 防御性 clone。
@@ -828,9 +847,14 @@ atomic registry 的职责：
 - 记录 source locations。
 - 保持首次出现顺序。
 - 支持跨文件复用。
-- 为最终 atomic CSS 输出提供稳定列表。
+- 为诊断/测试提供深防御性 `list()`，并为 finalization consumer 提供不对外导出的
+  同步 borrowed visitor；两者都保持 Map 首次插入顺序。
 - 选定最终 class name 后立即调用 selector renderer，只存储 `{ identity, css }` 纯数据。
 - key reuse 时用已有 class name 重新 render；与已存 CSS 不一致则 fail fast。
+
+borrowed visitor 只允许 renderer、manifest projector 和 CSS byte sink 在同步回调期间读取深只读
+view。consumer 不得 capture declaration、嵌套 source/context 引用、数组或 iterator；
+registry 始终是 declaration 对象图的唯一所有者。该 reader 不从 `src/index.ts` 或 package root 导出。
 
 长期设计中，registry 应由 `createTransformer()` 实例持有，以支持跨文件复用：
 
@@ -856,12 +880,12 @@ class name 策略长期不应绑定 dev / prod 概念，而应由 integration la
 
 ```ts
 type AtomicClassNameOptions = {
-  strategy: 'readable' | 'hash'
+  strategy: 'readable' | 'hash' | 'compact'
   prefix: string
 }
 ```
 
-Vite adapter 可以在 dev 时传 `readable`，在 build 时传 `hash`。
+Vite/Rsbuild adapter 在 dev 时传 `readable`，在 build 时传 `compact`；显式 `hash` 继续兼容。
 
 输出顺序规则：
 
@@ -869,7 +893,7 @@ Vite adapter 可以在 dev 时传 `readable`，在 build 时传 `hash`。
 - class mapping 内的 `atomicClassNames` 按 declaration 原始顺序追加。
 - 不全局按 key 排序，避免破坏 shorthand / longhand cascade。
 
-class name collision 必须处理。无论 readable 还是 hash strategy，如果生成出的 class name 已被不同
+class name collision 必须处理。无论 readable、hash 还是 compact strategy，如果生成出的 class name 已被不同
 key 使用，都应追加 hash suffix 或采用等价方式消除冲突。
 
 ### 11. CSS render 与 preserved CSS 输出追求稳定和保守正确性

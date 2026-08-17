@@ -42,8 +42,12 @@ Phase 3/4 的 Route B 与手动 `preprocessCSS` Route A 继续作为历史设计
   Vite asset reference。`publicDir` 内部占位符和自定义 `renderBuiltUrl` 当前 fail fast。
 - dev/build 聚合 renderer 只消费 atomic declaration 的 `selector.css`，不解析 identity，也不自行拼接
   class/pseudo；declaration、important、media/supports、key 去重和断点顺序仍由 Vite adapter 管理。
+  两种格式共用这些顺序与 wrapper 决策，dev 输出 readable，build 只对结构分隔字节使用
+  compression-aware production grammar，不改写任一 selector/declaration/context 字段。
 - manifest 显式复制 selector descriptor；build analysis conflict 保留 `selectorIdentity`；dev report
   使用无 `schemaVersion` 的当前 `adapter/status/environments` envelope。
+- build metadata 在 `generateBundle` 内惰性收集。manifest/report 同时关闭时不读取 Core manifest；
+  任一开启时只取得并稳定化一次，同一 snapshot 同时供 manifest asset 与 report analyzer 使用。
 - 包入口只导出 `semanticAtomicCss`，不保留旧 factory alias。
 
 详细结论与验收见 `docs/phase-5-css-modules-preprocessor-plan.md` 和
@@ -170,7 +174,7 @@ semanticAtomicCss({
   };
   core?: {
     className?: {
-      strategy?: 'readable' | 'hash';
+      strategy?: 'readable' | 'hash' | 'compact';
       prefix?: string;
     };
   };
@@ -196,7 +200,8 @@ semanticAtomicCss({
 - `modules.localsConvention` 第一版默认 `asIs`。
 - `modules.namedExports` 第一版默认 `false`。
 - resolved semantic class 始终保留；不提供关闭选项。
-- dev 默认 readable atomic class name，build 默认 hash atomic class name，可通过 `core.className` 显式覆盖。
+- dev 默认 `readable + "_"` atomic class name，build 默认无 prefix 的 32-bit / 7 字符 lower-base36 `compact`；
+  可通过 `core.className` 显式覆盖，既有 `hash` 精确输出保持兼容。
 - `report.enabled` 默认 `false`，显式开启后默认文件名 `semantic-atomic-report.json`。
 - `manifest.enabled` 默认 `false`，显式开启后默认文件名 `semantic-atomic-manifest.json`。
 - `diagnostics.warn` 默认 `true`。

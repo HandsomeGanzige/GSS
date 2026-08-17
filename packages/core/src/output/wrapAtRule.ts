@@ -12,7 +12,7 @@ import type { CssTransformContext } from '../public/types.js';
  * @param context - 可能包含 media/supports 的转换上下文。
  * @returns 先 supports、后 media 包装并稳定缩进的 CSS。
  */
-export function wrapAtRule(css: string, context: CssTransformContext): string {
+export function wrapAtRule(css: string, context: Readonly<CssTransformContext>): string {
   let output = css;
 
   if (context.supports) {

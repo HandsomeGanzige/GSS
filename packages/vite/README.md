@@ -58,6 +58,19 @@ build 默认生成 `assets/semantic-atomic.css`。显式开启后还会生成：
 - `semantic-atomic-manifest.json`
 - `semantic-atomic-report.json`
 
+build metadata 在同一个 `generateBundle` 中按需收集：两项都关闭时不读取 Core manifest；只开启
+manifest 或 report 时各读取一次；两项同时开启时，manifest asset 与 report analyzer 共用同一份
+已稳定化 snapshot，避免对大型 manifest 重复投影和复制。
+
+class name 在 dev 默认使用可读的 `readable + "_"`，build 默认使用无 prefix 的 32-bit / 7 字符 lower-base36
+`compact`；通过 `core.className` 显式指定 `readable`、`hash`、`compact` 或 `prefix` 时始终覆盖环境默认。
+既有显式 `hash` 仍输出 `_` 加 8 位 base36。
+
+dev atomic CSS 继续使用可读 rule、空行分隔和缩进 wrapper。build 的独立 atomic asset 不会
+重新进入 Vite 原生 CSS minifier，因此 adapter 使用内部 production serializer：保留 `selector` / `prop` /
+`value` / context 原字节和既有顺序，只收紧 rule 末尾、`!important`、entry separator 与 at-rule wrapper。
+该格式不分组、合并、重排或 canonicalize CSS，report `analysis.size.after*CssBytes` 按实际写盘 asset 计算。
+
 build 聚合顺序、基础/条件规则分区和简单宽度断点顺序属于 cascade 正确性约束，不是格式化细节。
 聚合 renderer 直接使用 core 为每条 atomic declaration 预渲染的 `selector.css`，不解析
 `selector.identity`，也不自行拼接 class 或 pseudo。manifest 的 atomic entry 保留必填

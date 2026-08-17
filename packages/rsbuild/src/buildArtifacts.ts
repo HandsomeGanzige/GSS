@@ -32,6 +32,22 @@ export type BuildArtifactSnapshot = {
   transforms: Array<{ input: CompiledCssInput; transform: TransformCssResult }>;
 };
 
+/** build 调用方实际需要的 metadata；report 分析会在内部共享 manifest。 */
+export type BuildArtifactMetadataSelection = {
+  manifest: boolean;
+  report: boolean;
+};
+
+/** 按配置生成的 build 快照，未请求的 metadata 不会触发 Core finalization。 */
+export type SelectedBuildArtifactSnapshot = Omit<
+  BuildArtifactSnapshot,
+  'manifest' | 'outputCss' | 'report'
+> & {
+  outputCss?: string;
+  manifest?: TransformManifest;
+  report?: TransformReport & { analysis: BuildAnalysis };
+};
+
 /** 创建空 environment state。 */
 export function createEnvironmentBuildState(isDev: boolean): EnvironmentBuildState {
   return {
@@ -82,7 +98,17 @@ export function recordRuntimeBridgeResult(state: EnvironmentBuildState, result: 
 export function createBuildArtifactSnapshot(
   state: EnvironmentBuildState,
   coreOptions: TransformCssOptions
-): BuildArtifactSnapshot {
+): BuildArtifactSnapshot;
+export function createBuildArtifactSnapshot(
+  state: EnvironmentBuildState,
+  coreOptions: TransformCssOptions,
+  metadata: BuildArtifactMetadataSelection
+): SelectedBuildArtifactSnapshot;
+export function createBuildArtifactSnapshot(
+  state: EnvironmentBuildState,
+  coreOptions: TransformCssOptions,
+  metadata?: BuildArtifactMetadataSelection
+): BuildArtifactSnapshot | SelectedBuildArtifactSnapshot {
   const transformer = createTransformer(coreOptions);
   const inputs = [...state.inputs.values()].sort((left, right) => compareText(left.id, right.id));
   const transforms = inputs.map((input) => ({
@@ -98,9 +124,35 @@ export function createBuildArtifactSnapshot(
     })
   }));
   const atomicCss = renderAtomicDeclarations(collectAtomicDeclarations(transforms.map(({ transform }) => transform)));
-  const outputCss = joinCss([atomicCss, ...transforms.map(({ transform }) => transform.css.preserved)]);
-  const manifest = stabilizeManifest(transformer.getManifest());
-  const baseReport = stabilizeReport(transformer.getReport());
+  const includeManifest = metadata?.manifest ?? true;
+  const includeReport = metadata?.report ?? true;
+  const outputCss = includeReport
+    ? joinCss([atomicCss, ...transforms.map(({ transform }) => transform.css.preserved)])
+    : undefined;
+  const finalizedManifest = includeManifest || includeReport
+    ? stabilizeManifest(transformer.getManifest())
+    : undefined;
+  const report = includeReport && finalizedManifest && outputCss !== undefined
+    ? createAnalyzedReport(transformer.getReport(), finalizedManifest, transforms, outputCss)
+    : undefined;
+
+  return {
+    atomicCss,
+    transforms,
+    ...(outputCss !== undefined ? { outputCss } : {}),
+    ...(includeManifest && finalizedManifest ? { manifest: finalizedManifest } : {}),
+    ...(report ? { report } : {})
+  };
+}
+
+/** 只在 report 被请求时稳定 Core report 并运行 Analyzer。 */
+function createAnalyzedReport(
+  report: TransformReport,
+  manifest: TransformManifest,
+  transforms: Array<{ input: CompiledCssInput; transform: TransformCssResult }>,
+  outputCss: string
+): TransformReport & { analysis: BuildAnalysis } {
+  const baseReport = stabilizeReport(report);
   const modules = transforms.map(({ input, transform }) => ({
     id: input.id,
     sourceCss: input.scopedCss,
@@ -109,7 +161,8 @@ export function createBuildArtifactSnapshot(
     preservedCss: transform.css.preserved,
     diagnostics: transform.diagnostics
   }));
-  const report = {
+
+  return {
     ...baseReport,
     analysis: analyzeBuild({
       report: baseReport,
@@ -118,8 +171,6 @@ export function createBuildArtifactSnapshot(
       outputCss
     })
   };
-
-  return { atomicCss, outputCss, manifest, report, transforms };
 }
 
 /** 按首次出现的 atomic key 去重多个 module 结果。 */

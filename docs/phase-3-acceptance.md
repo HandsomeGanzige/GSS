@@ -40,6 +40,31 @@ GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Goo
 
 ## 当前验收结果
 
+### 2026-08-17 build metadata snapshot 去重
+
+- Vite build test 覆盖 disabled、manifest-only、report-only 与 manifest+report 四种配置；Core
+  `getManifest()` 调用次数分别为 `0 / 1 / 1 / 1`。
+- 两项同时开启时，manifest/report 原始 JSON 分别与单独开启时逐字节一致；Analyzer 输入、CSS asset、
+  schema 和稳定排序不变。
+- Vite Pilot 显式同时开启 manifest/report；实现前五次 semantic build wall time 中位数为 `0.88s`。
+  candidate 首组中位数为 `0.98s`，热态复跑中位数为 `0.89s`；全量构建噪声内无可证明的
+  wall-time 改善，因此性能结论只采用确定性的 getter `2 -> 1`，不宣称端到端提速。
+- Pilot CSS/manifest/report 分别为 `16149 / 541469 / 14190 B`，baseline/candidate SHA-256 均为
+  `c0f75e759793e205f11cf8447c8dd3a6c2e5590b2a69c60eb99d50f2695a6583`、
+  `32d05a725c31079053a46f0b17131e7fbd736cc3aea82ba13a97f22ee1e49bac`、
+  `5e66d8a040c18df944b7146267c8c281762092b627bb23632554e65d95b6d744`。
+- Vite package 4 files / 48 tests、typecheck/build、根 `pnpm verify` 和双 fixture static 全部通过。
+
+### 2026-08-17 production atomic CSS serializer
+
+- Vite package exact 契约覆盖 production base/pseudo/attribute/important、supports/media/both、无
+  entry separator、各 class-name strategy，以及 dev readable 空行和缩进 wrapper。
+- report `analysis.size.afterRawCssBytes/afterGzipCssBytes/afterBrotliCssBytes` 与实际
+  `assets/semantic-atomic.css` 重算结果精确一致；Core 公共 readable 输出不变。
+- fresh Vite Pilot baseline/candidate 的 atomic raw/gzip/brotli 从 `17276/4272/3726` 降至
+  `16149/4253/3710`，10 个 CSS+JS 总量从 `254644/80947/69886` 降至
+  `253517/80928/69870`；连续两次 candidate 的 14 个产物路径与 SHA-256 全等。
+
 ### 2026-07-28 SEL-03 selector list Vite 收口
 
 - production adapter 未新增 selector 解析、list 拼接或 cascade guard；继续通用消费 Core
@@ -218,8 +243,9 @@ pnpm verify:phase4:full
   GSS 显式 `modules` 配置重新启用或覆盖 Route A 的路径。
 - Vite adapter fallback 测试覆盖非导出 class selector 的 `non-exported-class` 保留策略。
 - analyzer 单元测试覆盖 unsafe 分布、体积估算、健康度 `risky` / `blocked` 状态。
-- Vite adapter build 测试覆盖 dev/build atomic class name 策略约定：dev 默认 readable，build 默认 hash，
-  且可通过 `core.className.strategy/prefix` 覆盖。
+- Vite adapter 测试覆盖 dev/build atomic class name 策略约定：dev 默认 `readable + "_"`，build 默认
+  无 prefix 的 32-bit / 7 字符 lower-base36 `compact`，且可通过 `core.className.strategy/prefix` 覆盖
+  readable/hash/compact/prefix。
 - Vite adapter build 测试覆盖显式开启 manifest/report 后的 source location 反查，包含 atomic source、
   class manifest id 和 diagnostic source。
 - Vite adapter dev transform 覆盖 virtual CSS id 编码，确保 atomic CSS 不会被 Vite CSS Modules 二次 scoped。

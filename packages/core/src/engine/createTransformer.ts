@@ -47,7 +47,7 @@ import {
   type InputClassPreservationReason,
   type InputClassPreservationPlan
 } from './planInputClassPreservation.js';
-import { renderAtomicCss } from '../output/renderAtomicCss.js';
+import { measureAtomicCssBytes, renderAtomicCss } from '../output/renderAtomicCss.js';
 import { renderPreservedCss } from '../output/renderPreservedCss.js';
 import { createManifest } from '../output/createManifest.js';
 import { createReport } from '../output/createReport.js';
@@ -85,6 +85,16 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
   const registry = new AtomicRegistry(resolvedOptions.className);
   const reports: TransformReport[] = [];
   let latestClassManifest: TransformManifest['classes'] = {};
+  let cachedAtomicCss: string | undefined;
+  let cachedAtomicCssBytes: number | undefined;
+  let cachedAggregateReport: TransformReport | undefined;
+
+  /** 每次 transform 进入时就失效，包括空输入、parse error 和抛错路径。 */
+  const invalidateFinalizationCache = (): void => {
+    cachedAtomicCss = undefined;
+    cachedAtomicCssBytes = undefined;
+    cachedAggregateReport = undefined;
+  };
 
   return {
     /**
@@ -94,8 +104,9 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
      * @returns 只描述当前输入的 transform snapshot。
      */
     transformCss(input: TransformCssInput): TransformCssResult {
+      invalidateFinalizationCache();
       const result = runTransform(input, registry);
-      reports.push(result.report);
+      reports.push(cloneReport(result.report));
       latestClassManifest = mergeClassManifest(latestClassManifest, result.manifest.classes);
       return result;
     },
@@ -106,7 +117,11 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
      * @returns registry 当前全部 declaration 的 CSS 快照。
      */
     getAtomicCss(): string {
-      return renderAtomicCss(registry.list());
+      if (cachedAtomicCss === undefined) {
+        cachedAtomicCss = renderAtomicCss(registry);
+        cachedAtomicCssBytes = byteLength(cachedAtomicCss);
+      }
+      return cachedAtomicCss;
     },
 
     /**
@@ -115,17 +130,21 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
      * @returns 基于当前 reports 和 registry 重新计算的治理快照。
      */
     getReport(): TransformReport {
-      const report = mergeReports(reports);
-      const atomicCss = renderAtomicCss(registry.list());
-      report.summary.atomicDeclarations = registry.list().length;
-      report.summary.reusedAtomicDeclarations = registry.getReusedCount();
-      report.size.afterAtomicCssBytes = byteLength(atomicCss);
-      report.size.estimatedTotalDiffBytes =
-        report.size.afterAtomicCssBytes +
-        report.size.afterPreservedCssBytes +
-        report.size.estimatedClassStringIncreaseBytes -
-        report.size.beforeCssBytes;
-      return report;
+      if (!cachedAggregateReport) {
+        const report = mergeReports(reports);
+        const atomicCssBytes = cachedAtomicCssBytes ?? measureAtomicCssBytes(registry);
+        cachedAtomicCssBytes = atomicCssBytes;
+        report.summary.atomicDeclarations = registry.declarationCount;
+        report.summary.reusedAtomicDeclarations = registry.getReusedCount();
+        report.size.afterAtomicCssBytes = atomicCssBytes;
+        report.size.estimatedTotalDiffBytes =
+          report.size.afterAtomicCssBytes +
+          report.size.afterPreservedCssBytes +
+          report.size.estimatedClassStringIncreaseBytes -
+          report.size.beforeCssBytes;
+        cachedAggregateReport = report;
+      }
+      return cloneReport(cachedAggregateReport);
     },
 
     /**
@@ -135,7 +154,7 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
      */
     getManifest(): TransformManifest {
       return {
-        atomic: createManifest('', registry.list(), {}).atomic,
+        atomic: createManifest('', registry, {}).atomic,
         classes: cloneClassManifest(latestClassManifest)
       };
     }
@@ -1073,4 +1092,25 @@ function cloneClassManifest(classes: TransformManifest['classes']): TransformMan
   }
 
   return cloned;
+}
+
+/**
+ * 深度克隆 report 的所有可变嵌套结构。
+ *
+ * @remarks
+ * transform result 和每次 getter 都必须与聚合 reports/canonical cache 隔离，尤其不能
+ * 共享 diagnostic source 引用。
+ *
+ * @param report - 待克隆的单次或聚合 report。
+ * @returns 完整独立的 public report snapshot。
+ */
+function cloneReport(report: TransformReport): TransformReport {
+  return {
+    summary: { ...report.summary },
+    size: { ...report.size },
+    diagnostics: report.diagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      source: diagnostic.source && { ...diagnostic.source }
+    }))
+  };
 }

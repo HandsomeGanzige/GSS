@@ -255,12 +255,22 @@ function createBuildAssetsPlugin(
               return;
             }
 
-            const snapshot = createBuildArtifactSnapshot(state, resolveCoreOptions(options.core, false));
+            const snapshot = createBuildArtifactSnapshot(
+              state,
+              resolveCoreOptions(options.core, false),
+              {
+                manifest: options.manifest.enabled,
+                report: options.report.enabled
+              }
+            );
 
             if (snapshot.atomicCss.trim()) {
               emitUniqueAsset(compilation, rspack, options.cssFilename, snapshot.atomicCss);
             }
             if (options.manifest.enabled) {
+              if (!snapshot.manifest) {
+                throw new Error('[semantic-atomic-css] missing-build-manifest-snapshot');
+              }
               emitUniqueAsset(
                 compilation,
                 rspack,
@@ -269,6 +279,9 @@ function createBuildAssetsPlugin(
               );
             }
             if (options.report.enabled) {
+              if (!snapshot.report) {
+                throw new Error('[semantic-atomic-css] missing-build-report-snapshot');
+              }
               emitUniqueAsset(
                 compilation,
                 rspack,
@@ -311,12 +324,12 @@ function getEnvironmentState(
   return state;
 }
 
-/** build 默认 hash、dev 默认 readable，显式 core 配置优先。 */
-function resolveCoreOptions(core: TransformCssOptions, isDev: boolean): TransformCssOptions {
+/** build 默认 compact、dev 默认 readable，显式 core 配置优先。 */
+export function resolveCoreOptions(core: TransformCssOptions, isDev: boolean): TransformCssOptions {
   return {
     ...core,
     className: {
-      strategy: core.className?.strategy ?? (isDev ? 'readable' : 'hash'),
+      strategy: core.className?.strategy ?? (isDev ? 'readable' : 'compact'),
       prefix: core.className?.prefix
     }
   };

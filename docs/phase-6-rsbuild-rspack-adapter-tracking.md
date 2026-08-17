@@ -12,6 +12,35 @@
 [Phase 6 接入点研究](phase-6-rsbuild-rspack-research.md)，最终矩阵见
 [Phase 6 验收](phase-6-rsbuild-rspack-adapter-acceptance.md)。
 
+## Build metadata 惰性 finalization（2026-08-17）
+
+- `createBuildArtifactSnapshot` 新增内部 metadata selection，保留不传第三参时生成
+  完整 snapshot 的既有内部调用契约；公共 Rsbuild options 和 asset schema 不变。
+- build `PROCESS_ASSETS_STAGE_ADDITIONS` 根据 manifest/report 配置选择 metadata：
+  默认关闭为 `getManifest/getReport/analyzeBuild = 0/0/0`，manifest-only 为
+  `1/0/0`，report-only 与两者同时开启均为 `1/1/1`。report 内部需要
+  manifest 作为 Analyzer 证据，但不会因同时输出 manifest asset 而重复 finalization。
+- `outputCss` 是 Analyzer 的 atomic + preserved 完整 CSS 代理，不是 adapter 直接 emit
+  的产物。默认关闭与 manifest-only snapshot 不再遍历、`trim()` 和拼接该字符串；
+  report-only 与两者开启仍生成相同 `outputCss` 供体积分析使用。
+- `buildArtifacts.test.ts` 锁定四种配置组合的 Core getter / Analyzer 调用次数，
+  默认与 manifest-only 不含 `outputCss`，并证明 report-only 与两者开启时的
+  `outputCss` / report snapshot 完全相同。
+- Rsbuild package verify 通过：4 个 test files、32 项测试及 typecheck/build；根
+  `pnpm verify` 通过，包含 Rsbuild 默认关闭 metadata 的真实 fixture 路径。
+- 中型 Pilot 保持 manifest/report 同时开启，修改前后 atomic CSS、manifest、report
+  字节数与 SHA-256 完全一致：`9087 / 590156 / 19731 B`，hash 分别为
+  `3f694b1cd28db74f29c2cd4c88a90a5cdee2874a139e84d2d7b2b85c6115d7ab`、
+  `52fcfa07bb40ddee6e280e32b693cc9b676994455e70fffb547f8808f10f1790`、
+  `6150e8e6be17abb8ff18bed4f8ef8026cb420f8816adf7365b2ef6d20e9a3a7d`。
+
+## Production serialization owner（2026-08-17）
+
+- Rsbuild 不引入 adapter-local production serializer；`atomicCss.ts` 继续为 dev/build snapshot 输出
+  readable CSS，并在 `PROCESS_ASSETS_STAGE_ADDITIONS` 交给原生 optimize/minify 阶段。
+- package exact test 锁定 readable rule、important、空行和 supports-then-media 套层；真实产物
+  以 baseline/candidate byte equality 证明最终 serializer 仍归 native minifier 所有。
+
 ## SEL-02 attribute selector consumer（2026-07-27）
 
 - Architecture 审计确认现有 build/dev renderer、manifest stabilizer、runtime snapshot 和 token augmentation
@@ -154,6 +183,9 @@ GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Goo
 | 版本范围 | Rsbuild 2.1.x；升级需重新跑契约验收 |
 | shared adapter package | 不抽取，等待更多重复证据 |
 | 中型 Pilot | `playground/rsbuild-react-css-modules` 已建立，不替代稳定 fixture |
+
+当前 class name 环境策略与 Vite 对齐：dev 默认 `readable + "_"`，build 默认无 prefix 的
+32-bit / 7 字符 lower-base36 `compact`；显式 `readable`、`hash`、`compact` 与 `prefix` 始终优先。
 
 ## 后续风险
 

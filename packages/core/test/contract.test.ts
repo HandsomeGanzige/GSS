@@ -4,7 +4,7 @@ import { createTransformer, transformCss, type ScopeStrategy } from '../src/inde
 import { createTestScope } from './helpers.js';
 
 describe('core behavior contract', () => {
-  it('runtime public API 只暴露 transformCss 和 createTransformer', () => {
+  it('runtime public API 只暴露两个稳定入口', () => {
     expect(Object.keys(core).sort()).toEqual(['createTransformer', 'transformCss']);
   });
 

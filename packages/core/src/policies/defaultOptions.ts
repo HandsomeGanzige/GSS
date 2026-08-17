@@ -29,10 +29,12 @@ export function resolveTransformOptions(options: TransformCssOptions = {}): Reso
     );
   }
 
+  const strategy = options.className?.strategy ?? defaultClassNameOptions.strategy;
+
   return {
     className: {
-      strategy: options.className?.strategy ?? defaultClassNameOptions.strategy,
-      prefix: options.className?.prefix ?? defaultClassNameOptions.prefix
+      strategy,
+      prefix: options.className?.prefix ?? (strategy === 'compact' ? '' : defaultClassNameOptions.prefix)
     }
   };
 }
