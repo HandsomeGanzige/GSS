@@ -121,9 +121,18 @@ Tailwind 的 source detection 将源文件当作普通文本扫描，不尝试�
 
 ## StyleX 对关系样式的处理
 
-StyleX 没有把 `.a .b` 这类任意 descendant selector 转换成 group marker。其官方
-[descendant styles recipe](https://stylexjs.com/docs/learn/recipes/descendant-styles)
-明确说明 StyleX 不允许 arbitrary selectors 或 “styling at a distance”，而是让父子两端显式共享一个样式协议。
+截至 2026-08-18，StyleX 已提供 [`stylex.when.*`](https://stylexjs.com/docs/api/javascript/when/)
+关系条件和 `stylex.defaultMarker()` / `stylex.defineMarker()` marker。它要求作者在被观察元素上显式应用 marker，
+并在目标元素自己的 atomic style 中声明 ancestor、descendant 或 sibling 条件；编译结果仍依赖真实关系 selector，
+不是从两个 class 名自动拼出第三个 token。该模型与 Tailwind `group` 类似，但由 StyleX 的 JSX/JS authoring point
+显式提供关系证据。
+
+StyleX 仍不把任意现有 `.a .b` CSS 自动推导成 marker pair。其
+[encapsulation 原则](https://stylexjs.com/docs/learn/thinking-in-stylex/#encapsulation)要求 target 持有自己的
+atomic class，并通过 marker 表达受控的“远距离样式”。这与 GSS 只拿到 CSS Modules 全局 export mapping 的情况不同：
+GSS 不知道某个 `styles.b` 的具体 JSX 使用点，因此不能照搬 StyleX 的 authoring-time 证据。
+
+对于适合继承表达的父状态，StyleX 也提供 CSS custom property 方案：
 
 父元素的 CSS 状态影响后代时，官方推荐使用可继承的 CSS custom property：
 
@@ -145,7 +154,7 @@ const styles = stylex.create({
 
 编译后的概念模型是：父元素的 atomic class 在默认态/`:hover` 下设置变量，子元素的 atomic class 使用 `color: var(...)`。父子之间没有生成 descendant selector，关系由 CSS 变量继承表达；子组件仍必须显式选择消费该变量。
 
-当条件来自 props、state 或组件 context 时，StyleX 推荐让目标组件读取条件，并在自己的
+当条件来自 props、state 或组件 context 时，也可以让目标组件读取条件，并在自己的
 `stylex.props(...)` 中选择 atomic style。官方把 React Context 明确列为 descendant selector 的替代方案，见
 [Context-driven styles](https://stylexjs.com/docs/learn/recipes/context-driven-styles)。
 [Using styles](https://stylexjs.com/docs/learn/styling-ui/using-styles)
@@ -161,9 +170,13 @@ StyleX 仍支持作用于当前元素的 pseudo-class、pseudo-element 和 media
 | --- | --- | --- |
 | Tailwind `group-*` | 父 marker + 目标 utility class | 是 |
 | GSS `FOUND-04` | semantic ancestor guard + 目标 atomic class | 是 |
+| StyleX `stylex.when.*` | 被观察元素 marker + 目标 atomic class | 是 |
 | StyleX CSS variable recipe | 父级设变量，子级显式消费 | 否 |
 | StyleX Context/props | JS 数据流把条件传给目标组件 | 否 |
 
-这个模式不能直接作为任意 CSS 的自动重写算法。例如把 `.a .b { color: red }`
+这些 authoring 模式不能直接作为任意 CSS 的自动重写算法。例如把 `.a .b { color: red }`
 机械改写为 `.b { color: var(--relation-color) }` 后，变量缺失时的 computed-value 语义、与其他 `color`
 declaration 的级联、直接子代/兄弟限制和 `!important` 都需要单独证明。StyleX 之所以安全，是因为作者显式定义变量的 provider/consumer 和默认值，而不是编译器从任意 selector 推导它们。
+
+GSS 自动生成 marker pair 时还会遇到 CSS Modules export 粒度和通用子 token 的交叉误命中；完整分析见
+[Marker-Pair 方案调研](phase-8-marker-pair-selector-research.md)。

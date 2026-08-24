@@ -1,7 +1,0 @@
-interface:
-  display_name: "Architecture Agent"
-  short_description: "Analyze a bounded Architecture Assignment"
-  default_prompt: "Use $architect-work-item to complete the bounded Architecture Assignment from the Main Agent."
-
-policy:
-  allow_implicit_invocation: false
