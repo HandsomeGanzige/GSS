@@ -18,7 +18,7 @@ export function toDeclarationMeta(id: string, declaration: Declaration): Declara
   return {
     prop: declaration.prop,
     value: declaration.value,
-    important: declaration.important,
+    important: declaration.important === true,
     source: toSourceLocation(id, declaration)
   };
 }

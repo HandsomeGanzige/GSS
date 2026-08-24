@@ -4,7 +4,7 @@ import { createTransformer, transformCss, type ScopeStrategy } from '../src/inde
 import { createTestScope } from './helpers.js';
 
 describe('core behavior contract', () => {
-  it('runtime public API 只暴露 transformCss 和 createTransformer', () => {
+  it('runtime public API 只暴露两个稳定入口', () => {
     expect(Object.keys(core).sort()).toEqual(['createTransformer', 'transformCss']);
   });
 
@@ -15,9 +15,12 @@ describe('core behavior contract', () => {
       scope: createTestScope()
     });
 
-    expect(result.classes.button.atomicClassNames).toEqual(['_color_red', '_color_red_important']);
-    expect(result.css.atomic.indexOf('._color_red {')).toBeLessThan(
-      result.css.atomic.indexOf('._color_red_important {')
+    expect(result.classes.button.atomicClassNames).toEqual([
+      '_selector_q0dmug_color_red',
+      '_selector_q0dmug_color_red_important'
+    ]);
+    expect(result.css.atomic.indexOf('._selector_q0dmug_color_red {')).toBeLessThan(
+      result.css.atomic.indexOf('._selector_q0dmug_color_red_important {')
     );
     expect(result.css.atomic).toContain('color: red !important;');
   });
@@ -29,9 +32,17 @@ describe('core behavior contract', () => {
       scope: createTestScope()
     });
 
-    expect(result.classes.box.atomicClassNames).toEqual(['_margin_0', '_margin-left_8px', '_margin_4px']);
-    expect(result.css.atomic.indexOf('._margin_0')).toBeLessThan(result.css.atomic.indexOf('._margin-left_8px'));
-    expect(result.css.atomic.indexOf('._margin-left_8px')).toBeLessThan(result.css.atomic.indexOf('._margin_4px'));
+    expect(result.classes.box.atomicClassNames).toEqual([
+      '_selector_q0dmug_margin_0',
+      '_selector_q0dmug_margin-left_8px',
+      '_selector_q0dmug_margin_4px'
+    ]);
+    expect(result.css.atomic.indexOf('._selector_q0dmug_margin_0')).toBeLessThan(
+      result.css.atomic.indexOf('._selector_q0dmug_margin-left_8px')
+    );
+    expect(result.css.atomic.indexOf('._selector_q0dmug_margin-left_8px')).toBeLessThan(
+      result.css.atomic.indexOf('._selector_q0dmug_margin_4px')
+    );
   });
 
   it('scope strategy 决定 resolved class、preserved selector 和 class export', () => {
@@ -63,7 +74,8 @@ describe('core behavior contract', () => {
 
     expect(result.classes.button).toMatchObject({
       resolvedClassName: 'resolved_button',
-      suggestedClassName: 'resolved_button _color_red',
+      atomicClassNames: [],
+      suggestedClassName: 'resolved_button',
       unsafeReasons: ['descendant-selector']
     });
     expect(result.classes.card).toMatchObject({
@@ -73,6 +85,12 @@ describe('core behavior contract', () => {
     });
     expect(result.classes.private).toBeUndefined();
     expect(result.css.preserved).toContain('.resolved_card .resolved_button');
+  });
+
+  it('拒绝已删除的 preserveResolvedClass runtime 选项', () => {
+    expect(() => createTransformer({ preserveResolvedClass: false } as never)).toThrow(
+      'Unsupported transform option "preserveResolvedClass"'
+    );
   });
 
   it('transformCss 是单次 helper，createTransformer 是 append-only 聚合器', () => {
@@ -95,6 +113,8 @@ describe('core behavior contract', () => {
 
     expect(single.report.summary.files).toBe(1);
     expect(transformer.getReport().summary.files).toBe(2);
-    expect(transformer.getManifest().atomic._color_red.sources.map((source) => source.id)).toEqual(['a.css', 'b.css']);
+    expect(
+      transformer.getManifest().atomic._selector_q0dmug_color_red.sources.map((source) => source.id)
+    ).toEqual(['a.css', 'b.css']);
   });
 });

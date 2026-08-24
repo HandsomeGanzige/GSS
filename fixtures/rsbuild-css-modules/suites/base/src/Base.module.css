@@ -1,0 +1,225 @@
+@value accent: #146ef5;
+
+.shell {
+  --shell-gap: 12px;
+  display: grid;
+  gap: var(--shell-gap);
+  padding: 16px;
+}
+
+.assetButton {
+  composes: shared from './Shared.module.css';
+  color: white;
+  background-color: accent;
+  background-image: url('./mark.svg?fixture-asset#mark');
+}
+
+.publicAsset {
+  min-height: 24px;
+  background-image: url('/public-fixture-mark.svg');
+}
+
+.hoverButton {
+  color: #1d4ed8;
+  background-color: #eff6ff;
+}
+
+.hoverButton:hover {
+  color: #ffffff;
+  background-color: #1d4ed8;
+}
+
+.hoverButton:focus-visible {
+  outline: 3px solid #99f6e4;
+}
+
+.disabledButton:disabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.cascadeBox {
+  border: 4px solid #fecaca;
+  border-left-color: #0f766e;
+  color: #334155;
+  color: #0f172a;
+}
+
+.importantBox {
+  color: #1d4ed8 !important;
+  color: #991b1b !important;
+}
+
+.dashed-token {
+  background-color: #ecfdf5;
+  color: #047857;
+}
+
+.collision {
+  color: #1e3a8a;
+  padding: 14px;
+}
+
+.selectorListTarget,
+.selectorListPeer {
+  color: #2563eb;
+}
+
+.selectorListInteractive,
+.selectorListInteractivePeer {
+  background-color: #f8fafc;
+}
+
+.selectorListInteractive:hover,
+.selectorListInteractivePeer:hover {
+  background-color: #dbeafe;
+}
+
+.selectorListInteractive:focus-visible,
+.selectorListInteractivePeer:focus-visible {
+  outline: 3px solid #f0abfc;
+}
+
+.selectorListAttribute,
+.selectorListAttributePeer {
+  background-color: #f8fafc;
+}
+
+.selectorListAttribute[data-list-state='open'],
+[data-list-state='open'].selectorListAttributePeer {
+  background-color: #dcfce7;
+}
+
+.selectorListTarget {
+  color: #dc2626;
+}
+
+.selectorListIndependent {
+  padding: 13px;
+  color: #475569;
+}
+
+.pseudoBefore {
+  min-height: 24px;
+  padding: 10px;
+}
+
+.pseudoBefore::before {
+  display: inline-block;
+  width: 7px;
+  height: 5px;
+  margin-right: 6px;
+  content: "B";
+  color: #0f766e;
+}
+
+.pseudoAfter {
+  min-height: 24px;
+  padding: 10px;
+}
+
+.pseudoAfter:after {
+  display: inline-block;
+  width: 8px;
+  height: 6px;
+  margin-left: 6px;
+  content: "A";
+  color: #7c3aed;
+}
+
+.unsafeParent span {
+  box-shadow: 0 12px 22px rgb(15 23 42 / 12%);
+}
+
+@media (max-width: 640px) {
+  .shell {
+    padding: 8px;
+  }
+}
+
+@supports (display: grid) {
+  .shell {
+    grid-template-columns: 1fr;
+  }
+}
+
+.oracleNonCompetingAtomic {
+  color: #4338ca;
+}
+
+.oracleNonCompetingFallback[data-oracle^='non-competing'] {
+  background: #fef3c7;
+}
+
+.oracleImportantAtomic {
+  color: #9f1239 !important;
+}
+
+.oracleImportantFallback,
+button.oracleImportantPeer {
+  color: #6b7280;
+}
+
+.oracleSpecificityFallback[data-oracle^='specificity'] {
+  color: #0e7490;
+}
+
+.oracleSpecificityAtomic {
+  color: #7c3aed;
+}
+
+.oracleStableOrderAtomic {
+  color: #7c2d12;
+}
+
+.oracleStableOrderFallback,
+button.oracleStableOrderPeer {
+  color: #0369a1;
+}
+
+.oracleMediaAtomic {
+  color: #1e3a8a;
+}
+
+@media (min-width: 600px) {
+  .oracleMediaAtomic {
+    color: #2563eb;
+  }
+}
+
+@media (min-width: 900px) {
+  .oracleMediaAtomic {
+    color: #be123c;
+  }
+}
+
+.oracleMediaFallback,
+button.oracleMediaPeer {
+  background: #f1f5f9;
+}
+
+.oracleSupportsAtomic {
+  color: #4338ca;
+}
+
+.oracleSupportsFallback {
+  background: #f8fafc;
+}
+
+@supports (display: grid) {
+  .oracleSupportsFallback {
+    background: #dbeafe;
+  }
+}
+
+@supports (display: flex) {
+  .oracleSupportsFallback,
+  button.oracleSupportsPeer {
+    background: #dcfce7;
+  }
+}
+
+:export {
+  fixtureLabel: semantic-fixture;
+  collisionLabel: fixture_Base-module__collision;
+}

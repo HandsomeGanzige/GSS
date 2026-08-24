@@ -3,3 +3,4 @@ dist/
 packages/*/dist/
 playground/*/dist/
 .DS_Store
+.agent-work

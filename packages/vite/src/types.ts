@@ -45,6 +45,18 @@ export type ReportOptions = {
   filename?: string;
 };
 
+/** 控制仅在 dev server 生效的 report API 与 browser overlay。 */
+export type DevtoolsOptions = {
+  /** 是否启用 dev report API；显式开启 overlay 时会隐式启用，默认 `false`。 */
+  enabled?: boolean;
+  /** 是否向 dev HTML 注入 Shadow DOM overlay；启用 devtools 时默认 `true`。 */
+  overlay?: boolean;
+  /** 同源 report API pathname，默认 `/__semantic-atomic-css/report`。 */
+  endpoint?: string;
+  /** overlay report 轮询间隔，默认 1500ms，最小 250ms。 */
+  pollIntervalMs?: number;
+};
+
 /**
  * 控制 Vite warning 和保护模式。
  *
@@ -79,6 +91,8 @@ export type SemanticAtomicCssOptions = {
   manifest?: ManifestOptions;
   /** report JSON asset 配置；开启后同时附带 analyzer analysis。 */
   report?: ReportOptions;
+  /** dev report API 与 browser overlay；默认关闭且不影响 build。 */
+  devtools?: DevtoolsOptions;
   /** warning 与尚未实现能力的保护配置。 */
   diagnostics?: DiagnosticsOptions;
 };
@@ -102,5 +116,6 @@ export type ResolvedSemanticAtomicCssOptions = {
   core: TransformCssOptions;
   manifest: Required<ManifestOptions>;
   report: Required<ReportOptions>;
+  devtools: Required<DevtoolsOptions>;
   diagnostics: Required<DiagnosticsOptions>;
 };

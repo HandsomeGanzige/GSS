@@ -1,0 +1,23 @@
+{
+  "name": "@semantic-atomic-css/rsbuild-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/run-rsbuild.mjs dev",
+    "build": "node scripts/run-rsbuild.mjs build --suite all --mode semantic",
+    "preview": "node scripts/run-rsbuild.mjs preview",
+    "verify": "node scripts/verify-static.mjs",
+    "test:visual": "node scripts/verify-visual.mjs"
+  },
+  "dependencies": {
+    "@semantic-atomic-css/devtools": "workspace:*",
+    "@semantic-atomic-css/rsbuild": "workspace:*"
+  },
+  "devDependencies": {
+    "@rsbuild/core": "2.1.6",
+    "@rsbuild/plugin-less": "2.0.1",
+    "@rsbuild/plugin-sass": "2.0.1",
+    "playwright": "^1.61.1"
+  }
+}

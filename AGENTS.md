@@ -16,6 +16,8 @@
 | 修改 Vite adapter | `docs/phase-3-vite-adapter-design.md`、`docs/phase-3-vite-adapter-tracking.md`、相关测试 |
 | 修改验收流程 | `fixtures/vite-css-modules`、对应 acceptance 文档 |
 | 修改 Phase 4 行为或 analyzer 风险模型 | 对应的 `docs/phase-4-*.md`、相关测试 |
+| 修改 Rsbuild adapter | `docs/phase-6-rsbuild-rspack-adapter-*.md`、相关测试 |
+| 修改 verifier、dev report 或 overlay | `docs/phase-7-verifier-devtools-*.md`、相关测试 |
 
 不要把上述文档整段复制回本文件。若代码、测试和文档互相矛盾，先确认当前实际行为和差异影响；
 无法从仓库证据确定预期时，向项目 owner 说明冲突，不自行选择新的产品语义。
@@ -56,9 +58,13 @@
 | --- | --- | --- |
 | `packages/core` | 标准 CSS 字符串的 AST 转换、atomic/preserved CSS、manifest 和 report 数据 | 不依赖 Vite、React、CSS Modules tokens、文件系统或浏览器运行时 |
 | `packages/analyzer` | 消费构建数据，分析风险、收益、体积和可证明的 declaration 冲突 | 不读取文件，不依赖 Vite，不猜测缺少 usage evidence 的 DOM class 共现 |
+| `packages/devtools` | computed style verifier、style diff、dev report 协议和隔离 overlay runtime | 不转换 CSS，不读取项目文件，不依赖具体 adapter 或把 Playwright 变成生产依赖 |
 | `packages/vite` | 复用 Vite 原生 CSS Modules 结果，增强 tokens，聚合 CSS 并输出 assets | 不自行实现 scoped class 或 CSS Modules 编译语义，不静默忽略不支持的配置 |
+| `packages/rsbuild` | 复用 Rsbuild 原生 CSS Modules rows/locals，增强 tokens，聚合 CSS 并输出 assets | 不自行实现 scoping/ICSS/预处理器，不依赖 Vite 或 raw Rspack 私有状态 |
 | `fixtures/vite-css-modules` | 小型、稳定、自动化真实 Vite 回归 fixture | 不扩展成展示型业务项目 |
+| `fixtures/rsbuild-css-modules` | 小型、稳定、自动化真实 Rsbuild 回归 fixture | 不扩展成展示型业务项目 |
 | `playground/vite-react-css-modules` | 中型真实场景 Pilot 和人工浏览器验收 | 未经明确决策不加入自动门禁 |
+| `playground/rsbuild-react-css-modules` | 中型 Rsbuild 多入口 Pilot 和人工浏览器验收 | 未经明确决策不加入自动门禁 |
 
 跨包改动前先确认职责归属。可以在单个包内完成的逻辑，不应通过反向依赖或复制实现扩散到其他包。
 
@@ -67,8 +73,19 @@
 - 默认只转换 `.module.css`、`.module.scss` 和 `.module.less`，不改写 JSX/TSX 中 CSS Modules 的使用方式。
 - 默认保留 semantic scoped class；除非任务明确批准新的产品模式，不移除 semantic class preservation。
 - unsafe selector 必须保留为 scoped fallback CSS，并在 warning/report 中记录原因。
-- safe selector 仅允许一个 local class、零 tag/id/attribute/combinator/额外 class/pseudo element/`:global`，
-  且最多带一个已支持的 pseudo class：`:hover`、`:focus`、`:active`、`:disabled`、`:focus-visible`。
+- 每个 safe selector arm 只能有一个 local class anchor，且不得包含 tag、id、combinator、额外 class
+  或 `:global`。除基础 selector 外，只能三选一：带一个已支持的 pseudo class
+  （`:hover`、`:focus`、`:active`、`:disabled`、`:focus-visible`），带一个末尾
+  `::before` / `::after` / `:before` / `:after`，或在同一 compound 内带一个 presence / `=` equality
+  attribute。
+- selector list 只有在全部 arm 都安全、可导出且未被 class-wide evidence 阻断时才能转换；任一 arm
+  unsafe 时完整 rule fallback。当前含 pseudo element arm 的 selector list 仍整体 fallback。
+- attribute selector 的 parser-decoded name 不得为 `class`，并且不得含 namespace、flag、其他 operator、
+  多 attribute 或与 pseudo 等结构混用；attribute 可位于 local class 前后，但 identity 与 renderer
+  必须保留输入 AST serializer 的 spelling、spacing 和 node order，不做语义归并。
+- attribute candidate 必须在 atomic registry mutation 前完成 same-class cascade guard；无法证明等
+  specificity occurrence 重排安全时，以 `attribute-cascade-order` 整类 fallback。adapter 不复制
+  selector grammar 或 guard，Analyzer 也不以缺少 usage evidence 的共现猜测替代 Core 判断。
 - 当前可处理的条件上下文限于已验证的 `@media` 和 `@supports` 路径。扩展 selector 或 at-rule 前，
   必须先给出语义等价依据并补充测试。
 - atomic class 顺序必须稳定；同一个 local class 内保持 declaration 原始顺序。
@@ -89,9 +106,11 @@
 | 仅文档 | 检查链接、路径、命令与仓库实际内容一致；通常无需运行代码测试 |
 | core 实现或语义 | 更新 `packages/core/test`；运行 `pnpm --filter @semantic-atomic-css/core verify` |
 | analyzer 实现或 report analysis | 运行 `pnpm --filter @semantic-atomic-css/analyzer verify`；影响 Vite report 时再运行 `pnpm verify` |
+| devtools、dev report API 或 overlay | 运行 `pnpm --filter @semantic-atomic-css/devtools verify`、对应 adapter verify 和 `pnpm verify` |
 | Vite adapter、CSS Modules 继承、生成 CSS、manifest/report | 更新对应测试；运行 `pnpm --filter @semantic-atomic-css/vite verify` 和 `pnpm verify` |
+| Rsbuild adapter、CSS Modules 继承、生成 CSS、manifest/report | 更新对应测试；运行 `pnpm --filter @semantic-atomic-css/rsbuild verify` 和 `pnpm verify` |
 | 配置保护、预处理器、资源或 analyzer 集成 | 运行 `pnpm verify` |
-| 浏览器渲染、cascade、响应式或 computed style | 运行 `pnpm --filter @semantic-atomic-css/vite-fixture test:visual` |
+| 浏览器渲染、cascade、响应式或 computed style | 运行两个受影响 adapter 对应 fixture 的 `test:visual` |
 
 新增行为必须同时覆盖成功路径和保守失败/保留路径。涉及 compiler 时重点检查 safe atomization、pseudo、
 `@media`/`@supports`、unsafe preservation、custom property、`!important`、稳定输出以及

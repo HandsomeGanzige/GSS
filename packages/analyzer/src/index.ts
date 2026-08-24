@@ -120,6 +120,7 @@ export type DeclarationConflict = {
   id: string;
   sourceClassName: string;
   kind: DeclarationConflictKind;
+  selectorIdentity: string;
   context: CssTransformContext;
   important: boolean;
   properties: string[];
@@ -181,7 +182,7 @@ const shorthandLonghands: Readonly<Record<string, readonly string[]>> = {
  *
  * @remarks
  * 函数是无状态的，不读取文件也不写入产物。同属性和 shorthand/longhand 冲突只在同一 semantic
- * class、相同 pseudo/media/supports 和 important 层级内报告；缺少 usage evidence 时不会推断跨 class
+ * class、相同 selector identity/media/supports 和 important 层级内报告；缺少 usage evidence 时不会推断跨 class
  * 冲突。gzip 与 brotli 指标使用 Node.js 同步压缩 API，适合构建结束阶段调用。
  *
  * @param input - 同一次构建产生的 core report/manifest、模块快照、最终 CSS 和可选保护失败项。
@@ -250,7 +251,14 @@ function createDeclarationConflicts(manifest: TransformManifest): DeclarationCon
   for (const classEntry of classes) {
     const declarationsByContext = new Map<
       string,
-      Array<{ atomicClassName: string; property: string; value: string; important: boolean; context: CssTransformContext }>
+      Array<{
+        atomicClassName: string;
+        property: string;
+        value: string;
+        selectorIdentity: string;
+        important: boolean;
+        context: CssTransformContext;
+      }>
     >();
 
     for (const atomicClassName of classEntry.atomicClassNames) {
@@ -262,13 +270,15 @@ function createDeclarationConflicts(manifest: TransformManifest): DeclarationCon
 
       const property = atomic.declaration.prop.trim().toLowerCase();
       const context = { ...atomic.context };
-      const important = atomic.declaration.important === true;
-      const contextKey = createConflictContextKey(context, important);
+      const selectorIdentity = atomic.selector.identity;
+      const important = atomic.declaration.important;
+      const contextKey = createConflictContextKey(selectorIdentity, context, important);
       const declarations = declarationsByContext.get(contextKey) ?? [];
       declarations.push({
         atomicClassName,
         property,
         value: atomic.declaration.value,
+        selectorIdentity,
         important,
         context
       });
@@ -288,6 +298,7 @@ function createDeclarationConflicts(manifest: TransformManifest): DeclarationCon
           id: classEntry.id,
           sourceClassName: classEntry.sourceClassName,
           kind: properties.length === 1 ? 'same-property' : 'shorthand-longhand',
+          selectorIdentity: first.selectorIdentity,
           context: { ...first.context },
           important: first.important,
           properties,
@@ -380,12 +391,19 @@ function propertiesConflict(left: string, right: string): boolean {
 /**
  * 生成 declaration conflict 分组 key。
  *
- * @param context - pseudo/media/supports cascade 上下文。
+ * @param selectorIdentity - source class 无关的 selector 身份。
+ * @param context - media/supports cascade 上下文。
  * @param important - declaration 是否位于 important 层级。
  * @returns 不依赖对象属性插入顺序的稳定文本 key。
  */
-function createConflictContextKey(context: CssTransformContext, important: boolean): string {
-  return [context.pseudo ?? '', context.media ?? '', context.supports ?? '', important ? 'important' : 'normal'].join('\0');
+function createConflictContextKey(
+  selectorIdentity: string,
+  context: CssTransformContext,
+  important: boolean
+): string {
+  return [selectorIdentity, context.media ?? '', context.supports ?? '', important ? 'important' : 'normal'].join(
+    '\0'
+  );
 }
 
 /**

@@ -12,6 +12,7 @@
     "test:visual": "node scripts/verify-visual.mjs"
   },
   "dependencies": {
+    "@semantic-atomic-css/devtools": "workspace:*",
     "@semantic-atomic-css/vite": "workspace:*",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"

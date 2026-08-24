@@ -1,7 +1,8 @@
 import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createServer, type Plugin, type PluginOption, type ViteDevServer } from 'vite';
 import { semanticAtomicCss } from '../src/plugin.js';
 
@@ -18,7 +19,14 @@ describe('semanticAtomicCss dev plugin', () => {
     tempRoots.push(root);
     await mkdir(srcDir, { recursive: true });
     await writeFile(join(root, 'index.html'), '<div id="root"></div>');
-    await writeFile(join(srcDir, 'Button.module.css'), '.button { color: red; }');
+    await writeFile(
+      join(srcDir, 'Button.module.css'),
+      [
+        '.button { color: red; }',
+        '.button:hover { color: red; }',
+        '.button:focus-visible { outline: 2px solid blue; }'
+      ].join('\n')
+    );
 
     const server = await createViteServer(root);
 
@@ -37,12 +45,165 @@ describe('semanticAtomicCss dev plugin', () => {
       const cssResult = await server.transformRequest(resolvedCssId);
       const cssCode = cssResult?.code ?? '';
 
-      expect(cssCode).toContain('._color_red');
-      expect(cssCode).not.toContain('export const _color_red');
-      expect(cssCode).not.toContain('.__color_red_');
+      expect(cssCode).toContain('._selector_q0dmug_color_red {');
+      expect(cssCode).toContain('._selector_qf5xvc_color_red:hover {');
+      expect(cssCode).toContain('._selector_1qzezs_outline_2px_solid_blue:focus-visible {');
+      expect(cssCode).not.toContain('__GSS_ANCHOR__');
     } finally {
       await server.close();
     }
+  });
+
+  it('dev 保持 readable rule、空行分隔与 supports-then-media 条件套层', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gss-vite-dev-readable-'));
+    const srcDir = join(root, 'src');
+    const pluginOption = semanticAtomicCss({ core: { className: { strategy: 'readable' } } });
+    const pipelinePlugin = readPipelinePlugin(pluginOption);
+    tempRoots.push(root);
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(root, 'index.html'), '<div id="root"></div>');
+    await writeFile(
+      join(srcDir, 'Button.module.css'),
+      [
+        '.button { color: red; }',
+        '.button:hover { background: blue; }',
+        '@supports (display: grid) { .supports { display: grid; } }',
+        '@media (min-width: 600px) { .media { display: grid; } }',
+        '@media (min-width: 600px) {',
+        '  @supports (display: grid) { .both:hover { color: red; } }',
+        '}'
+      ].join('\n')
+    );
+
+    const server = await createViteServer(root, pluginOption);
+
+    try {
+      const moduleResult = await server.transformRequest('/src/Button.module.css');
+      const rawCss = await loadRawVirtualCss(pipelinePlugin, readCssImport(moduleResult?.code));
+
+      expect(rawCss).toBe(
+        [
+          '._selector_q0dmug_color_red {\n  color: red;\n}',
+          '._selector_qf5xvc_background_blue:hover {\n  background: blue;\n}',
+          '@supports (display: grid) {\n  ._supports_1gj8cx_selector_q0dmug_display_grid {\n    display: grid;\n  }\n}',
+          '@media (min-width: 600px) {\n  ._media_1ltocy_selector_q0dmug_display_grid {\n    display: grid;\n  }\n}',
+          '@media (min-width: 600px) {\n  @supports (display: grid) {\n    ._media_1ltocy_supports_1gj8cx_selector_qf5xvc_color_red:hover {\n      color: red;\n    }\n  }\n}'
+        ].join('\n\n')
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('显式开启 devtools 后提供当前 report API 并注入隔离 overlay', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gss-vite-devtools-'));
+    const srcDir = join(root, 'src');
+    tempRoots.push(root);
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(root, 'index.html'), '<html><head></head><body><div id="root"></div></body></html>');
+    await writeFile(
+      join(srcDir, 'Button.module.css'),
+      [
+        '.button[data-state] { color: red; }',
+        '.button:hover { color: blue; }',
+        '.button { padding: 4px; }'
+      ].join('\n')
+    );
+
+    const server = await createViteServer(root, semanticAtomicCss({ devtools: { overlay: true } }));
+
+    try {
+      await server.transformRequest('/src/Button.module.css');
+      const headers = new Map<string, string>();
+      const body = await new Promise<string>((resolve, reject) => {
+        server.middlewares(
+          { method: 'GET', url: '/__semantic-atomic-css/report?t=1' } as never,
+          {
+            statusCode: 0,
+            setHeader(name: string, value: string) {
+              headers.set(name, value);
+            },
+            end(value: string) {
+              resolve(value);
+            }
+          } as never,
+          reject
+        );
+      });
+      const payload = JSON.parse(body);
+      const html = await server.transformIndexHtml('/', '<html><head></head><body></body></html>');
+
+      expect(headers.get('cache-control')).toBe('no-store');
+      expect(payload).toMatchObject({
+        adapter: 'vite',
+        status: 'ready',
+        environments: [
+          {
+            name: 'client',
+            report: {
+              summary: { files: 1, unsafeRules: 1 },
+              diagnostics: [
+                expect.objectContaining({
+                  code: 'unsafe-selector',
+                  reason: 'attribute-cascade-order',
+                  sourceClassName: expect.stringContaining('button')
+                })
+              ],
+              analysis: {
+                health: { status: 'risky' },
+                risk: {
+                  unsafeReasonDistribution: { 'attribute-cascade-order': 1 },
+                  highRiskFiles: [expect.objectContaining({ unsafeRules: 1 })]
+                }
+              }
+            }
+          }
+        ]
+      });
+      expect(payload).not.toHaveProperty('schemaVersion');
+      expect(html).toContain('data-semantic-atomic-css-overlay-runtime');
+      expect(html).toContain('attachShadow');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('dev report endpoint 只接受 GET', () => {
+    const plugin = readPipelinePlugin(semanticAtomicCss({ devtools: { enabled: true } }));
+    let middleware: ((request: Record<string, unknown>, response: Record<string, unknown>, next: () => void) => void) | undefined;
+    const configureServer = plugin.configureServer;
+
+    if (typeof configureServer !== 'function') {
+      throw new Error('semanticAtomicCss 插件缺少 configureServer。');
+    }
+
+    configureServer({
+      middlewares: {
+        use(callback: typeof middleware) {
+          middleware = callback;
+        }
+      }
+    } as never);
+    const next = vi.fn();
+    middleware?.(
+      { method: 'POST', url: '/__semantic-atomic-css/report' },
+      { end: vi.fn() },
+      next
+    );
+
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it('拒绝可能破坏 inline overlay 的非法 endpoint', () => {
+    expect(() => semanticAtomicCss({ devtools: { endpoint: '/report?<script>' } })).toThrow(
+      /invalid-dev-report-endpoint/
+    );
+    expect(() => semanticAtomicCss({ devtools: { enabled: true, pollIntervalMs: Number.NaN } })).toThrow(
+      /invalid-overlay-poll-interval/
+    );
+    expect(() => semanticAtomicCss({ devtools: { endpoint: '/../report' } })).toThrow(
+      /invalid-dev-report-endpoint/
+    );
   });
 
   it('shared CSS 已缓存后首次转换新模块会刷新服务端快照并通知浏览器', async () => {
@@ -62,8 +223,8 @@ describe('semanticAtomicCss dev plugin', () => {
       const cssImport = readCssImport(shellResult?.code);
       const firstCss = await loadVirtualCss(server, cssImport);
 
-      expect(firstCss).toContain('._color_red');
-      expect(firstCss).not.toContain('._color_blue');
+      expect(firstCss).toContain('._selector_q0dmug_color_red');
+      expect(firstCss).not.toContain('._selector_q0dmug_color_blue');
 
       server.ws.send = ((payload: unknown) => {
         wsMessages.push(payload);
@@ -74,8 +235,8 @@ describe('semanticAtomicCss dev plugin', () => {
       const secondCss = await loadVirtualCss(server, secondCssImport);
 
       expect(stripTimestampQuery(secondCssImport)).toBe(stripTimestampQuery(cssImport));
-      expect(secondCss).toContain('._color_red');
-      expect(secondCss).toContain('._color_blue');
+      expect(secondCss).toContain('._selector_q0dmug_color_red');
+      expect(secondCss).toContain('._selector_q0dmug_color_blue');
       expect(wsMessages).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
@@ -160,9 +321,11 @@ describe('semanticAtomicCss dev plugin', () => {
       const cssCode = await loadVirtualCss(server, cssImport);
 
       expect(cssCode).not.toContain('@layer gss-');
-      expect(countOccurrences(cssCode, '._background_ffffff {')).toBe(1);
-      expect(countOccurrences(cssCode, '._align-items_center {')).toBe(1);
-      expect(cssCode.indexOf('._background_ffffff {')).toBeLessThan(cssCode.indexOf('._background_ecfdf5 {'));
+      expect(countOccurrences(cssCode, '._selector_q0dmug_background_ffffff {')).toBe(1);
+      expect(countOccurrences(cssCode, '._selector_q0dmug_align-items_center {')).toBe(1);
+      expect(cssCode.indexOf('._selector_q0dmug_background_ffffff {')).toBeLessThan(
+        cssCode.indexOf('._selector_q0dmug_background_ecfdf5 {')
+      );
       expect(cssCode.indexOf('align-items: center;')).toBeLessThan(cssCode.indexOf('align-items: flex-start;'));
       expect(cssCode.indexOf('grid-template-columns: 200px 1fr;')).toBeLessThan(
         cssCode.indexOf('grid-template-columns: repeat(2, minmax(0, 1fr));')
@@ -175,11 +338,14 @@ describe('semanticAtomicCss dev plugin', () => {
     }
   });
 
-  it('CSS Module 更新时触发 full reload，并在重新请求后使用新 tokens、atomic CSS 和 fallback CSS', async () => {
+  it('selector-list CSS Module 更新时触发 full reload，并清理旧 arm tokens、atomic CSS 和 fallback CSS', async () => {
     const root = await mkdtemp(join(tmpdir(), 'gss-vite-dev-'));
     const srcDir = join(root, 'src');
     const cssFile = join(srcDir, 'Button.module.css');
-    const pluginOption = semanticAtomicCss();
+    const pluginOption = semanticAtomicCss({
+      modules: { generateScopedName: 'hmr_[local]' },
+      core: { className: { strategy: 'readable' } }
+    });
     const plugin = readPipelinePlugin(pluginOption);
     const wsMessages: unknown[] = [];
     tempRoots.push(root);
@@ -188,11 +354,11 @@ describe('semanticAtomicCss dev plugin', () => {
     await writeFile(
       cssFile,
       [
-        '.button {',
+        '.button[data-state="open"], .peer[data-state="open"] {',
         '  color: red;',
         '}',
         '',
-        '.button[data-state="open"] {',
+        '.unsupported[data-state^="op"] {',
         '  box-shadow: 0 0 0 1px red;',
         '}'
       ].join('\n')
@@ -206,21 +372,26 @@ describe('semanticAtomicCss dev plugin', () => {
     try {
       const firstResult = await server.transformRequest('/src/Button.module.css');
       const firstCssImport = readCssImport(firstResult?.code);
-      const firstCss = await loadVirtualCss(server, firstCssImport);
+      const firstCss = await loadRawVirtualCss(plugin, firstCssImport);
 
-      expect(firstResult?.code).toContain('_color_red');
-      expect(firstCss).toContain('._color_red');
-      expect(firstCss).toContain('box-shadow: 0 0 0 1px red;');
+      expect(firstResult?.code).toContain('hmr_button _selector_4e0slb_color_red');
+      expect(firstResult?.code).toContain('hmr_peer _selector_4e0slb_color_red');
+      expect(firstResult?.code).toContain('hmr_unsupported');
+      expect(firstResult?.code).not.toMatch(/hmr_unsupported _selector_/);
+      expect(firstCss).toContain('._selector_4e0slb_color_red[data-state="open"]');
+      expect(firstCss).toContain('.hmr_unsupported[data-state^="op"]');
+      expect(firstCss).not.toContain('.hmr_button[data-state="open"]');
+      expect(firstCss).not.toContain('.hmr_peer[data-state="open"]');
 
       await writeFile(
         cssFile,
         [
-          '.button {',
-          '  color: blue;',
+          '.button[data-mode="ready"], .peer[data-mode="ready"] {',
+          '  border-color: blue;',
           '}',
           '',
-          '.button[data-state="open"] {',
-          '  border-color: blue;',
+          '.unsupported[data-role^="admin"] {',
+          '  outline: 2px solid blue;',
           '}'
         ].join('\n')
       );
@@ -249,12 +420,162 @@ describe('semanticAtomicCss dev plugin', () => {
       const secondCss = await loadRawVirtualCss(plugin, secondCssImport);
 
       expect(stripTimestampQuery(secondCssImport)).toBe(stripTimestampQuery(firstCssImport));
-      expect(secondResult?.code).toContain('_color_blue');
-      expect(secondResult?.code).not.toContain('_color_red');
-      expect(secondCss).toContain('._color_blue');
-      expect(secondCss).not.toContain('._color_red');
-      expect(secondCss).toContain('border-color: blue;');
+      expect(secondResult?.code).toContain('hmr_button _selector_56moj6_border-color_blue');
+      expect(secondResult?.code).toContain('hmr_peer _selector_56moj6_border-color_blue');
+      expect(secondResult?.code).not.toContain('_selector_4e0slb_color_red');
+      expect(secondResult?.code).toContain('hmr_unsupported');
+      expect(secondResult?.code).not.toMatch(/hmr_unsupported _selector_/);
+      expect(secondCss).toContain('._selector_56moj6_border-color_blue[data-mode="ready"]');
+      expect(secondCss).toContain('.hmr_unsupported[data-role^="admin"]');
+      expect(secondCss).not.toContain('_selector_4e0slb_color_red');
+      expect(secondCss).not.toContain('[data-state="open"]');
+      expect(secondCss).not.toContain('[data-state^="op"]');
       expect(secondCss).not.toContain('box-shadow: 0 0 0 1px red;');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('pseudo-element HMR 清理旧 spelling、token 与 selector-list fallback', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gss-vite-pseudo-dev-'));
+    const srcDir = join(root, 'src');
+    const cssFile = join(srcDir, 'Pseudo.module.css');
+    const pluginOption = semanticAtomicCss({
+      modules: { generateScopedName: 'pseudo_[local]' },
+      core: { className: { strategy: 'readable' } }
+    });
+    const plugin = readPipelinePlugin(pluginOption);
+    const wsMessages: unknown[] = [];
+    tempRoots.push(root);
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(root, 'index.html'), '<div id="root"></div>');
+    await writeFile(
+      cssFile,
+      [
+        '.icon::before { content: "old"; color: red; }',
+        '.fallback::before, .peer { color: blue; }'
+      ].join('\n')
+    );
+
+    const server = await createViteServer(root, pluginOption);
+    server.ws.send = ((payload: unknown) => wsMessages.push(payload)) as ViteDevServer['ws']['send'];
+
+    try {
+      const firstResult = await server.transformRequest('/src/Pseudo.module.css');
+      const cssImport = readCssImport(firstResult?.code);
+      const firstCss = await loadRawVirtualCss(plugin, cssImport);
+
+      expect(firstResult?.code).toMatch(/pseudo_icon _selector_[a-z0-9_-]+/u);
+      expect(firstCss).toContain('::before');
+      expect(firstCss).toContain('.pseudo_fallback::before, .pseudo_peer');
+
+      await writeFile(cssFile, '.icon:after { content: "new"; color: green; }');
+      invokeHotUpdate(plugin, server, cssFile);
+
+      expect(wsMessages).toContainEqual({ type: 'full-reload' });
+      expect(await loadRawVirtualCss(plugin, cssImport)).toBe('');
+
+      const secondResult = await server.transformRequest('/src/Pseudo.module.css');
+      const secondCssImport = readCssImport(secondResult?.code);
+      const secondCss = await loadRawVirtualCss(plugin, secondCssImport);
+
+      expect(stripTimestampQuery(secondCssImport)).toBe(stripTimestampQuery(cssImport));
+      expect(secondResult?.code).toMatch(/pseudo_icon _selector_[a-z0-9_-]+/u);
+      expect(secondCss).toContain(':after');
+      expect(secondCss).toContain('content: "new";');
+      expect(secondCss).not.toContain('::before');
+      expect(secondCss).not.toContain('content: "old";');
+      expect(secondCss).not.toContain('pseudo_fallback');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('JS 移除 CSS Module import 时立即清理 stale CSS 与 dev report', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gss-vite-import-removal-'));
+    const srcDir = join(root, 'src');
+    const entryFile = join(srcDir, 'main.ts');
+    const pluginOption = semanticAtomicCss({ devtools: { enabled: true, overlay: false } });
+    const plugin = readPipelinePlugin(pluginOption);
+    tempRoots.push(root);
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(root, 'index.html'), '<div id="root"></div>');
+    await writeFile(entryFile, "import styles from './Button.module.css';\nconsole.log(styles.button);\n");
+    await writeFile(join(srcDir, 'Button.module.css'), '.button, .peer { color: red; }');
+
+    const server = await createViteServer(root, pluginOption);
+
+    try {
+      await server.transformRequest('/src/main.ts');
+      const moduleResult = await server.transformRequest('/src/Button.module.css');
+      const cssImport = readCssImport(moduleResult?.code);
+      expect(await loadRawVirtualCss(plugin, cssImport)).toContain('._selector_q0dmug_color_red');
+
+      await writeFile(entryFile, "console.log('CSS import removed');\n");
+      invokeHotUpdate(plugin, server, entryFile);
+
+      expect(await loadRawVirtualCss(plugin, cssImport)).toBe('');
+      expect(await requestViteDevReport(server)).toMatchObject({ status: 'idle', environments: [] });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('HMR 失效后拒绝旧异步 transform 回写 dev cache', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'gss-vite-generation-'));
+    const srcDir = join(root, 'src');
+    const cssFile = join(srcDir, 'Button.module.css');
+    const pluginOption = semanticAtomicCss();
+    const plugin = readPipelinePlugin(pluginOption);
+    tempRoots.push(root);
+    await mkdir(srcDir, { recursive: true });
+    await writeFile(join(root, 'index.html'), '<div id="root"></div>');
+    await writeFile(cssFile, '.button { color: red; }');
+
+    const server = await createViteServer(root, pluginOption);
+
+    try {
+      const firstResult = await server.transformRequest('/src/Button.module.css');
+      const cssImport = readCssImport(firstResult?.code);
+      expect(await loadRawVirtualCss(plugin, cssImport)).toContain('._selector_q0dmug_color_red');
+
+      const originalReadFile = fs.readFile.bind(fs);
+      let releaseRead: (() => void) | undefined;
+      let markReadStarted: (() => void) | undefined;
+      const readStarted = new Promise<void>((resolve) => {
+        markReadStarted = resolve;
+      });
+      const readFileSpy = vi.spyOn(fs, 'readFile').mockImplementation(((filename: unknown, options: unknown) => {
+        if (filename !== cssFile) {
+          return originalReadFile(filename as string, options as BufferEncoding);
+        }
+        markReadStarted?.();
+        return new Promise((resolve, reject) => {
+          releaseRead = () => {
+            originalReadFile(filename, options as BufferEncoding).then(resolve, reject);
+          };
+        });
+      }) as typeof fs.readFile);
+
+      try {
+        const transform = plugin.transform;
+        if (typeof transform !== 'function') {
+          throw new Error('semanticAtomicCss 插件缺少 transform。');
+        }
+        const staleTransform = (transform as Function).call(
+          { warn() {} },
+          '.fixture_button { color: red; }',
+          cssFile
+        ) as Promise<unknown>;
+        await readStarted;
+        invokeHotUpdate(plugin, server, cssFile);
+        releaseRead?.();
+        await staleTransform;
+        expect(await loadRawVirtualCss(plugin, cssImport)).toBe('');
+      } finally {
+        readFileSpy.mockRestore();
+        releaseRead?.();
+      }
     } finally {
       await server.close();
     }
@@ -350,6 +671,24 @@ function invokeHotUpdate(plugin: Plugin, server: ViteDevServer, file: string): v
     timestamp: Date.now(),
     read: async () => ''
   });
+}
+
+/** 通过 Vite middleware stack 读取当前 dev report JSON。 */
+async function requestViteDevReport(server: ViteDevServer): Promise<Record<string, unknown>> {
+  const body = await new Promise<string>((resolve, reject) => {
+    server.middlewares(
+      { method: 'GET', url: '/__semantic-atomic-css/report' } as never,
+      {
+        statusCode: 0,
+        setHeader() {},
+        end(value: string) {
+          resolve(value);
+        }
+      } as never,
+      reject
+    );
+  });
+  return JSON.parse(body) as Record<string, unknown>;
 }
 
 /**

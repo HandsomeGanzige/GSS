@@ -3,7 +3,7 @@
 ## 文档定位
 
 本文档是 `@semantic-atomic-css/vite` 的 Phase 3 设计草案，用于记录 Vite adapter
-如何重新接入当前 Phase 2 core v1 的逐项决策。
+如何重新接入 core 的历史逐项决策；当前行为以“当前原生管线实现”小节为准。
 
 截至 2026-07-06，本文档中的 12 个决策已逐项确认，并已按第一版路径落地实现。实现状态见
 `docs/phase-3-vite-adapter-tracking.md`，验收记录见 `docs/phase-3-acceptance.md`。
@@ -23,10 +23,10 @@
 注意：当前仓库依赖为 `vite@^6.0.3`，因此第一版实现应优先按 Vite 6 文档复核 hook、CSS Modules
 和 HMR 行为。最新 Vite 文档可能包含 Rolldown 或 Vite 8 相关变化，只能作为后续升级参考。
 
-## Phase 5 当前实现（2026-07-15）
+## 当前原生管线实现（2026-07-22）
 
 Phase 3/4 的 Route B 与手动 `preprocessCSS` Route A 继续作为历史设计记录。当前代码以下列
-Phase 5 决策为准：
+原生管线决策为准：
 
 - `semanticAtomicCss()` 返回 `PluginOption`，内含 normal pipeline 与 post bridge 两个插件。
 - pipeline 位于 Vite 6 `vite:css` 与 `vite:css-post` 之间，直接消费 Vite 已预处理、scoped
@@ -40,6 +40,15 @@ Phase 5 决策为准：
   会导致保守多重验证一个模块，但不会复用 stale CSS。
 - `url()` 关联 class 通过 core class preservation 完整 fallback；build 在 generate 阶段解析本地
   Vite asset reference。`publicDir` 内部占位符和自定义 `renderBuiltUrl` 当前 fail fast。
+- dev/build 聚合 renderer 只消费 atomic declaration 的 `selector.css`，不解析 identity，也不自行拼接
+  class/pseudo；declaration、important、media/supports、key 去重和断点顺序仍由 Vite adapter 管理。
+  两种格式共用这些顺序与 wrapper 决策，dev 输出 readable，build 只对结构分隔字节使用
+  compression-aware production grammar，不改写任一 selector/declaration/context 字段。
+- manifest 显式复制 selector descriptor；build analysis conflict 保留 `selectorIdentity`；dev report
+  使用无 `schemaVersion` 的当前 `adapter/status/environments` envelope。
+- build metadata 在 `generateBundle` 内惰性收集。manifest/report 同时关闭时不读取 Core manifest；
+  任一开启时只取得并稳定化一次，同一 snapshot 同时供 manifest asset 与 report analyzer 使用。
+- 包入口只导出 `semanticAtomicCss`，不保留旧 factory alias。
 
 详细结论与验收见 `docs/phase-5-css-modules-preprocessor-plan.md` 和
 `docs/phase-5-css-modules-preprocessor-acceptance.md`。
@@ -164,9 +173,8 @@ semanticAtomicCss({
     namedExports?: boolean;
   };
   core?: {
-    preserveResolvedClass?: boolean;
     className?: {
-      strategy?: 'readable' | 'hash';
+      strategy?: 'readable' | 'hash' | 'compact';
       prefix?: string;
     };
   };
@@ -191,8 +199,9 @@ semanticAtomicCss({
 - `exclude` 默认排除 `node_modules`。
 - `modules.localsConvention` 第一版默认 `asIs`。
 - `modules.namedExports` 第一版默认 `false`。
-- `core.preserveResolvedClass` 默认 `true`。
-- dev 默认 readable atomic class name，build 默认 hash atomic class name，可通过 `core.className` 显式覆盖。
+- resolved semantic class 始终保留；不提供关闭选项。
+- dev 默认 `readable + "_"` atomic class name，build 默认无 prefix 的 32-bit / 7 字符 lower-base36 `compact`；
+  可通过 `core.className` 显式覆盖，既有 `hash` 精确输出保持兼容。
 - `report.enabled` 默认 `false`，显式开启后默认文件名 `semantic-atomic-report.json`。
 - `manifest.enabled` 默认 `false`，显式开启后默认文件名 `semantic-atomic-manifest.json`。
 - `diagnostics.warn` 默认 `true`。
@@ -246,7 +255,7 @@ semanticAtomicCss({
 tokens[localName] = result.classes[localName].suggestedClassName
 ```
 
-因为 core 默认 `preserveResolvedClass: true`，`suggestedClassName` 会包含：
+因为 resolved semantic class 是 core 的固定 invariant，`suggestedClassName` 会包含：
 
 ```txt
 resolved scoped class + atomic class list
@@ -255,7 +264,7 @@ resolved scoped class + atomic class list
 示例：
 
 ```txt
-button -> "Button_button__hash _color_red _font_size_16px"
+button -> "Button_button__hash _selector_q0dmug_color_red _selector_q0dmug_font_size_16px"
 ```
 
 这样 preserved unsafe CSS 仍能命中 resolved scoped class，同时 DOM 上也带有 atomic class。

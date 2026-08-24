@@ -21,6 +21,7 @@ const suiteRoots = {
  * @throws {Error} 当构建失败或任一验收断言不成立时抛出。
  */
 async function main() {
+  verifyExactSelectorRulePositionGuard();
   const tempRoot = await mkdtemp(path.join(tmpdir(), 'gss-vite-fixture-'));
   const outputs = {
     baseSemanticA: path.join(tempRoot, 'base-semantic-a'),
@@ -120,12 +121,16 @@ async function verifyBaseSemanticBuild(outDir) {
   const html = await readFile(path.join(outDir, 'index.html'), 'utf8');
   const css = await readFile(cssFile, 'utf8');
   const js = await readAssets(path.join(outDir, 'assets'), '.js');
+  const assetNames = await readdir(path.join(outDir, 'assets'));
 
   assertIncludes(html, 'assets/semantic-atomic.css', 'base HTML 应注入聚合 CSS');
   assertIncludes(js, 'data-gss-case', 'base fixture 应保留稳定验收锚点');
   assertIncludes(js, 'Vite CSS Modules semantic/native parity cases', 'base fixture 应构建对照页');
   assertIncludes(js, 'dashed-token', 'base fixture 应覆盖 dashed token key');
   assertIncludes(js, 'camelToken', 'base fixture 应覆盖 camelCase token key');
+  verifyBaseAttributeSelectors(js, css);
+  verifyBaseSelectorList(js, css);
+  assertIncludes(js, '_selector_q0dmug_padding_13px', 'selector-list 旁的无关 class 应追加当前 selector-aware atomic token');
   assertIncludes(css, 'grid-template-columns', '@supports declaration 应进入聚合 CSS');
   assertIncludes(css, '@media (max-width: 600px)', 'media atomic CSS 应进入聚合 CSS');
   assertIncludes(css, '@supports (display: grid)', 'supports atomic CSS 应进入聚合 CSS');
@@ -134,8 +139,107 @@ async function verifyBaseSemanticBuild(outDir) {
   assertIncludes(css, '--case-accent', 'custom property 应作为 fallback 保留');
   assertIncludes(css, 'box-shadow', 'descendant fallback 应保留');
   assertIncludes(css, '[data-tone=', 'attribute fallback 应保留');
-  assertIncludes(css, 'content: "";', 'pseudo-element fallback 应保留');
-  assertIncludes(css, '._', '聚合 CSS 应包含 readable atomic class');
+  verifyBasePseudoElements(js, css);
+  assertIncludes(css, '#2563eb', 'selector-list declaration 应进入单-arm atomic rule');
+  assertIncludes(css, '#dc2626', '同 class 后置 declaration 应进入后置 atomic rule');
+  for (const caseId of [
+    'oracle-non-competing',
+    'oracle-important',
+    'oracle-specificity',
+    'oracle-stable-order',
+    'oracle-media-overlap',
+    'oracle-supports-overlap',
+    'duplicate-base',
+    'duplicate-align'
+  ]) {
+    assertIncludes(js, caseId, `base bundle 应包含 ${caseId} 验收锚点`);
+  }
+  for (const atomicToken of [
+    '_selector_q0dmug_color_4338ca',
+    '_selector_q0dmug_color_9f1239_important',
+    '_selector_q0dmug_color_7c3aed',
+    '_selector_q0dmug_color_7c2d12',
+    '_selector_q0dmug_color_1e3a8a',
+    '_selector_q0dmug_color_2563eb',
+    '_selector_q0dmug_color_be123c'
+  ]) {
+    assertIncludes(js, atomicToken, `base bundle 应包含 safe atomic token: ${atomicToken}`);
+    assertIncludes(css, atomicToken, `聚合 CSS 应包含 safe atomic rule: ${atomicToken}`);
+  }
+  assertIncludes(css, "data-oracle='non-competing'", 'non-competing attribute atomic guard 应保留');
+  assertIncludes(css, "data-oracle='specificity'", 'specificity attribute atomic guard 应保留');
+  for (const fallbackValue of [
+    '#fef3c7',
+    '#6b7280',
+    '#0e7490',
+    '#0369a1',
+    '#f1f5f9',
+    '#f8fafc',
+    '#dbeafe',
+    '#dcfce7'
+  ]) {
+    assertIncludes(css, fallbackValue, `聚合 CSS 应保留 fallback value: ${fallbackValue}`);
+  }
+  const supportsFallbackToken = findBundleClassToken(js, '_oracleSupportsFallback_');
+  assertIncludes(
+    css,
+    '._selector_q0dmug_background_f8fafc {',
+    'supports base background 的同值 atomic rule 应存在，确保 fallback token guard 不是空断言'
+  );
+  assert(
+    supportsFallbackToken.split(/\s+/u).length === 1,
+    `supports fallback bundle token 只应包含 semantic scoped class: ${supportsFallbackToken}`
+  );
+  assertDoesNotInclude(
+    supportsFallbackToken,
+    '_selector_q0dmug_background_f8fafc',
+    'supports fallback base background 不得追加同值 atomic token'
+  );
+  for (const forbiddenAtomicToken of [
+    '_selector_q0dmug_color_6b7280',
+    '_selector_q0dmug_color_0369a1',
+    '_selector_q0dmug_background_f1f5f9',
+    '_selector_q0dmug_background_dbeafe',
+    '_selector_q0dmug_background_dcfce7'
+  ]) {
+    assertDoesNotInclude(
+      css,
+      forbiddenAtomicToken,
+      `fallback declaration 不应进入对应 atomic token: ${forbiddenAtomicToken}`
+    );
+  }
+  assertSnippetsInOrder(css, ['color: #4338ca;', 'background: #fef3c7;'], 'atomic CSS 应位于 preserved fallback 前');
+  assertSnippetsInOrder(css, ['color: #7c2d12;', 'color: #0369a1;'], 'stable-order 应保持 atomic → fallback');
+  assertSnippetsInOrder(
+    css,
+    ['color: #1e3a8a;', 'color: #2563eb;', 'color: #be123c;'],
+    'media atomic declaration 应保持 base → min600 → min900'
+  );
+  assertSnippetsInOrder(
+    css,
+    [
+      '._oracleSupportsFallback_',
+      'background: #f8fafc;',
+      '._oracleSupportsFallback_',
+      'background: #dbeafe;',
+      '._oracleSupportsFallback_',
+      'background: #dcfce7;'
+    ],
+    'supports fallback 应保持 base → grid → flex'
+  );
+  assert(
+    countOccurrences(css, '._selector_q0dmug_color_334155 {') === 1,
+    'same-value duplicate color atomic rule 应只输出一次'
+  );
+  assert(
+    countOccurrences(css, '._selector_q0dmug_align-items_center {') === 1,
+    'same-value duplicate align-items atomic rule 应只输出一次'
+  );
+  assert(
+    assetNames.filter((name) => name === 'semantic-atomic.css').length === 1,
+    'base semantic build 应只生成一个统一 GSS 聚合 CSS'
+  );
+  assertIncludes(css, '._selector_q0dmug_', '聚合 CSS 应包含当前 selector-aware readable atomic class');
   assertMatches(
     css,
     /\.-?[_a-zA-Z][-_a-zA-Z0-9]*\s+\.-?[_a-zA-Z][-_a-zA-Z0-9]*/,
@@ -181,10 +285,9 @@ async function verifyPreprocessorSemanticBuild(outDir) {
 
   assertIncludes(js, 'fixture_Theme-module__safe-scss', 'SCSS token 应继承 Vite scoped class');
   assertIncludes(js, 'fixture_Panel-module__panel', 'Less token 应继承 Vite scoped class');
-  assertIncludes(js, '_color_0f766e', 'SCSS safe declaration 应追加 atomic class');
-  assertIncludes(js, '_background_eff6ff', 'Less safe declaration 应追加 atomic class');
   assertIncludes(css, 'padding: 17px;', 'Sass partial 和 additionalData 应由 Vite 编译');
   assertIncludes(css, 'border-radius: 9px;', 'Less additionalData 应由 Vite 编译');
+  assertIncludes(css, 'background: #eff6ff;', '参与 descendant selector 的 Less class 应整类保留');
   assertIncludes(css, '.fixture_Panel-module__panel .fixture_Panel-module__child', 'Less descendant 应保留 fallback');
   assertIncludes(css, '.fixture_Theme-module__hero', '资源 class 应保留 semantic selector');
   assertIncludes(css, 'fixture-mark-', '聚合 CSS 应引用 Vite 发布的资源');
@@ -204,9 +307,55 @@ async function verifyPreprocessorSemanticBuild(outDir) {
   assert(report.analysis.size.beforeRawCssBytes > 0, 'analyzer 应输出 scoped CSS before-size');
   assert(Object.keys(manifest.classes).some((key) => key.includes('.module.scss::')), 'manifest 应包含 SCSS class');
   assert(Object.keys(manifest.classes).some((key) => key.includes('.module.less::')), 'manifest 应包含 Less class');
+  verifyManifestAtomicSelectors(manifest, css);
 
+  const safeScssClass = Object.values(manifest.classes).find(
+    (entry) => entry.sourceClassName === 'fixture_Theme-module__safe-scss'
+  );
+  assert(safeScssClass, 'manifest 应包含 safe-scss class entry');
+  verifySuggestedTokenMutationGuard(js, safeScssClass, 'Vite safe-scss');
+  const compiledAttributeClass = Object.values(manifest.classes).find((entry) =>
+    entry.sourceClassName.includes('compiled-attribute')
+  );
+  assert(compiledAttributeClass, 'manifest 应包含 SCSS compiled attribute class entry');
+  verifySuggestedTokenMutationGuard(js, compiledAttributeClass, 'Vite SCSS compiled attribute');
+  const compiledAttributeEntries = compiledAttributeClass.atomicClassNames
+    .map((className) => manifest.atomic[className])
+    .filter((entry) => ['color', 'background'].includes(entry?.declaration?.prop));
+  assert(
+    compiledAttributeEntries.length === 2,
+    'SCSS compiled attribute class 应映射 color/background 两条 guarded atomic entries'
+  );
+  assert(
+    compiledAttributeEntries.every(
+      (entry) =>
+        entry.selector.identity.includes('[data-state=ready]') &&
+        entry.selector.css.includes('[data-state=ready]')
+    ),
+    'SCSS compiled attribute manifest selector.identity 与 selector.css 必须同时保留 compiled guard'
+  );
+  assert(
+    compiledAttributeEntries.every((entry) => findExactSelectorRulePosition(css, entry.selector.css) >= 0),
+    'SCSS compiled attribute manifest selector.css 必须精确存在于聚合 CSS'
+  );
+  assert(
+    findExactSelectorRulePosition(
+      css,
+      `.${compiledAttributeClass.sourceClassName}[data-state=ready]`
+    ) === -1,
+    'eligible SCSS compiled attribute selector 不应重复保留 scoped fallback'
+  );
+  assert(
+    !report.diagnostics.some(
+      (diagnostic) =>
+        diagnostic.reason === 'attribute-selector' && String(diagnostic.id).endsWith('Theme.module.scss')
+    ),
+    'eligible SCSS compiled attribute selector 不应报告 attribute-selector'
+  );
   const assetClass = Object.values(manifest.classes).find((entry) => entry.sourceClassName.includes('hero'));
   assert(assetClass && assetClass.atomicClassNames.length === 0, '资源 class 的 manifest atomicClassNames 应为空');
+  const descendantClass = Object.values(manifest.classes).find((entry) => entry.sourceClassName.includes('panel'));
+  assert(descendantClass && descendantClass.atomicClassNames.length === 0, '参与 descendant selector 的 class 应整类保留');
 }
 
 /**
@@ -394,6 +543,285 @@ function assertDoesNotInclude(value, expected, message) {
  */
 function assertMatches(value, pattern, message) {
   assert(pattern.test(value), message);
+}
+
+/**
+ * 断言多个 CSS 片段按指定顺序出现，防止仅验证“都存在”却遗漏 cascade 重排。
+ *
+ * @param {string} value - 被检查的完整 CSS。
+ * @param {string[]} snippets - 按预期顺序排列的 CSS 片段。
+ * @param {string} message - 断言失败时使用的说明。
+ * @returns {void}
+ */
+function assertSnippetsInOrder(value, snippets, message) {
+  let previousIndex = -1;
+
+  for (const snippet of snippets) {
+    const index = value.indexOf(snippet, previousIndex + 1);
+    assert(index > previousIndex, `${message}: ${snippet}`);
+    previousIndex = index;
+  }
+}
+
+/**
+ * 统计固定 CSS 片段的非重叠 occurrence，用于证明全局 atomic dedupe 未被重复输出掩盖。
+ *
+ * @param {string} value - 被检查的完整 CSS。
+ * @param {string} snippet - 要统计的非空 CSS 片段。
+ * @returns {number} 非重叠 occurrence 数量。
+ */
+function countOccurrences(value, snippet) {
+  let count = 0;
+  let searchFrom = 0;
+
+  while (searchFrom < value.length) {
+    const index = value.indexOf(snippet, searchFrom);
+    if (index < 0) return count;
+    count += 1;
+    searchFrom = index + snippet.length;
+  }
+
+  return count;
+}
+
+/**
+ * 从真实 bundle string literal 中读取指定 source class marker 对应的完整 class token。
+ *
+ * @param {string} bundleJs - 当前 semantic build 的完整 JavaScript。
+ * @param {string} sourceClassMarker - Vite scoped class 中保留的 source class marker。
+ * @returns {string} 包含 semantic scoped class 与可能 atomic class 的完整 token。
+ */
+function findBundleClassToken(bundleJs, sourceClassMarker) {
+  const markerIndex = bundleJs.indexOf(sourceClassMarker);
+  if (markerIndex < 0) throw new Error(`bundle 缺少 source class marker: ${sourceClassMarker}`);
+
+  const doubleQuoteIndex = bundleJs.lastIndexOf('"', markerIndex);
+  const singleQuoteIndex = bundleJs.lastIndexOf("'", markerIndex);
+  const start = Math.max(doubleQuoteIndex, singleQuoteIndex);
+  const quote = bundleJs[start];
+  const end = quote ? bundleJs.indexOf(quote, markerIndex) : -1;
+  assert(start >= 0 && end > markerIndex, `bundle source class token 边界不完整: ${sourceClassMarker}`);
+  return bundleJs.slice(start + 1, end);
+}
+
+/** 验证全 eligible selector-list 的 token 复用、semantic preservation 与单-arm descriptor 输出。 */
+function verifyBaseSelectorList(bundleJs, atomicCss) {
+  const targetToken = findBundleClassToken(bundleJs, '_selectorListTarget_');
+  const peerToken = findBundleClassToken(bundleJs, '_selectorListPeer_');
+  const targetTokens = targetToken.split(/\s+/u);
+  const peerTokens = peerToken.split(/\s+/u);
+  const sharedColor = findClassTokenPart(targetToken, 'color_2563eb');
+  const laterColor = findClassTokenPart(targetToken, 'color_dc2626');
+
+  assert(targetTokens.length === 3, `selector-list target 应包含 semantic + 两个 atomic token: ${targetToken}`);
+  assert(peerTokens.length === 2, `selector-list peer 应包含 semantic + 共享 atomic token: ${peerToken}`);
+  assert(peerTokens.includes(sharedColor), 'selector-list 两个 base arm 应复用同一个 atomic token');
+  assert(!peerTokens.includes(laterColor), '后置 target declaration 不得泄漏给 peer arm');
+  assert(findExactSelectorRulePosition(atomicCss, `.${sharedColor}`) >= 0, '共享 atomic selector 应存在');
+  assert(findExactSelectorRulePosition(atomicCss, `.${laterColor}`) >= 0, '后置 target atomic selector 应存在');
+  assertDoesNotInclude(atomicCss, `.${sharedColor},`, 'atomic descriptor 不得重新输出组合 selector-list');
+}
+
+/** 验证 modern before 与 legacy after 保留 spelling、semantic token 和单-arm atomic CSS。 */
+function verifyBasePseudoElements(bundleJs, atomicCss) {
+  const beforeToken = findBundleClassToken(bundleJs, '_pseudoMarker_');
+  const afterToken = findBundleClassToken(bundleJs, '_pseudoAfter_');
+  const beforeAtomic = findClassTokenPart(beforeToken, 'background_0f766e');
+  const afterAtomic = findClassTokenPart(afterToken, 'color_7c3aed');
+  const beforeScoped = beforeToken.split(/\s+/u)[0];
+  const afterScoped = afterToken.split(/\s+/u)[0];
+
+  assert(beforeToken.split(/\s+/u).length > 1, 'modern before semantic token 应追加 atomic classes');
+  assert(afterToken.split(/\s+/u).length > 1, 'legacy after semantic token 应追加 atomic classes');
+  assert(findExactSelectorRulePosition(atomicCss, `.${beforeAtomic}::before`) >= 0, 'modern before atomic CSSOM spelling 应保留');
+  assert(findExactSelectorRulePosition(atomicCss, `.${afterAtomic}:after`) >= 0, 'legacy after atomic CSSOM spelling 应保留');
+  assert(findExactSelectorRulePosition(atomicCss, `.${beforeScoped}::before`) === -1, 'eligible before 不应重复 scoped fallback');
+  assert(findExactSelectorRulePosition(atomicCss, `.${afterScoped}:after`) === -1, 'eligible legacy after 不应重复 scoped fallback');
+}
+
+/**
+ * 验证 base fixture 能区分 guarded atomic selector 与 scoped fallback，并锁定 attribute node order。
+ *
+ * @param {string} bundleJs - base semantic build 的完整 JavaScript。
+ * @param {string} atomicCss - base semantic build 的统一 GSS stylesheet。
+ * @returns {void}
+ */
+function verifyBaseAttributeSelectors(bundleJs, atomicCss) {
+  const stateToken = findBundleClassToken(bundleJs, '_attributeState_');
+  const stateTokens = stateToken.split(/\s+/u);
+  const stateScopedClass = stateTokens[0];
+  const openBackground = findClassTokenPart(stateToken, 'background_dcfce7');
+  const closedBackground = findClassTokenPart(stateToken, 'background_fee2e2');
+  assert(
+    findExactSelectorRulePosition(atomicCss, `.${openBackground}[data-state='open']`) >= 0,
+    'exact open selector 应绑定 atomic token 与 attribute guard'
+  );
+  assert(
+    findExactSelectorRulePosition(atomicCss, `.${closedBackground}[data-state='closed']`) >= 0,
+    'exact closed selector 应绑定 atomic token 与 attribute guard'
+  );
+  assert(
+    findExactSelectorRulePosition(atomicCss, `.${stateScopedClass}[data-state='open']`) === -1,
+    'eligible exact open selector 不应以 scoped class 重复输出 fallback'
+  );
+  assert(
+    findExactSelectorRulePosition(atomicCss, `.${stateScopedClass}[data-state='closed']`) === -1,
+    'eligible exact closed selector 不应以 scoped class 重复输出 fallback'
+  );
+
+  const presenceToken = findBundleClassToken(bundleJs, '_presenceGuard_');
+  const presenceScopedClass = presenceToken.split(/\s+/u)[0];
+  const presenceAtomic = findClassTokenPart(presenceToken, 'background_dbeafe');
+  assert(
+    findExactSelectorRulePosition(atomicCss, `.${presenceAtomic}[data-present]`) >= 0,
+    'presence selector 应绑定 atomic token 与 attribute guard'
+  );
+  assert(
+    findExactSelectorRulePosition(atomicCss, `.${presenceScopedClass}[data-present]`) === -1,
+    'eligible presence selector 不应以 scoped class 重复输出 fallback'
+  );
+
+  const nodeOrderToken = findBundleClassToken(bundleJs, '_nodeOrder_');
+  const nodeOrderScopedClass = nodeOrderToken.split(/\s+/u)[0];
+  const nodeOrderAtomic = findClassTokenPart(nodeOrderToken, 'background_f3e8ff');
+  assert(
+    findExactSelectorRulePosition(atomicCss, `[data-placement='before'].${nodeOrderAtomic}`) >= 0,
+    'attribute-before-class selector 应保留原始 node order'
+  );
+  assert(
+    findExactSelectorRulePosition(atomicCss, `[data-placement='before'].${nodeOrderScopedClass}`) === -1,
+    'eligible attribute-before-class selector 不应以 scoped class 重复输出 fallback'
+  );
+
+  const orderRiskToken = findBundleClassToken(bundleJs, '_orderRisk_');
+  const orderRiskTokens = orderRiskToken.split(/\s+/u);
+  assert(orderRiskTokens.length === 1, 'order-risk class 只能保留 semantic scoped token');
+  assert(
+    findExactSelectorRulePosition(atomicCss, `.${orderRiskTokens[0]}[data-state]`) >= 0 &&
+      findExactSelectorRulePosition(atomicCss, `.${orderRiskTokens[0]}:hover`) >= 0,
+    'order-risk attribute/pseudo rules 应整类保留 scoped fallback'
+  );
+
+  const nearMissToken = findBundleClassToken(bundleJs, '_nearMiss_');
+  const nearMissTokens = nearMissToken.split(/\s+/u);
+  assert(nearMissTokens.length === 1, 'near-miss class 只能保留 semantic scoped token');
+  assert(
+    findExactSelectorRulePosition(atomicCss, `.${nearMissTokens[0]}[data-kind^='danger']`) >= 0,
+    '不支持的 ^= operator 应保留 scoped fallback'
+  );
+}
+
+/** 从完整 suggested class token 中定位一枚带稳定 declaration marker 的 atomic token。 */
+function findClassTokenPart(classToken, marker) {
+  const match = classToken.split(/\s+/u).find((token) => token.includes(marker));
+  assert(match, `class token 缺少 atomic marker: ${marker}\n${classToken}`);
+  return match;
+}
+
+/**
+ * 验证 manifest 的 className 索引、opaque selector identity 与最终 selector CSS 保持一致。
+ *
+ * @param {Record<string, unknown>} manifest - 当前 build 输出的 manifest。
+ * @param {string} atomicCss - 当前 build 输出的完整 atomic stylesheet。
+ * @returns {void}
+ */
+function verifyManifestAtomicSelectors(manifest, atomicCss) {
+  const entries = Object.entries(manifest.atomic ?? {});
+  assert(entries.length > 0, 'manifest 应包含 atomic entries');
+
+  for (const [className, entry] of entries) {
+    assert(entry?.className === className, `manifest atomic 索引应等于 entry.className: ${className}`);
+    assert(
+      typeof entry.selector?.identity === 'string' && entry.selector.identity.length > 0,
+      `manifest atomic selector.identity 必填: ${className}`
+    );
+    assert(
+      typeof entry.selector?.css === 'string' && entry.selector.css.length > 0,
+      `manifest atomic selector.css 必填: ${className}`
+    );
+    assert(
+      findExactSelectorRulePosition(atomicCss, entry.selector.css) >= 0,
+      `atomic CSS 应包含完整 manifest selector.css rule: ${className}`
+    );
+  }
+
+  let mappedAtomicClasses = 0;
+  for (const [classId, classEntry] of Object.entries(manifest.classes ?? {})) {
+    for (const className of classEntry.atomicClassNames ?? []) {
+      mappedAtomicClasses += 1;
+      assert(
+        manifest.atomic?.[className]?.className === className,
+        `class mapping atomicClassNames 应命中同名 manifest atomic entry: ${classId} -> ${className}`
+      );
+    }
+  }
+  assert(mappedAtomicClasses > 0, 'manifest class mappings 应至少引用一个 atomic entry');
+}
+
+/**
+ * 在内存 bundle 中验证完整 suggested token，并以删除该 token 的 mutation 证明门禁能够失败。
+ *
+ * @param {string} bundleJs - 真实构建输出的 JavaScript。
+ * @param {Record<string, unknown>} classEntry - safe-scss class manifest entry。
+ * @param {string} label - 失败信息的场景标签。
+ * @returns {void}
+ */
+function verifySuggestedTokenMutationGuard(bundleJs, classEntry, label) {
+  verifySuggestedTokenInBundle(bundleJs, classEntry, label);
+  const mutatedJs = bundleJs.replace(classEntry.suggestedClassName, '');
+  assert(mutatedJs !== bundleJs, `${label} mutation 应实际删除完整 suggested token`);
+
+  let rejected = false;
+  try {
+    verifySuggestedTokenInBundle(mutatedJs, classEntry, `${label} mutation`);
+  } catch {
+    rejected = true;
+  }
+  assert(rejected, `${label} 缺少完整 suggested token 时门禁必须失败`);
+}
+
+/** 验证真实 bundle 包含 manifest 声明的完整 scoped + atomic token sequence。 */
+function verifySuggestedTokenInBundle(bundleJs, classEntry, label) {
+  assert(classEntry.atomicClassNames?.length > 0, `${label} atomicClassNames 应非空`);
+  assert(
+    typeof classEntry.suggestedClassName === 'string' && classEntry.suggestedClassName.length > 0,
+    `${label} suggestedClassName 必填`
+  );
+  assertIncludes(bundleJs, classEntry.suggestedClassName, `${label} bundle 应包含完整 suggestedClassName`);
+}
+
+/**
+ * 定位 selector 作为完整 rule prelude 的精确位置，不允许更长 selector 以前缀方式误命中。
+ *
+ * @param {string} css - 完整 stylesheet。
+ * @param {string} selector - descriptor 提供的完整 selector.css。
+ * @returns {number} rule prelude 起点；未命中返回 -1。
+ */
+function findExactSelectorRulePosition(css, selector) {
+  let searchFrom = 0;
+  while (searchFrom <= css.length) {
+    const position = css.indexOf(selector, searchFrom);
+    if (position < 0) return -1;
+
+    let before = position - 1;
+    while (before >= 0 && /\s/u.test(css[before])) before -= 1;
+    let after = position + selector.length;
+    while (after < css.length && /\s/u.test(css[after])) after += 1;
+    const startsAtRuleBoundary = before < 0 || css[before] === '{' || css[before] === '}';
+    if (startsAtRuleBoundary && css[after] === '{') return position;
+    searchFrom = position + 1;
+  }
+  return -1;
+}
+
+/** 以更长 selector mutation、顶层和条件嵌套规则自检 exact rule boundary。 */
+function verifyExactSelectorRulePositionGuard() {
+  assert(findExactSelectorRulePosition('.foo_suffix {}', '.foo') === -1, 'exact selector 不得命中更长 class');
+  assert(findExactSelectorRulePosition('.foo {}', '.foo') === 0, 'exact selector 应命中顶层 rule');
+  assert(
+    findExactSelectorRulePosition('@media (min-width: 1px) {\n  .foo {}\n}', '.foo') > 0,
+    'exact selector 应命中条件规则中的完整 prelude'
+  );
 }
 
 /**

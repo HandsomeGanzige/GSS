@@ -7,7 +7,6 @@ import type { AtomicClassNameOptions, TransformCssOptions } from '../public/type
 
 /** pipeline 内部使用的已补齐 transform options。 */
 export type ResolvedTransformOptions = {
-  preserveResolvedClass: boolean;
   className: Required<AtomicClassNameOptions>;
 };
 
@@ -24,11 +23,18 @@ export const defaultClassNameOptions: Required<AtomicClassNameOptions> = {
  * @returns 不含可选字段的 resolved options。
  */
 export function resolveTransformOptions(options: TransformCssOptions = {}): ResolvedTransformOptions {
+  if (Object.prototype.hasOwnProperty.call(options, 'preserveResolvedClass')) {
+    throw new Error(
+      'Unsupported transform option "preserveResolvedClass": semantic resolved classes are always preserved.'
+    );
+  }
+
+  const strategy = options.className?.strategy ?? defaultClassNameOptions.strategy;
+
   return {
-    preserveResolvedClass: options.preserveResolvedClass ?? true,
     className: {
-      strategy: options.className?.strategy ?? defaultClassNameOptions.strategy,
-      prefix: options.className?.prefix ?? defaultClassNameOptions.prefix
+      strategy,
+      prefix: options.className?.prefix ?? (strategy === 'compact' ? '' : defaultClassNameOptions.prefix)
     }
   };
 }

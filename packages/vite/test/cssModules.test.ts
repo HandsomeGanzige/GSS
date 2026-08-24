@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import * as vitePublicApi from '../src/index.js';
 import {
   augmentCssModuleTokens,
   collectExportedClassNames,
@@ -19,9 +20,7 @@ const options: ResolvedSemanticAtomicCssOptions = {
     namedExports: false,
     configured: false
   },
-  core: {
-    preserveResolvedClass: true
-  },
+  core: {},
   manifest: {
     enabled: false,
     filename: 'semantic-atomic-manifest.json'
@@ -30,6 +29,12 @@ const options: ResolvedSemanticAtomicCssOptions = {
     enabled: false,
     filename: 'semantic-atomic-report.json'
   },
+  devtools: {
+    enabled: false,
+    overlay: false,
+    endpoint: '/__semantic-atomic-css/report',
+    pollIntervalMs: 1_500
+  },
   diagnostics: {
     warn: true,
     strict: false
@@ -37,6 +42,11 @@ const options: ResolvedSemanticAtomicCssOptions = {
 };
 
 describe('cssModules native pipeline helpers', () => {
+  it('公开包入口只导出当前 semanticAtomicCss factory', () => {
+    expect(vitePublicApi).toHaveProperty('semanticAtomicCss');
+    expect(vitePublicApi).not.toHaveProperty('semanticAtomicCssPlugin');
+  });
+
   it('只匹配支持的 CSS/SCSS/Less module 文件', () => {
     expect(isCssModuleFile('/project/src/Button.module.css', '/project', options)).toBe(true);
     expect(isCssModuleFile('/project/src/Button.module.scss', '/project', options)).toBe(true);

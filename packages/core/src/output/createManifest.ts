@@ -3,7 +3,11 @@
  *
  * @module core/output/createManifest
  */
-import type { AtomicDeclaration, TransformClassMapping, TransformManifest } from '../public/types.js';
+import type { TransformClassMapping, TransformManifest } from '../public/types.js';
+import {
+  visitAtomicDeclarations,
+  type AtomicDeclarationSource
+} from './visitAtomicDeclarations.js';
 
 /**
  * 创建当前输入或聚合 registry 的 manifest。
@@ -15,16 +19,17 @@ import type { AtomicDeclaration, TransformClassMapping, TransformManifest } from
  */
 export function createManifest(
   id: string,
-  atomic: AtomicDeclaration[],
+  atomic: AtomicDeclarationSource,
   classes: Record<string, TransformClassMapping>
 ): TransformManifest {
   const atomicManifest: TransformManifest['atomic'] = {};
   const classManifest: TransformManifest['classes'] = {};
 
-  for (const declaration of atomic) {
+  visitAtomicDeclarations(atomic, (declaration) => {
     atomicManifest[declaration.className] = {
       key: declaration.key,
       className: declaration.className,
+      selector: { ...declaration.selector },
       declaration: {
         ...declaration.declaration,
         source: declaration.declaration.source && { ...declaration.declaration.source }
@@ -32,7 +37,7 @@ export function createManifest(
       context: { ...declaration.context },
       sources: declaration.sources.map((source) => ({ ...source }))
     };
-  }
+  });
 
   for (const mapping of Object.values(classes)) {
     classManifest[`${id}::${mapping.sourceClassName}`] = {

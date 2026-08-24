@@ -15,7 +15,7 @@ import { createTransformer } from './createTransformer.js';
  * 如需在一次 build 中跨文件复用 declaration，请使用 {@link createTransformer}。
  *
  * @param input - CSS、稳定来源 id 和 class scope strategy。调用方必须先完成预处理器编译。
- * @param options - class name 与 semantic class 保留策略；省略时使用 safe transform 默认值。
+ * @param options - class name 策略；semantic resolved class 始终保留。
  * @returns 当前输入的 atomic/preserved CSS、class mapping、diagnostics、manifest 与 report 快照。
  * @throws 调用方提供的 scope strategy 抛出的异常，以及非 CSS parse error 的意外实现异常。
  *

@@ -14,7 +14,6 @@ import type {
   DeclarationAnalysis,
   Diagnostic,
   ScopeStrategy,
-  SelectorAnalysis,
   TransformCssInput,
   TransformCssOptions,
   TransformCssResult,
@@ -26,9 +25,14 @@ import type {
 import type { CssRuleRecord, PreservedBlock, PreservedRule } from '../ir/types.js';
 import { parseCss } from '../ast/parseCss.js';
 import { collectIr } from '../ast/collectIr.js';
-import { analyzeSelector } from '../selector/analyzeSelector.js';
 import { analyzeDeclaration } from '../declaration/analyzeDeclaration.js';
-import { scopeSelector } from '../selector/scopeSelector.js';
+import {
+  planSelectorRewrite,
+  type EligibleSelectorArmRewrite,
+  type EligibleSelectorRewrite,
+  type PreservedSelectorRewrite,
+  type SelectorRewriteDecision
+} from '../selector/planSelectorRewrite.js';
 import { collectSourceClassNamesFromCss, scopeCssBlock } from '../selector/scopeCssBlock.js';
 import { AtomicRegistry } from '../registry/AtomicRegistry.js';
 import { ClassMappingBuilder } from '../registry/ClassMappingBuilder.js';
@@ -38,12 +42,17 @@ import {
   preservedDeclarationMessage,
   unsafeSelectorMessage
 } from '../diagnostics/messages.js';
-import { renderAtomicCss } from '../output/renderAtomicCss.js';
+import {
+  planInputClassPreservation,
+  type InputClassPreservationReason,
+  type InputClassPreservationPlan
+} from './planInputClassPreservation.js';
+import { measureAtomicCssBytes, renderAtomicCss } from '../output/renderAtomicCss.js';
 import { renderPreservedCss } from '../output/renderPreservedCss.js';
 import { createManifest } from '../output/createManifest.js';
 import { createReport } from '../output/createReport.js';
 import { mergeReports } from '../output/mergeReport.js';
-import { resolveTransformOptions, type ResolvedTransformOptions } from '../policies/defaultOptions.js';
+import { resolveTransformOptions } from '../policies/defaultOptions.js';
 import { byteLength } from '../utils/bytes.js';
 
 /**
@@ -54,7 +63,7 @@ import { byteLength } from '../utils/bytes.js';
  * 单次返回值始终只描述当前输入；聚合视图必须通过 `getAtomicCss`、`getManifest` 和 `getReport`
  * 获取。当前 interface 不支持同一 id 的更新、删除或失效，因此不得直接作为 dev/HMR 缓存使用。
  *
- * @param options - 在 transformer 生命周期内保持不变的 class name 与 semantic class 保留策略。
+ * @param options - 在 transformer 生命周期内保持不变的 class name 策略。
  * @returns 可执行转换并读取聚合快照的 {@link Transformer}。
  * @throws 调用方提供的 scope strategy 抛出的异常，以及非 CSS parse error 的意外实现异常。
  *
@@ -76,6 +85,16 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
   const registry = new AtomicRegistry(resolvedOptions.className);
   const reports: TransformReport[] = [];
   let latestClassManifest: TransformManifest['classes'] = {};
+  let cachedAtomicCss: string | undefined;
+  let cachedAtomicCssBytes: number | undefined;
+  let cachedAggregateReport: TransformReport | undefined;
+
+  /** 每次 transform 进入时就失效，包括空输入、parse error 和抛错路径。 */
+  const invalidateFinalizationCache = (): void => {
+    cachedAtomicCss = undefined;
+    cachedAtomicCssBytes = undefined;
+    cachedAggregateReport = undefined;
+  };
 
   return {
     /**
@@ -85,8 +104,9 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
      * @returns 只描述当前输入的 transform snapshot。
      */
     transformCss(input: TransformCssInput): TransformCssResult {
-      const result = runTransform(input, registry, resolvedOptions);
-      reports.push(result.report);
+      invalidateFinalizationCache();
+      const result = runTransform(input, registry);
+      reports.push(cloneReport(result.report));
       latestClassManifest = mergeClassManifest(latestClassManifest, result.manifest.classes);
       return result;
     },
@@ -97,7 +117,11 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
      * @returns registry 当前全部 declaration 的 CSS 快照。
      */
     getAtomicCss(): string {
-      return renderAtomicCss(registry.list());
+      if (cachedAtomicCss === undefined) {
+        cachedAtomicCss = renderAtomicCss(registry);
+        cachedAtomicCssBytes = byteLength(cachedAtomicCss);
+      }
+      return cachedAtomicCss;
     },
 
     /**
@@ -106,17 +130,21 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
      * @returns 基于当前 reports 和 registry 重新计算的治理快照。
      */
     getReport(): TransformReport {
-      const report = mergeReports(reports);
-      const atomicCss = renderAtomicCss(registry.list());
-      report.summary.atomicDeclarations = registry.list().length;
-      report.summary.reusedAtomicDeclarations = registry.getReusedCount();
-      report.size.afterAtomicCssBytes = byteLength(atomicCss);
-      report.size.estimatedTotalDiffBytes =
-        report.size.afterAtomicCssBytes +
-        report.size.afterPreservedCssBytes +
-        report.size.estimatedClassStringIncreaseBytes -
-        report.size.beforeCssBytes;
-      return report;
+      if (!cachedAggregateReport) {
+        const report = mergeReports(reports);
+        const atomicCssBytes = cachedAtomicCssBytes ?? measureAtomicCssBytes(registry);
+        cachedAtomicCssBytes = atomicCssBytes;
+        report.summary.atomicDeclarations = registry.declarationCount;
+        report.summary.reusedAtomicDeclarations = registry.getReusedCount();
+        report.size.afterAtomicCssBytes = atomicCssBytes;
+        report.size.estimatedTotalDiffBytes =
+          report.size.afterAtomicCssBytes +
+          report.size.afterPreservedCssBytes +
+          report.size.estimatedClassStringIncreaseBytes -
+          report.size.beforeCssBytes;
+        cachedAggregateReport = report;
+      }
+      return cloneReport(cachedAggregateReport);
     },
 
     /**
@@ -126,7 +154,7 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
      */
     getManifest(): TransformManifest {
       return {
-        atomic: createManifest('', registry.list(), {}).atomic,
+        atomic: createManifest('', registry, {}).atomic,
         classes: cloneClassManifest(latestClassManifest)
       };
     }
@@ -138,14 +166,9 @@ export function createTransformer(options: TransformCssOptions = {}): Transforme
  *
  * @param input - 当前标准 CSS 输入。
  * @param registry - transformer 生命周期共享的 atomic registry。
- * @param options - 已补齐且固定的 transform 策略。
  * @returns 当前输入的完整 transform snapshot。
  */
-function runTransform(
-  input: TransformCssInput,
-  registry: AtomicRegistry,
-  options: ResolvedTransformOptions
-): TransformCssResult {
+function runTransform(input: TransformCssInput, registry: AtomicRegistry): TransformCssResult {
   const parsed = parseCss(input.id, input.css);
 
   if (!parsed.root) {
@@ -154,7 +177,11 @@ function runTransform(
 
   const collected = collectIr(input.id, parsed.root);
   const diagnostics: Diagnostic[] = [...parsed.diagnostics, ...collected.diagnostics];
-  const classMappings = new ClassMappingBuilder(input.id, input.scope, options.preserveResolvedClass);
+  const preservationPlan = planInputClassPreservation(collected.ir, {
+    scope: input.scope,
+    preserveClassNames: input.preserveClassNames
+  });
+  const classMappings = new ClassMappingBuilder(input.id, input.scope);
   const preservedRules: PreservedRule[] = [];
   const preservedBlocks = collected.ir.preservedBlocks.map((block) =>
     scopePreservedBlock(block, input.scope, classMappings)
@@ -177,7 +204,8 @@ function runTransform(
       currentAtomicByKey,
       diagnostics,
       stats,
-      input.preserveClassNames
+      input.preserveClassNames,
+      preservationPlan
     );
   }
 
@@ -226,6 +254,7 @@ function runTransform(
  * @param diagnostics - 当前输入 diagnostics。
  * @param stats - 当前输入可变统计。
  * @param preserveClassNames - adapter 提供的 class 级保留证据。
+ * @param preservationPlan - registry mutation 前完成的当前 input class evidence。
  */
 function processRule(
   rule: CssRuleRecord,
@@ -237,24 +266,110 @@ function processRule(
   currentAtomicByKey: Map<string, AtomicDeclaration>,
   diagnostics: Diagnostic[],
   stats: { unsafeRules: number; preservedDeclarations: number; reusedAtomicDeclarations: number },
-  preserveClassNames: TransformCssInput['preserveClassNames']
+  preserveClassNames: TransformCssInput['preserveClassNames'],
+  preservationPlan: InputClassPreservationPlan
 ): void {
-  const selectorAnalysis = analyzeSelector(rule.selector);
+  const selectorRewrite = planSelectorRewrite(rule.selector);
 
   if (rule.hasNestedNodes) {
-    preserveNestedRule(rule, scope, classMappings, preservedBlocks, diagnostics, stats, selectorAnalysis);
+    preserveNestedRule(
+      rule,
+      scope,
+      classMappings,
+      preservedBlocks,
+      diagnostics,
+      stats,
+      selectorRewrite
+    );
     return;
   }
 
-  if (selectorAnalysis.kind === 'unsafe') {
-    preserveUnsafeRule(rule, scope, classMappings, preservedRules, diagnostics, stats, selectorAnalysis.reason, selectorAnalysis);
+  if (selectorRewrite.kind === 'preserved') {
+    preserveUnsafeRule(rule, scope, classMappings, preservedRules, diagnostics, stats, selectorRewrite);
     return;
   }
 
-  const preservationReason = preserveClassNames?.[selectorAnalysis.sourceClassName];
+  const configuredArms = selectorRewrite.arms.flatMap((arm) => {
+    const reason = preserveClassNames?.[arm.anchorClassName];
+    return reason ? [{ arm, reason }] : [];
+  });
 
-  if (preservationReason) {
-    preserveConfiguredSafeRule(rule, scope, classMappings, preservedRules, diagnostics, stats, selectorAnalysis, preservationReason);
+  if (configuredArms.length > 0) {
+    preserveConfiguredSafeRule(
+      rule,
+      scope,
+      classMappings,
+      preservedRules,
+      diagnostics,
+      stats,
+      selectorRewrite,
+      configuredArms
+    );
+    return;
+  }
+
+  const nonExportedClassNames = [
+    ...new Set(
+      selectorRewrite.arms
+        .filter((arm) => !shouldTransformSafeClass(rule, scope, arm.anchorClassName))
+        .map((arm) => arm.anchorClassName)
+    )
+  ];
+
+  if (nonExportedClassNames.length > 0) {
+    preserveNonExportedSafeRule(
+      rule,
+      scope,
+      classMappings,
+      preservedRules,
+      diagnostics,
+      stats,
+      selectorRewrite,
+      nonExportedClassNames
+    );
+    return;
+  }
+
+  const evidenceEntries = selectorRewrite.arms.flatMap((arm) => {
+    const reason = preservationPlan.preserveSourceClassNames.get(arm.anchorClassName);
+    return reason ? [{ arm, reason }] : [];
+  });
+  const evidenceReason = evidenceEntries[0]?.reason;
+
+  if (evidenceReason) {
+    const cascadeReasonsByArm = preservationPlan.selectorCascadeReasonsByRuleOrder.get(rule.order);
+    const selectorCascadeRiskArms = selectorRewrite.arms.flatMap((arm, armIndex) => {
+      const classReason = preservationPlan.preserveSourceClassNames.get(arm.anchorClassName);
+      const reason = cascadeReasonsByArm?.get(armIndex);
+      const classUsesCascadeSeed =
+        classReason === 'attribute-cascade-order' || classReason === 'pseudo-element';
+      return reason && classUsesCascadeSeed ? [{ arm, reason }] : [];
+    });
+
+    if (selectorCascadeRiskArms.length > 0) {
+      preserveSelectorCascadeOrderRule(
+        rule,
+        scope,
+        classMappings,
+        preservedRules,
+        diagnostics,
+        stats,
+        selectorRewrite,
+        selectorCascadeRiskArms
+      );
+      return;
+    }
+
+    preserveEvidenceBoundSafeRule(
+      rule,
+      scope,
+      classMappings,
+      preservedRules,
+      diagnostics,
+      stats,
+      selectorRewrite,
+      evidenceReason
+    );
     return;
   }
 
@@ -267,39 +382,47 @@ function processRule(
     diagnostics,
     stats,
     currentAtomicByKey,
-    selectorAnalysis
+    selectorRewrite
   );
 }
 
 /**
- * 完整保留 adapter 标记的 safe class。
+ * 保留 grammar 已支持但 same-class occurrence order 无法证明安全的 selector rule。
  *
- * @param rule - 当前 safe rule。
- * @param scope - class resolver。
- * @param classMappings - 当前 mapping builder。
- * @param preservedRules - fallback 输出集合。
- * @param diagnostics - diagnostic 输出集合。
- * @param stats - preserved declaration 计数。
- * @param selectorAnalysis - safe selector evidence。
- * @param reason - adapter 提供的 class preservation reason。
+ * @remarks
+ * preflight 已在任何 registry mutation 前把整个 class 标记为 preserved；这里只根据具体 rule arm
+ * evidence 为 attribute 输出 `attribute-cascade-order`、为 pseudo-element alias 输出既有
+ * `pseudo-element`，并保持 class-wide 传播不产生新的 public reason。
  */
-function preserveConfiguredSafeRule(
+function preserveSelectorCascadeOrderRule(
   rule: CssRuleRecord,
   scope: ScopeStrategy,
   classMappings: ClassMappingBuilder,
   preservedRules: PreservedRule[],
   diagnostics: Diagnostic[],
-  stats: { preservedDeclarations: number },
-  selectorAnalysis: Extract<SelectorAnalysis, { kind: 'safe' }>,
-  reason: ClassPreservationReason
+  stats: { unsafeRules: number; preservedDeclarations: number },
+  selectorRewrite: EligibleSelectorRewrite,
+  selectorCascadeRiskArms: readonly {
+    arm: EligibleSelectorArmRewrite;
+    reason: Extract<UnsafeSelectorReason, 'attribute-cascade-order' | 'pseudo-element'>;
+  }[]
 ): void {
-  classMappings.ensure(selectorAnalysis.sourceClassName, rule.selector);
-  const scopedSelector = scopeSelector(rule.selector, scope, {
+  const reason = selectorCascadeRiskArms[0]?.reason;
+  if (!reason) {
+    throw new Error('Selector cascade fallback requires at least one direct risk arm.');
+  }
+  const scopedSelector = selectorRewrite.renderPreservedSelector(scope, {
     id: rule.id,
     originalSelector: rule.selector,
     usage: 'preserved-rule'
   });
 
+  ensureEligibleArms(classMappings, selectorRewrite, rule.selector);
+  const sourceClassNames = [...new Set(selectorCascadeRiskArms.map(({ arm }) => arm.anchorClassName))];
+  for (const { arm, reason: armReason } of selectorCascadeRiskArms) {
+    classMappings.addUnsafeReason(arm.anchorClassName, rule.selector, armReason);
+  }
+  stats.unsafeRules += 1;
   stats.preservedDeclarations += rule.declarations.length;
   preservedRules.push({
     id: rule.id,
@@ -313,16 +436,141 @@ function preserveConfiguredSafeRule(
   });
   diagnostics.push(
     createDiagnostic({
-      code: 'preserved-class',
+      code: 'unsafe-selector',
       level: 'warning',
-      message: preservedClassMessage(selectorAnalysis.sourceClassName, reason),
+      message: unsafeSelectorMessage(rule.selector, reason),
       id: rule.id,
       selector: rule.selector,
-      sourceClassName: selectorAnalysis.sourceClassName,
+      sourceClassName: sourceClassNames.length === 1 ? sourceClassNames[0] : undefined,
       reason,
       source: rule.source
     })
   );
+}
+
+/**
+ * 保留受当前 input selector/block evidence 影响的 eligible rule。
+ *
+ * @remarks
+ * 该原因只用于 pipeline 内部稳定输出，不额外写入 public `unsafeReasons`；
+ * 真正的 unsafe rule 会继续产生原有 diagnostic 和 class mapping evidence。
+ *
+ * @param rule - 当前 eligible rule。
+ * @param scope - class resolver。
+ * @param classMappings - 当前 input mapping builder。
+ * @param preservedRules - fallback 输出集合。
+ * @param diagnostics - 当前 input diagnostics。
+ * @param stats - preserved declaration 计数。
+ * @param selectorRewrite - eligible selector rewrite plan。
+ * @param reason - 只在 pipeline 内部使用的 class-wide preservation reason。
+ */
+function preserveEvidenceBoundSafeRule(
+  rule: CssRuleRecord,
+  scope: ScopeStrategy,
+  classMappings: ClassMappingBuilder,
+  preservedRules: PreservedRule[],
+  diagnostics: Diagnostic[],
+  stats: { preservedDeclarations: number },
+  selectorRewrite: EligibleSelectorRewrite,
+  reason: InputClassPreservationReason
+): void {
+  ensureEligibleArms(classMappings, selectorRewrite, rule.selector);
+  const scopedSelector = selectorRewrite.renderPreservedSelector(scope, {
+    id: rule.id,
+    originalSelector: rule.selector,
+    usage: 'preserved-rule'
+  });
+
+  stats.preservedDeclarations += rule.declarations.length;
+  for (const declaration of rule.declarations) {
+    const declarationAnalysis = analyzeDeclaration(declaration);
+
+    if (declarationAnalysis.kind === 'preserved') {
+      addPreservedDeclarationDiagnostic(
+        rule,
+        diagnostics,
+        declarationAnalysis,
+        getSingleEligibleSourceClassName(selectorRewrite)
+      );
+    }
+  }
+
+  preservedRules.push({
+    id: rule.id,
+    order: rule.order,
+    selector: rule.selector,
+    scopedSelector,
+    declarations: rule.declarations,
+    context: rule.context,
+    reason,
+    source: rule.source
+  });
+}
+
+/**
+ * 完整保留 adapter 标记的 safe class。
+ *
+ * @param rule - 当前 safe rule。
+ * @param scope - class resolver。
+ * @param classMappings - 当前 mapping builder。
+ * @param preservedRules - fallback 输出集合。
+ * @param diagnostics - diagnostic 输出集合。
+ * @param stats - preserved declaration 计数。
+ * @param selectorRewrite - eligible selector rewrite plan。
+ * @param reason - adapter 提供的 class preservation reason。
+ */
+function preserveConfiguredSafeRule(
+  rule: CssRuleRecord,
+  scope: ScopeStrategy,
+  classMappings: ClassMappingBuilder,
+  preservedRules: PreservedRule[],
+  diagnostics: Diagnostic[],
+  stats: { preservedDeclarations: number },
+  selectorRewrite: EligibleSelectorRewrite,
+  configuredArms: readonly {
+    readonly arm: EligibleSelectorArmRewrite;
+    readonly reason: ClassPreservationReason;
+  }[]
+): void {
+  ensureEligibleArms(classMappings, selectorRewrite, rule.selector);
+  const scopedSelector = selectorRewrite.renderPreservedSelector(scope, {
+    id: rule.id,
+    originalSelector: rule.selector,
+    usage: 'preserved-rule'
+  });
+
+  stats.preservedDeclarations += rule.declarations.length;
+  preservedRules.push({
+    id: rule.id,
+    order: rule.order,
+    selector: rule.selector,
+    scopedSelector,
+    declarations: rule.declarations,
+    context: rule.context,
+    reason: configuredArms[0]?.reason ?? 'asset-reference',
+    source: rule.source
+  });
+  const reasonsByClassName = new Map<string, ClassPreservationReason>();
+  for (const { arm, reason } of configuredArms) {
+    if (!reasonsByClassName.has(arm.anchorClassName)) {
+      reasonsByClassName.set(arm.anchorClassName, reason);
+    }
+  }
+
+  for (const [sourceClassName, reason] of reasonsByClassName) {
+    diagnostics.push(
+      createDiagnostic({
+        code: 'preserved-class',
+        level: 'warning',
+        message: preservedClassMessage(sourceClassName, reason),
+        id: rule.id,
+        selector: rule.selector,
+        sourceClassName,
+        reason,
+        source: rule.source
+      })
+    );
+  }
 }
 
 /**
@@ -340,7 +588,7 @@ function preserveConfiguredSafeRule(
  * @param diagnostics - diagnostic 输出集合。
  * @param stats - 当前输入统计。
  * @param currentAtomicByKey - 当前输入 atomic snapshot。
- * @param selectorAnalysis - safe selector evidence。
+ * @param selectorRewrite - eligible selector rewrite plan。
  */
 function processSafeRule(
   rule: CssRuleRecord,
@@ -351,48 +599,64 @@ function processSafeRule(
   diagnostics: Diagnostic[],
   stats: { unsafeRules: number; preservedDeclarations: number; reusedAtomicDeclarations: number },
   currentAtomicByKey: Map<string, AtomicDeclaration>,
-  selectorAnalysis: Extract<SelectorAnalysis, { kind: 'safe' }>
+  selectorRewrite: EligibleSelectorRewrite
 ): void {
-  if (!shouldTransformSafeClass(rule, scope, selectorAnalysis.sourceClassName)) {
-    preserveNonExportedSafeRule(rule, scope, preservedRules, diagnostics, stats, selectorAnalysis);
-    return;
-  }
-
-  classMappings.ensure(selectorAnalysis.sourceClassName, rule.selector);
+  ensureEligibleArms(classMappings, selectorRewrite, rule.selector);
 
   for (const declaration of rule.declarations) {
     const declarationAnalysis = analyzeDeclaration(declaration);
 
     if (declarationAnalysis.kind === 'atomizable') {
-      const context: CssTransformContext = {
-        ...rule.context,
-        pseudo: selectorAnalysis.pseudo
-      };
-      const registered = registry.register(
-        {
+      for (const arm of selectorRewrite.arms) {
+        const context: CssTransformContext = { ...rule.context };
+        const registered = registry.register(
+          {
+            declaration: declarationAnalysis.declaration,
+            selectorIdentity: arm.identity,
+            context
+          },
+          arm.renderAtomicSelector,
+          declarationAnalysis.declaration.source ?? rule.source
+        );
+
+        if (registered.reused) {
+          stats.reusedAtomicDeclarations += 1;
+        }
+
+        addCurrentAtomic(currentAtomicByKey, {
+          key: registered.key,
+          className: registered.className,
+          selector: registered.selector,
           declaration: declarationAnalysis.declaration,
-          context
-        },
-        declarationAnalysis.declaration.source ?? rule.source
-      );
-
-      if (registered.reused) {
-        stats.reusedAtomicDeclarations += 1;
+          context,
+          source: declarationAnalysis.declaration.source ?? rule.source
+        });
+        classMappings.addAtomic(arm.anchorClassName, rule.selector, registered.className);
       }
-
-      addCurrentAtomic(currentAtomicByKey, {
-        key: registered.key,
-        className: registered.className,
-        declaration: declarationAnalysis.declaration,
-        context,
-        source: declarationAnalysis.declaration.source ?? rule.source
-      });
-      classMappings.addAtomic(selectorAnalysis.sourceClassName, rule.selector, registered.className);
       continue;
     }
 
-    preserveDeclaration(rule, scope, preservedRules, diagnostics, stats, declarationAnalysis, selectorAnalysis);
+    preserveDeclaration(rule, scope, preservedRules, diagnostics, stats, declarationAnalysis, selectorRewrite);
   }
+}
+
+/** 确保 eligible list 中所有可导出 anchor 都进入稳定 class mapping。 */
+function ensureEligibleArms(
+  classMappings: ClassMappingBuilder,
+  selectorRewrite: EligibleSelectorRewrite,
+  originalSelector: string
+): void {
+  for (const sourceClassName of new Set(selectorRewrite.arms.map((arm) => arm.anchorClassName))) {
+    classMappings.ensure(sourceClassName, originalSelector);
+  }
+}
+
+/** 单 anchor rule 返回 diagnostic source class；多 anchor list 不虚构唯一归属。 */
+function getSingleEligibleSourceClassName(
+  selectorRewrite: EligibleSelectorRewrite
+): string | undefined {
+  const sourceClassNames = [...new Set(selectorRewrite.arms.map((arm) => arm.anchorClassName))];
+  return sourceClassNames.length === 1 ? sourceClassNames[0] : undefined;
 }
 
 /**
@@ -421,22 +685,26 @@ function shouldTransformSafeClass(rule: CssRuleRecord, scope: ScopeStrategy, sou
  * @param preservedRules - fallback 输出集合。
  * @param diagnostics - diagnostic 输出集合。
  * @param stats - unsafe/preserved 计数。
- * @param selectorAnalysis - safe selector evidence。
+ * @param selectorRewrite - eligible selector rewrite plan。
  */
 function preserveNonExportedSafeRule(
   rule: CssRuleRecord,
   scope: ScopeStrategy,
+  classMappings: ClassMappingBuilder,
   preservedRules: PreservedRule[],
   diagnostics: Diagnostic[],
   stats: { unsafeRules: number; preservedDeclarations: number },
-  selectorAnalysis: Extract<SelectorAnalysis, { kind: 'safe' }>
+  selectorRewrite: EligibleSelectorRewrite,
+  nonExportedClassNames: readonly string[]
 ): void {
   const reason: UnsafeSelectorReason = 'non-exported-class';
-  const scopedSelector = scopeSelector(rule.selector, scope, {
+  const scopedSelector = selectorRewrite.renderPreservedSelector(scope, {
     id: rule.id,
     originalSelector: rule.selector,
     usage: 'preserved-rule'
   });
+
+  ensureEligibleArms(classMappings, selectorRewrite, rule.selector);
 
   stats.unsafeRules += 1;
   stats.preservedDeclarations += rule.declarations.length;
@@ -450,18 +718,20 @@ function preserveNonExportedSafeRule(
     reason,
     source: rule.source
   });
-  diagnostics.push(
-    createDiagnostic({
-      code: 'unsafe-selector',
-      level: 'warning',
-      message: unsafeSelectorMessage(rule.selector, reason),
-      id: rule.id,
-      selector: rule.selector,
-      sourceClassName: selectorAnalysis.sourceClassName,
-      reason,
-      source: rule.source
-    })
-  );
+  for (const sourceClassName of nonExportedClassNames) {
+    diagnostics.push(
+      createDiagnostic({
+        code: 'unsafe-selector',
+        level: 'warning',
+        message: unsafeSelectorMessage(rule.selector, reason),
+        id: rule.id,
+        selector: rule.selector,
+        sourceClassName,
+        reason,
+        source: rule.source
+      })
+    );
+  }
 }
 
 /**
@@ -473,7 +743,7 @@ function preserveNonExportedSafeRule(
  * @param diagnostics - diagnostic 输出集合。
  * @param stats - preserved declaration 计数。
  * @param declarationAnalysis - preserved declaration 与原因。
- * @param selectorAnalysis - safe selector evidence。
+ * @param selectorRewrite - eligible selector rewrite plan。
  */
 function preserveDeclaration(
   rule: CssRuleRecord,
@@ -482,10 +752,10 @@ function preserveDeclaration(
   diagnostics: Diagnostic[],
   stats: { preservedDeclarations: number },
   declarationAnalysis: Extract<DeclarationAnalysis, { kind: 'preserved' }>,
-  selectorAnalysis: Extract<SelectorAnalysis, { kind: 'safe' }>
+  selectorRewrite: EligibleSelectorRewrite
 ): void {
   stats.preservedDeclarations += 1;
-  const scopedSelector = scopeSelector(rule.selector, scope, {
+  const scopedSelector = selectorRewrite.renderPreservedSelector(scope, {
     id: rule.id,
     originalSelector: rule.selector,
     usage: 'safe-rule'
@@ -502,20 +772,49 @@ function preserveDeclaration(
     source: declarationAnalysis.declaration.source ?? rule.source
   });
 
-  if (declarationAnalysis.reason !== 'custom-property-declaration') {
-    diagnostics.push(
-      createDiagnostic({
-        code: 'preserved-declaration',
-        level: 'warning',
-        message: preservedDeclarationMessage(declarationAnalysis.declaration.prop, declarationAnalysis.reason),
-        id: rule.id,
-        selector: rule.selector,
-        sourceClassName: selectorAnalysis.sourceClassName,
-        reason: declarationAnalysis.reason,
-        source: declarationAnalysis.declaration.source ?? rule.source
-      })
-    );
+  addPreservedDeclarationDiagnostic(
+    rule,
+    diagnostics,
+    declarationAnalysis,
+    getSingleEligibleSourceClassName(selectorRewrite)
+  );
+}
+
+/**
+ * 恢复 preserved declaration 的原有 warning 契约，不参与 CSS 输出或计数。
+ *
+ * @remarks
+ * class-wide fallback 会一次性输出整条 rule，但仍需要逐 declaration 只读分析，
+ * 否则 invalid/unsupported declaration 的治理信号会被 selector evidence 降级吞掉。
+ * custom property 继续按既有契约不输出 warning。
+ *
+ * @param rule - declaration 所属 rule。
+ * @param diagnostics - 当前 input diagnostics。
+ * @param declarationAnalysis - preserved declaration 及原因。
+ * @param sourceClassName - diagnostic 对应的 source class。
+ */
+function addPreservedDeclarationDiagnostic(
+  rule: CssRuleRecord,
+  diagnostics: Diagnostic[],
+  declarationAnalysis: Extract<DeclarationAnalysis, { kind: 'preserved' }>,
+  sourceClassName?: string
+): void {
+  if (declarationAnalysis.reason === 'custom-property-declaration') {
+    return;
   }
+
+  diagnostics.push(
+    createDiagnostic({
+      code: 'preserved-declaration',
+      level: 'warning',
+      message: preservedDeclarationMessage(declarationAnalysis.declaration.prop, declarationAnalysis.reason),
+      id: rule.id,
+      selector: rule.selector,
+      sourceClassName,
+      reason: declarationAnalysis.reason,
+      source: declarationAnalysis.declaration.source ?? rule.source
+    })
+  );
 }
 
 /**
@@ -527,8 +826,7 @@ function preserveDeclaration(
  * @param preservedRules - fallback 输出集合。
  * @param diagnostics - diagnostic 输出集合。
  * @param stats - unsafe/preserved 计数。
- * @param reason - primary unsafe reason。
- * @param selectorAnalysis - 可选的完整 unsafe selector evidence。
+ * @param selectorRewrite - 完整 preserved selector evidence 与 renderer。
  */
 function preserveUnsafeRule(
   rule: CssRuleRecord,
@@ -537,18 +835,16 @@ function preserveUnsafeRule(
   preservedRules: PreservedRule[],
   diagnostics: Diagnostic[],
   stats: { unsafeRules: number; preservedDeclarations: number },
-  reason: UnsafeSelectorReason,
-  selectorAnalysis?: Extract<SelectorAnalysis, { kind: 'unsafe' }>
+  selectorRewrite: PreservedSelectorRewrite
 ): void {
-  const sourceClassNames = selectorAnalysis?.sourceClassNames ?? [];
-  const scopedSelector = scopeSelector(rule.selector, scope, {
+  const scopedSelector = selectorRewrite.renderPreservedSelector(scope, {
     id: rule.id,
     originalSelector: rule.selector,
     usage: 'preserved-rule'
   });
 
-  for (const sourceClassName of sourceClassNames) {
-    classMappings.addUnsafeReason(sourceClassName, rule.selector, reason);
+  for (const sourceClassName of selectorRewrite.sourceClassNames) {
+    classMappings.addUnsafeReason(sourceClassName, rule.selector, selectorRewrite.reason);
   }
 
   stats.unsafeRules += 1;
@@ -560,17 +856,17 @@ function preserveUnsafeRule(
     scopedSelector,
     declarations: rule.declarations,
     context: rule.context,
-    reason,
+    reason: selectorRewrite.reason,
     source: rule.source
   });
   diagnostics.push(
     createDiagnostic({
       code: 'unsafe-selector',
       level: 'warning',
-      message: unsafeSelectorMessage(rule.selector, reason),
+      message: unsafeSelectorMessage(rule.selector, selectorRewrite.reason),
       id: rule.id,
       selector: rule.selector,
-      reason,
+      reason: selectorRewrite.reason,
       source: rule.source
     })
   );
@@ -585,7 +881,7 @@ function preserveUnsafeRule(
  * @param preservedBlocks - fallback block 输出集合。
  * @param diagnostics - diagnostic 输出集合。
  * @param stats - unsafe/preserved 计数。
- * @param selectorAnalysis - 外层 selector evidence。
+ * @param selectorRewrite - 外层 selector evidence。
  */
 function preserveNestedRule(
   rule: CssRuleRecord,
@@ -594,9 +890,9 @@ function preserveNestedRule(
   preservedBlocks: PreservedBlock[],
   diagnostics: Diagnostic[],
   stats: { unsafeRules: number; preservedDeclarations: number },
-  selectorAnalysis: SelectorAnalysis
+  selectorRewrite: SelectorRewriteDecision
 ): void {
-  const sourceClassNames = collectNestedSourceClassNames(rule, selectorAnalysis);
+  const sourceClassNames = collectNestedSourceClassNames(rule, selectorRewrite);
 
   for (const sourceClassName of sourceClassNames) {
     classMappings.addUnsafeReason(sourceClassName, rule.selector, 'nested-rule');
@@ -640,6 +936,7 @@ function addCurrentAtomic(
   input: {
     key: string;
     className: string;
+    selector: AtomicDeclaration['selector'];
     declaration: AtomicDeclaration['declaration'];
     context: CssTransformContext;
     source?: AtomicDeclaration['sources'][number];
@@ -657,6 +954,7 @@ function addCurrentAtomic(
   currentAtomicByKey.set(input.key, {
     key: input.key,
     className: input.className,
+    selector: { ...input.selector },
     declaration: { ...input.declaration, source: input.declaration.source && { ...input.declaration.source } },
     context: { ...input.context },
     sources: input.source ? [{ ...input.source }] : []
@@ -667,10 +965,10 @@ function addCurrentAtomic(
  * 收集 nested fallback block 中的 source classes。
  *
  * @param rule - nested rule IR。
- * @param selectorAnalysis - 外层 selector evidence。
+ * @param selectorRewrite - 外层 selector evidence。
  * @returns block 解析成功时的全部 source classes；失败或为空时退回外层结果。
  */
-function collectNestedSourceClassNames(rule: CssRuleRecord, selectorAnalysis: SelectorAnalysis): string[] {
+function collectNestedSourceClassNames(rule: CssRuleRecord, selectorRewrite: SelectorRewriteDecision): readonly string[] {
   try {
     const sourceClassNames = collectSourceClassNamesFromCss(rule.css);
 
@@ -681,7 +979,7 @@ function collectNestedSourceClassNames(rule: CssRuleRecord, selectorAnalysis: Se
     // 保守降级：如果 nested CSS 再解析失败，至少保留外层 selector 的 class mapping。
   }
 
-  return selectorAnalysis.sourceClassNames;
+  return selectorRewrite.sourceClassNames;
 }
 
 /**
@@ -690,15 +988,17 @@ function collectNestedSourceClassNames(rule: CssRuleRecord, selectorAnalysis: Se
  * @param block - AST 收集阶段保留的 block。
  * @param scope - adapter class resolver。
  * @param classMappings - 当前 mapping builder。
- * @returns scoped block；解析或 scoping 失败时返回保留原 CSS 的副本。
+ * @returns scoped block；普通 scoping fallback 保持既有行为。
  */
 function scopePreservedBlock(
   block: PreservedBlock,
   scope: ScopeStrategy,
   classMappings: ClassMappingBuilder
 ): PreservedBlock {
+  const sourceClassNames = collectSourceClassNamesFromCss(block.css);
+
   try {
-    for (const sourceClassName of collectSourceClassNamesFromCss(block.css)) {
+    for (const sourceClassName of sourceClassNames) {
       classMappings.ensure(sourceClassName, block.css);
     }
 
@@ -792,4 +1092,25 @@ function cloneClassManifest(classes: TransformManifest['classes']): TransformMan
   }
 
   return cloned;
+}
+
+/**
+ * 深度克隆 report 的所有可变嵌套结构。
+ *
+ * @remarks
+ * transform result 和每次 getter 都必须与聚合 reports/canonical cache 隔离，尤其不能
+ * 共享 diagnostic source 引用。
+ *
+ * @param report - 待克隆的单次或聚合 report。
+ * @returns 完整独立的 public report snapshot。
+ */
+function cloneReport(report: TransformReport): TransformReport {
+  return {
+    summary: { ...report.summary },
+    size: { ...report.size },
+    diagnostics: report.diagnostics.map((diagnostic) => ({
+      ...diagnostic,
+      source: diagnostic.source && { ...diagnostic.source }
+    }))
+  };
 }

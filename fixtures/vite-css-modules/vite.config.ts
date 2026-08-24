@@ -41,9 +41,10 @@ function createPlugins(cssMode: FixtureCssMode, preprocessor: boolean): PluginOp
     preprocessor
       ? {
           manifest: { enabled: true },
-          report: { enabled: true }
+          report: { enabled: true },
+          devtools: { enabled: true, pollIntervalMs: 250 }
         }
-      : undefined
+      : { devtools: { enabled: true, pollIntervalMs: 250 } }
   ) as unknown as PluginOption;
 
   return [

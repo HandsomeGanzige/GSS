@@ -24,6 +24,12 @@ import {
 import { analyzeBuild } from '@semantic-atomic-css/analyzer';
 import type { BuildAnalysis } from '@semantic-atomic-css/analyzer';
 import {
+  createBrowserOverlayRuntime,
+  createDevReportEnvelope,
+  matchesDevReportRequest,
+  type DevReportEnvelope
+} from '@semantic-atomic-css/devtools';
+import {
   augmentCssModuleTokens,
   cleanRequestId,
   collectExportedClassNames,
@@ -89,10 +95,12 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
   const devResults = new Map<string, CssModuleTransformResult>();
   const nativeTokensById = new Map<string, CssModuleTokens>();
   const pendingDevTransforms = new Set<Promise<void>>();
+  const devTransformGenerations = new Map<string, number>();
   const warnedDiagnostics = new Set<string>();
   let config: ResolvedConfig | undefined;
   let devServer: ViteDevServer | undefined;
   let buildTransformer: Transformer | undefined;
+  let devTransformSession = 0;
 
   const pipelinePlugin: Plugin = {
     name: 'semantic-atomic-css:vite-pipeline',
@@ -124,7 +132,7 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
      * @throws 未支持配置或原生 CSS pipeline 顺序不兼容时抛错。
      */
     configResolved(resolvedConfig): void {
-      validatePhase4Options(resolvedConfig, resolvedOptions);
+      validateSupportedOptions(resolvedConfig, resolvedOptions);
       validateNativePipelineOrder(resolvedConfig);
       config = resolvedConfig;
     },
@@ -136,6 +144,25 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
      */
     configureServer(server): void {
       devServer = server;
+
+      if (resolvedOptions.devtools.enabled) {
+        server.middlewares.use((request, response, next) => {
+          if (request.method !== 'GET' || !matchesDevReportRequest(request.url, resolvedOptions.devtools.endpoint)) {
+            next();
+            return;
+          }
+
+          void waitForDevTransformIdle(pendingDevTransforms)
+            .then(() => {
+              const payload = createViteDevReport(devResults, resolvedOptions);
+              response.statusCode = 200;
+              response.setHeader('content-type', 'application/json; charset=utf-8');
+              response.setHeader('cache-control', 'no-store');
+              response.end(`${JSON.stringify(payload, null, 2)}\n`);
+            })
+            .catch(next);
+        });
+      }
     },
 
     /**
@@ -147,7 +174,8 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
     buildStart(): void {
       buildResults.clear();
       nativeTokensById.clear();
-      pendingDevTransforms.clear();
+      devTransformSession += 1;
+      devTransformGenerations.clear();
       warnedDiagnostics.clear();
       buildTransformer = createTransformer(resolveCoreOptions(resolvedOptions, 'build'));
     },
@@ -203,25 +231,41 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
         );
       }
 
-      const isNewDevModule = config.command === 'serve' && !hasTransformResult(devResults, file);
-      const sourceCss = await fs.readFile(file, 'utf8');
+      const isDev = config.command === 'serve';
+      const isNewDevModule = isDev && !hasTransformResult(devResults, file);
+      const generation = readDevTransformGeneration(devTransformGenerations, file);
+      const session = devTransformSession;
       const result = await trackDevTransform(
         config,
         pendingDevTransforms,
-        transformCompiledCssModule({
-          compiled: {
-            id: file,
-            sourceCss,
-            scopedCss,
-            tokens
-          },
-          config,
-          options: resolvedOptions,
-          buildTransformer,
-          buildResults,
-          devResults
-        })
+        (async () => {
+          const sourceCss = await fs.readFile(file, 'utf8');
+          return transformCompiledCssModule({
+            compiled: {
+              id: file,
+              sourceCss,
+              scopedCss,
+              tokens
+            },
+            config,
+            options: resolvedOptions,
+            buildTransformer,
+            buildResults,
+            devResults,
+            shouldCommitDevResult: () =>
+              session === devTransformSession &&
+              generation === readDevTransformGeneration(devTransformGenerations, file)
+          });
+        })()
       );
+
+      if (
+        isDev &&
+        (session !== devTransformSession ||
+          generation !== readDevTransformGeneration(devTransformGenerations, file))
+      ) {
+        return { code: '', map: null };
+      }
 
       Object.assign(tokens, result.tokens);
       emitDiagnostics(this, result.transform.diagnostics, resolvedOptions, warnedDiagnostics);
@@ -261,9 +305,9 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
       for (const affectedFile of affectedModules) {
         deleteTransformResult(devResults, affectedFile);
         nativeTokensById.delete(normalizeFileIdentity(affectedFile));
+        incrementDevTransformGeneration(devTransformGenerations, affectedFile);
       }
 
-      pendingDevTransforms.clear();
       invalidateDevCssModules(context.server, affectedModules, context.modules);
       invalidateDevVirtualCssModule(context.server);
       context.server.ws.send({ type: 'full-reload' });
@@ -276,7 +320,27 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
      * @param html - 当前 HTML source。
      * @returns 未产生 build CSS 时原样返回，否则返回包含 link 的 HTML。
      */
-    transformIndexHtml(html): string {
+    transformIndexHtml(html) {
+      if (config?.command === 'serve' && resolvedOptions.devtools.overlay) {
+        return {
+          html,
+          tags: [
+            {
+              tag: 'script',
+              attrs: {
+                type: 'module',
+                'data-semantic-atomic-css-overlay-runtime': ''
+              },
+              children: createBrowserOverlayRuntime({
+                endpoint: resolvedOptions.devtools.endpoint,
+                pollIntervalMs: resolvedOptions.devtools.pollIntervalMs
+              }),
+              injectTo: 'head'
+            }
+          ]
+        };
+      }
+
       if (!config || config.command !== 'build' || buildResults.size === 0) {
         return html;
       }
@@ -312,19 +376,32 @@ export function semanticAtomicCss(options: SemanticAtomicCssOptions = {}): Plugi
         injectCssIntoHtml(bundle, buildCssFileName);
       }
 
-      if (resolvedOptions.manifest.enabled) {
+      const manifest = resolvedOptions.manifest.enabled || resolvedOptions.report.enabled
+        ? stabilizeManifest(buildTransformer.getManifest())
+        : undefined;
+
+      if (resolvedOptions.manifest.enabled && manifest) {
         this.emitFile({
           type: 'asset',
           fileName: resolvedOptions.manifest.filename,
-          source: JSON.stringify(stabilizeManifest(buildTransformer.getManifest()), null, 2)
+          source: JSON.stringify(manifest, null, 2)
         });
       }
 
-      if (resolvedOptions.report.enabled) {
+      if (resolvedOptions.report.enabled && manifest) {
         this.emitFile({
           type: 'asset',
           fileName: resolvedOptions.report.filename,
-          source: JSON.stringify(createBuildReport(buildTransformer, buildResults, css), null, 2)
+          source: JSON.stringify(
+            createBuildReport(
+              stabilizeReport(buildTransformer.getReport()),
+              manifest,
+              buildResults,
+              css
+            ),
+            null,
+            2
+          )
         });
       }
     },
@@ -405,25 +482,18 @@ async function trackDevTransform(
 }
 
 /**
- * `semanticAtomicCss` 的早期命名兼容别名。
- *
- * @deprecated 请改用 {@link semanticAtomicCss}；该别名只为已有调用方保留。
- */
-export const semanticAtomicCssPlugin = semanticAtomicCss;
-
-/**
  * 校验尚未实现或无法安全继承的配置。
  *
  * @param config - Vite resolved config。
  * @param options - GSS resolved options。
  * @throws strict、named exports、禁用原生 modules 或 Lightning CSS 等边界命中时抛错。
  */
-function validatePhase4Options(config: ResolvedConfig, options: ResolvedSemanticAtomicCssOptions): void {
+function validateSupportedOptions(config: ResolvedConfig, options: ResolvedSemanticAtomicCssOptions): void {
   if (options.diagnostics.strict) {
     throw createUnsupportedFeatureError({
       feature: 'diagnostics.strict',
       id: 'semanticAtomicCss.diagnostics.strict',
-      reason: 'diagnostics.strict: true 尚未在 Phase 4 实现，请关闭该配置。'
+      reason: 'diagnostics.strict: true 当前尚未实现，请关闭该配置。'
     });
   }
 
@@ -432,7 +502,7 @@ function validatePhase4Options(config: ResolvedConfig, options: ResolvedSemantic
       feature: 'modules.namedExports',
       id: options.modules.namedExports ? 'semanticAtomicCss.modules.namedExports' : 'vite.css.modules.namedExports',
       reason:
-        'modules.namedExports: true 尚未在 Phase 4 实现，请关闭 semanticAtomicCss({ modules.namedExports }) 或 Vite css.modules.namedExports。'
+        'modules.namedExports: true 当前尚未实现，请关闭 semanticAtomicCss({ modules.namedExports }) 或 Vite css.modules.namedExports。'
     });
   }
 
@@ -449,7 +519,7 @@ function validatePhase4Options(config: ResolvedConfig, options: ResolvedSemantic
     throw createUnsupportedFeatureError({
       feature: 'vite.css.transformer.lightningcss',
       id: 'vite.css.transformer',
-      reason: 'Phase 5 仅验证 Vite 6 默认 PostCSS Modules 管线，暂不接管 Lightning CSS tokens。'
+      reason: '当前只验证 Vite 6 默认 PostCSS Modules 管线，暂不接管 Lightning CSS tokens。'
     });
   }
 }
@@ -563,8 +633,19 @@ function normalizeFileIdentity(file: string): string {
   return process.platform === 'darwin' && resolved.startsWith('/private/') ? resolved.slice('/private'.length) : resolved;
 }
 
+/** 读取单个 CSS Module 的失效代次，未登记时从 0 开始。 */
+function readDevTransformGeneration(generations: Map<string, number>, file: string): number {
+  return generations.get(normalizeFileIdentity(file)) ?? 0;
+}
+
+/** 只推进受影响文件的代次，避免误废弃无关模块的并发 transform。 */
+function incrementDevTransformGeneration(generations: Map<string, number>, file: string): void {
+  const identity = normalizeFileIdentity(file);
+  generations.set(identity, (generations.get(identity) ?? 0) + 1);
+}
+
 /**
- * 从 Vite dependency graph 向上收集受影响 CSS Modules。
+ * 从 Vite dependency graph 分别沿旧 dependency 与 importer 方向收集受影响 CSS Modules。
  *
  * @param file - 本次变化的文件。
  * @param contextModules - Vite 已关联的 hot update modules。
@@ -581,13 +662,13 @@ function collectAffectedCssModules(
   options: ResolvedSemanticAtomicCssOptions
 ): Set<string> {
   const affectedFiles = new Set<string>();
-  const queuedModules = new Set<ModuleNode>(contextModules);
+  const rootModules = new Set<ModuleNode>(contextModules);
   for (const candidate of fileIdentityCandidates(file)) {
     const graphModules = server.moduleGraph.getModulesByFile(candidate);
 
     if (graphModules) {
       for (const moduleNode of graphModules) {
-        queuedModules.add(moduleNode);
+        rootModules.add(moduleNode);
       }
     }
   }
@@ -596,16 +677,25 @@ function collectAffectedCssModules(
     affectedFiles.add(file);
   }
 
-  const queue = [...queuedModules];
-  const visited = new Set<ModuleNode>();
+  const queue: Array<{ moduleNode: ModuleNode; direction: 'dependencies' | 'importers' }> = [];
+  for (const moduleNode of rootModules) {
+    queue.push({ moduleNode, direction: 'dependencies' }, { moduleNode, direction: 'importers' });
+  }
+  const visitedDependencies = new Set<ModuleNode>();
+  const visitedImporters = new Set<ModuleNode>();
 
   while (queue.length > 0) {
-    const moduleNode = queue.shift();
+    const entry = queue.shift();
 
-    if (!moduleNode || visited.has(moduleNode)) {
+    if (!entry) {
       continue;
     }
 
+    const { moduleNode, direction } = entry;
+    const visited = direction === 'dependencies' ? visitedDependencies : visitedImporters;
+    if (visited.has(moduleNode)) {
+      continue;
+    }
     visited.add(moduleNode);
     const candidate = moduleNode.file ?? readAbsoluteModuleId(moduleNode.id);
 
@@ -614,10 +704,19 @@ function collectAffectedCssModules(
       continue;
     }
 
-    for (const importer of moduleNode.importers) {
-      // Vite 某些 additional watch file 节点会短暂保留旧 importer，只沿当前双向边遍历。
-      if (importer.importedModules.has(moduleNode)) {
-        queue.push(importer);
+    if (direction === 'dependencies') {
+      for (const dependency of moduleNode.importedModules) {
+        // JS/TS 删除 import 时需要沿更新前的 outgoing edge 找到并清理旧 CSS result。
+        if (dependency.importers.has(moduleNode)) {
+          queue.push({ moduleNode: dependency, direction });
+        }
+      }
+    } else {
+      for (const importer of moduleNode.importers) {
+        // additional watch file 可能保留旧 importer，只沿当前双向边反查 CSS consumer。
+        if (importer.importedModules.has(moduleNode)) {
+          queue.push({ moduleNode: importer, direction });
+        }
       }
     }
   }
@@ -727,6 +826,7 @@ async function transformCompiledCssModule(input: {
   buildTransformer: Transformer | undefined;
   buildResults: Map<string, CssModuleTransformResult>;
   devResults: Map<string, CssModuleTransformResult>;
+  shouldCommitDevResult: () => boolean;
 }): Promise<CssModuleTransformResult> {
   if (input.config.command === 'build') {
     const cached = input.buildResults.get(input.compiled.id);
@@ -756,7 +856,7 @@ async function transformCompiledCssModule(input: {
 
   if (input.config.command === 'build') {
     input.buildResults.set(input.compiled.id, result);
-  } else {
+  } else if (input.shouldCommitDevResult()) {
     input.devResults.set(input.compiled.id, result);
   }
 
@@ -798,8 +898,23 @@ async function waitForDevTransformIdle(pendingDevTransforms: Set<Promise<void>>)
       return;
     }
 
-    await Promise.allSettled([...pendingDevTransforms]);
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      return;
+    }
+    await waitForPromisesOrTimeout([...pendingDevTransforms], remainingMs);
   } while (pendingDevTransforms.size > 0 && Date.now() < deadline);
+}
+
+/** 等待当前 promises 或 deadline，提前完成时清理 timeout 避免轮询累积 timer。 */
+async function waitForPromisesOrTimeout(promises: Promise<void>[], timeoutMs: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, timeoutMs);
+    void Promise.allSettled(promises).then(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 /**
@@ -844,14 +959,24 @@ function collectAtomicDeclarations(results: Iterable<CssModuleTransformResult>):
   return [...declarations.values()];
 }
 
+/** Vite adapter 内部 atomic CSS 序列化模式；不扩展 Core 公共输出契约。 */
+type AtomicCssSerialization = 'readable' | 'production';
+
 /**
  * 渲染 adapter 聚合的 atomic declarations。
  *
  * @param declarations - 尚未执行 adapter 级 cascade 排序的 declarations。
- * @returns 基础规则优先、条件规则随后并以空行分隔的 CSS。
+ * @param serialization - dev 可读或 build 结构紧凑序列化。
+ * @returns 使用同一排序与 wrapper 决策渲染的 CSS。
  */
-function renderAtomicDeclarations(declarations: AtomicDeclaration[]): string {
-  return orderAtomicDeclarations(declarations).map((declaration) => renderAtomicDeclaration(declaration)).join('\n\n');
+function renderAtomicDeclarations(
+  declarations: AtomicDeclaration[],
+  serialization: AtomicCssSerialization = 'readable'
+): string {
+  const separator = serialization === 'production' ? '' : '\n\n';
+  return orderAtomicDeclarations(declarations)
+    .map((declaration) => renderAtomicDeclaration(declaration, serialization))
+    .join(separator);
 }
 
 /**
@@ -949,13 +1074,16 @@ function readSimpleWidthBreakpoint(media: string | undefined): { kind: 'min' | '
 /**
  * 渲染单条 atomic declaration。
  *
- * @param declaration - 带 class、declaration 和 context 的 atomic record。
- * @returns 恢复 pseudo、supports 和 media 的 CSS。
+ * @param declaration - 带 selector descriptor、declaration 和 context 的 atomic record。
+ * @param serialization - 结构输出模式。
+ * @returns 使用 Core 预渲染 selector，并恢复 supports 和 media 的 CSS。
  */
-function renderAtomicDeclaration(declaration: AtomicDeclaration): string {
-  const selector = `.${declaration.className}${declaration.context.pseudo ?? ''}`;
-  const rule = renderCssRule(selector, declaration.declaration);
-  return wrapAtomicAtRules(rule, declaration);
+function renderAtomicDeclaration(
+  declaration: AtomicDeclaration,
+  serialization: AtomicCssSerialization
+): string {
+  const rule = renderCssRule(declaration.selector.css, declaration.declaration, serialization);
+  return wrapAtomicAtRules(rule, declaration, serialization);
 }
 
 /**
@@ -963,12 +1091,18 @@ function renderAtomicDeclaration(declaration: AtomicDeclaration): string {
  *
  * @param selector - atomic selector。
  * @param declaration - 要输出的 declaration metadata。
- * @returns 与 core renderRule 格式一致的 rule。
+ * @param serialization - 结构输出模式。
+ * @returns 保持 selector/property/value 原字节的 rule。
  */
 function renderCssRule(
   selector: string,
-  declaration: AtomicDeclaration['declaration']
+  declaration: AtomicDeclaration['declaration'],
+  serialization: AtomicCssSerialization
 ): string {
+  if (serialization === 'production') {
+    return `${selector} {\n  ${declaration.prop}: ${declaration.value}${declaration.important ? '!important' : ''};}`;
+  }
+
   return [
     `${selector} {`,
     `  ${declaration.prop}: ${declaration.value}${declaration.important ? ' !important' : ''};`,
@@ -981,17 +1115,26 @@ function renderCssRule(
  *
  * @param css - 已渲染 atomic rule。
  * @param declaration - 提供 supports/media context 的 atomic record。
+ * @param serialization - 结构输出模式。
  * @returns 先 supports、后 media 包装的 CSS。
  */
-function wrapAtomicAtRules(css: string, declaration: AtomicDeclaration): string {
+function wrapAtomicAtRules(
+  css: string,
+  declaration: AtomicDeclaration,
+  serialization: AtomicCssSerialization
+): string {
   let output = css;
 
   if (declaration.context.supports) {
-    output = `@supports ${declaration.context.supports} {\n${indentCssBlock(output)}\n}`;
+    output = serialization === 'production'
+      ? `@supports ${declaration.context.supports}{${output}}`
+      : `@supports ${declaration.context.supports} {\n${indentCssBlock(output)}\n}`;
   }
 
   if (declaration.context.media) {
-    output = `@media ${declaration.context.media} {\n${indentCssBlock(output)}\n}`;
+    output = serialization === 'production'
+      ? `@media ${declaration.context.media}{${output}}`
+      : `@media ${declaration.context.media} {\n${indentCssBlock(output)}\n}`;
   }
 
   return output;
@@ -1015,7 +1158,7 @@ function indentCssBlock(css: string): string {
  *
  * @param options - GSS resolved options。
  * @param command - Vite serve 或 build command。
- * @returns build 默认 hash、serve 默认 readable 的 core options。
+ * @returns build 默认 compact、serve 默认 readable 的 core options。
  */
 function resolveCoreOptions(
   options: ResolvedSemanticAtomicCssOptions,
@@ -1024,7 +1167,7 @@ function resolveCoreOptions(
   return {
     ...options.core,
     className: {
-      strategy: options.core.className?.strategy ?? (command === 'build' ? 'hash' : 'readable'),
+      strategy: options.core.className?.strategy ?? (command === 'build' ? 'compact' : 'readable'),
       prefix: options.core.className?.prefix
     }
   };
@@ -1038,7 +1181,7 @@ function resolveCoreOptions(
  */
 function createBuildCss(buildResults: Map<string, CssModuleTransformResult>): string {
   const results = getStableBuildResults(buildResults);
-  const atomicCss = renderAtomicDeclarations(collectAtomicDeclarations(results));
+  const atomicCss = renderAtomicDeclarations(collectAtomicDeclarations(results), 'production');
   const preservedCss = results.map((result) => result.transform.css.preserved);
   return joinCss([atomicCss, ...preservedCss]);
 }
@@ -1062,18 +1205,18 @@ function getStableBuildResults(
 /**
  * 创建 build report 与 analyzer analysis。
  *
- * @param transformer - 当前 build 的 core transformer。
+ * @param report - 已稳定化且只读取一次的 Core 聚合 report。
+ * @param manifest - 当前 finalization 共享的稳定 manifest snapshot。
  * @param buildResults - 当前 build module results。
  * @param outputCss - 资源 placeholder 已解析的最终 CSS。
  * @returns 可直接 JSON 序列化的稳定 report。
  */
 function createBuildReport(
-  transformer: Transformer,
+  report: TransformReport,
+  manifest: TransformManifest,
   buildResults: Map<string, CssModuleTransformResult>,
   outputCss: string
 ): TransformReport & { analysis: BuildAnalysis } {
-  const report = stabilizeReport(transformer.getReport());
-  const manifest = stabilizeManifest(transformer.getManifest());
   const modules = getStableBuildResults(buildResults).map((result) => ({
     id: result.id,
     sourceCss: result.sourceCss,
@@ -1092,6 +1235,44 @@ function createBuildReport(
       outputCss
     })
   };
+}
+
+/**
+ * 从可失效的 per-file dev results 重建一次 append-only 聚合视图。
+ *
+ * @remarks
+ * dev cache 不能直接复用 build transformer；每次 API 请求按稳定 source id 重放当前快照，确保已删除
+ * module 不会残留在 manifest/report 中，同时 analyzer 使用浏览器实际消费的 dev CSS。
+ */
+function createViteDevReport(
+  devResults: Map<string, CssModuleTransformResult>,
+  options: ResolvedSemanticAtomicCssOptions
+): DevReportEnvelope {
+  if (devResults.size === 0) {
+    return createDevReportEnvelope('vite', []);
+  }
+
+  const transformer = createTransformer(resolveCoreOptions(options, 'serve'));
+
+  for (const result of getStableBuildResults(devResults)) {
+    const exportedClassNames = collectExportedClassNames(result.tokens, result.scopedCss);
+    transformer.transformCss({
+      id: result.id,
+      css: result.scopedCss,
+      scope: createCssModulesScopeStrategy(exportedClassNames),
+      preserveClassNames: collectAssetPreserveClassNames(result.scopedCss, result.tokens)
+    });
+  }
+
+  const report = stabilizeReport(transformer.getReport());
+  const manifest = stabilizeManifest(transformer.getManifest());
+
+  return createDevReportEnvelope('vite', [
+    {
+      name: 'client',
+      report: createBuildReport(report, manifest, devResults, createDevCss(devResults))
+    }
+  ]);
 }
 
 /**
@@ -1137,6 +1318,7 @@ function stabilizeManifest(manifest: TransformManifest): TransformManifest {
           key,
           {
             ...entry,
+            selector: { ...entry.selector },
             declaration: {
               ...entry.declaration,
               source: sources[0] ? { ...sources[0] } : entry.declaration.source

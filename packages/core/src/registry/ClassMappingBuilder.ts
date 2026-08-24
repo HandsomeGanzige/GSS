@@ -33,13 +33,8 @@ export class ClassMappingBuilder {
    *
    * @param id - 当前输入 id。
    * @param scope - adapter class resolver 与 export evidence。
-   * @param preserveResolvedClass - suggested class string 是否保留 semantic resolved class。
    */
-  constructor(
-    private readonly id: string,
-    private readonly scope: ScopeStrategy,
-    private readonly preserveResolvedClass: boolean
-  ) {}
+  constructor(private readonly id: string, private readonly scope: ScopeStrategy) {}
 
   /**
    * 确保可导出的 source class 存在于 builder 中。
@@ -99,16 +94,13 @@ export class ClassMappingBuilder {
     const mappings: Record<string, TransformClassMapping> = {};
 
     for (const record of this.records.values()) {
-      const classNames = this.preserveResolvedClass
-        ? [record.resolvedClassName, ...record.atomicClassNames]
-        : record.atomicClassNames;
       const unsafeReasons = [...record.unsafeReasons];
 
       mappings[record.sourceClassName] = {
         sourceClassName: record.sourceClassName,
         resolvedClassName: record.resolvedClassName,
         atomicClassNames: [...record.atomicClassNames],
-        suggestedClassName: classNames.join(' ').trim(),
+        suggestedClassName: [record.resolvedClassName, ...record.atomicClassNames].join(' ').trim(),
         unsafeReasons: unsafeReasons.length > 0 ? unsafeReasons : undefined
       };
     }

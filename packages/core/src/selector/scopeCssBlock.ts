@@ -5,8 +5,7 @@
  */
 import postcss from 'postcss';
 import type { ResolveClassNameContext, ScopeStrategy } from '../public/types.js';
-import { collectClassNames } from './collectClassNames.js';
-import { scopeSelector } from './scopeSelector.js';
+import { planSelectorRewrite } from './planSelectorRewrite.js';
 
 /**
  * 对 preserved CSS block 中的所有 rule selector 执行 source class scoping。
@@ -21,7 +20,8 @@ export function scopeCssBlock(css: string, scope: ScopeStrategy, context: Resolv
   const root = postcss.parse(css);
 
   root.walkRules((rule) => {
-    rule.selector = scopeSelector(rule.selector, scope, {
+    const rewrite = planSelectorRewrite(rule.selector);
+    rule.selector = rewrite.renderPreservedSelector(scope, {
       ...context,
       originalSelector: rule.selector
     });
@@ -42,7 +42,7 @@ export function collectSourceClassNamesFromCss(css: string): string[] {
   const root = postcss.parse(css);
 
   root.walkRules((rule) => {
-    for (const className of collectClassNames(rule.selector).sourceClassNames) {
+    for (const className of planSelectorRewrite(rule.selector).sourceClassNames) {
       sourceClassNames.add(className);
     }
   });

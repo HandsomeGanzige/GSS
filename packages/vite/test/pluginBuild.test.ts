@@ -1,30 +1,104 @@
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { brotliCompressSync, gzipSync } from 'node:zlib';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { build, type CSSModulesOptions, type CSSOptions, type RenderBuiltAssetUrl } from 'vite';
 import { semanticAtomicCss } from '../src/plugin.js';
 
 const tempRoots: string[] = [];
 type TestCssModulesOptions = CSSModulesOptions & { namedExports?: boolean };
 
+const { getManifestSpy } = vi.hoisted(() => ({ getManifestSpy: vi.fn() }));
+
+vi.mock('@semantic-atomic-css/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@semantic-atomic-css/core')>();
+
+  return {
+    ...actual,
+    createTransformer(...args: Parameters<typeof actual.createTransformer>) {
+      const transformer = actual.createTransformer(...args);
+      return {
+        ...transformer,
+        getManifest() {
+          getManifestSpy();
+          return transformer.getManifest();
+        }
+      };
+    }
+  };
+});
+
 describe('semanticAtomicCss build plugin', () => {
   afterEach(async () => {
     await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
   });
 
-  it('build 默认使用 hash atomic className 策略', async () => {
+  it('build 默认使用无 prefix 的 compact atomic className 策略', async () => {
     const root = await createBuildFixture('.button {\n  color: red;\n}');
 
     await runBuild(root);
 
     const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
 
-    expect(css).toMatch(/\._[a-z0-9]{8}\s+\{/);
+    expect(css).toMatch(/\.[ab][0-9a-z]{6}\s+\{/);
     expect(css).not.toContain('._color_red');
   });
 
-  it('build 支持显式 readable className 策略和自定义 prefix', async () => {
-    const root = await createBuildFixture('.button {\n  color: red;\n}');
+  it('build 按生产 grammar 精确渲染 base、pseudo/attribute、important 与条件 wrapper', async () => {
+    const root = await createBuildFixture(
+      [
+        '.base { color: rgb(1 2 3 / 40%); }',
+        '.hover:hover { background: blue; }',
+        '.exact[data-state="open"] { color: green !important; }',
+        '@supports (display: grid) { .supports { display: grid; } }',
+        '@media (min-width: 600px) { .media { display: grid; } }',
+        '@media (min-width: 600px) {',
+        '  @supports (display: grid) { .both:hover { color: red; } }',
+        '}'
+      ].join('\n')
+    );
+
+    await runBuild(root, { core: { className: { strategy: 'readable' } } });
+
+    const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
+
+    expect(css).toBe(
+      [
+        '._selector_q0dmug_color_rgb_1_2_3_40 {\n  color: rgb(1 2 3 / 40%);}',
+        '._selector_qf5xvc_background_blue:hover {\n  background: blue;}',
+        '._selector_4e0slb_color_green_important[data-state="open"] {\n  color: green!important;}',
+        '@supports (display: grid){._supports_1gj8cx_selector_q0dmug_display_grid {\n  display: grid;}}',
+        '@media (min-width: 600px){._media_1ltocy_selector_q0dmug_display_grid {\n  display: grid;}}',
+        '@media (min-width: 600px){@supports (display: grid){._media_1ltocy_supports_1gj8cx_selector_qf5xvc_color_red:hover {\n  color: red;}}}'
+      ].join('')
+    );
+  });
+
+  it.each([
+    ['显式 hash', { strategy: 'hash' as const }, /\._[a-z0-9]{8}\s+\{/, '_'],
+    ['显式 readable', { strategy: 'readable' as const }, /\._selector_q0dmug_color_red\s+\{/, '_'],
+    ['显式 compact prefix', { strategy: 'compact' as const, prefix: 'P' }, /\.P[ab][0-9a-z]{6}\s+\{/, 'P'],
+    ['只显式 prefix', { prefix: 'P' }, /\.P[ab][0-9a-z]{6}\s+\{/, 'P']
+  ])('build %s 配置覆盖环境默认', async (_name, className, pattern, expectedPrefix) => {
+    const root = await createBuildFixture('.button { color: red; }');
+
+    await runBuild(root, { core: { className } });
+
+    const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
+    expect(css).toMatch(pattern);
+    expect(css.match(/\.([^\s{]+)\s+\{/)?.[1]?.startsWith(expectedPrefix)).toBe(true);
+    expect(css).toContain(' {\n  color: red;}');
+    expect(css).not.toContain('color: red;\n}');
+  });
+
+  it('build 使用 descriptor CSS 输出 base、hover 与 focus-visible selector', async () => {
+    const root = await createBuildFixture(
+      [
+        '.button { color: red; }',
+        '.button:hover { color: red; }',
+        '.button:focus-visible { outline: 2px solid blue; }'
+      ].join('\n')
+    );
 
     await runBuild(root, {
       core: {
@@ -37,15 +111,140 @@ describe('semanticAtomicCss build plugin', () => {
 
     const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
 
-    expect(css).toContain('.gss-color_red');
+    expect(css).toContain('.gss-selector_q0dmug_color_red {');
+    expect(css).toContain('.gss-selector_qf5xvc_color_red:hover {');
+    expect(css).toContain('.gss-selector_1qzezs_outline_2px_solid_blue:focus-visible {');
+    expect(css).not.toContain('__GSS_ANCHOR__');
+  });
+
+  it('build generic descriptor 路径消费 pseudo-element mapping、alias fallback 与 list fallback', async () => {
+    const root = await createBuildFixture(
+      [
+        '.before::before { content: ""; color: red; }',
+        '.after:after { content: ""; display: block; }',
+        '.alias:before { color: red; }',
+        '.alias::before { color: blue; }',
+        '.fallback::after, .peer { color: green; }'
+      ].join('\n'),
+      {
+        mainJs: [
+          "import styles from './Button.module.css';",
+          "document.body.setAttribute('data-before', styles.before);",
+          "document.body.setAttribute('data-after', styles.after);",
+          "document.body.setAttribute('data-alias', styles.alias);",
+          "document.body.setAttribute('data-fallback', styles.fallback);"
+        ].join('\n')
+      }
+    );
+
+    await runBuild(root, {
+      core: { className: { strategy: 'readable' } },
+      manifest: { enabled: true },
+      report: { enabled: true }
+    }, {
+      generateScopedName: 'pseudo_[local]'
+    });
+
+    const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
+    const js = await readBuiltAssets(join(root, 'dist/assets'), '.js');
+    const manifest = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-manifest.json'), 'utf8'));
+    const report = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-report.json'), 'utf8'));
+    const classes = Object.values(manifest.classes) as Array<{
+      sourceClassName: string;
+      atomicClassNames: string[];
+      unsafeReasons?: string[];
+    }>;
+    const before = classes.find(({ sourceClassName }) => sourceClassName === 'pseudo_before');
+    const after = classes.find(({ sourceClassName }) => sourceClassName === 'pseudo_after');
+    const alias = classes.find(({ sourceClassName }) => sourceClassName === 'pseudo_alias');
+    const fallback = classes.find(({ sourceClassName }) => sourceClassName === 'pseudo_fallback');
+    const entries = Object.values(manifest.atomic) as Array<{ selector: { identity: string; css: string } }>;
+
+    expect(before?.atomicClassNames).toHaveLength(2);
+    expect(after?.atomicClassNames).toHaveLength(2);
+    expect(js).toContain(before?.atomicClassNames[0]);
+    expect(js).toContain(after?.atomicClassNames[0]);
+    expect(entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ selector: expect.objectContaining({ identity: '.__GSS_ANCHOR__::before' }) }),
+        expect.objectContaining({ selector: expect.objectContaining({ identity: '.__GSS_ANCHOR__:after' }) })
+      ])
+    );
+    expect(entries.every(({ selector }) => !selector.css.includes(','))).toBe(true);
+    expect(alias).toMatchObject({ atomicClassNames: [], unsafeReasons: ['pseudo-element'] });
+    expect(fallback).toMatchObject({ atomicClassNames: [], unsafeReasons: ['selector-list'] });
+    expect(css).toContain('.pseudo_alias:before');
+    expect(css).toContain('.pseudo_alias::before');
+    expect(css).toContain('.pseudo_fallback::after, .pseudo_peer');
+    expect(report.analysis.risk.unsafeReasonDistribution).toMatchObject({
+      'pseudo-element': 2,
+      'selector-list': 1
+    });
+  });
+
+  it('build 消费 Core 的单-arm selector-list descriptor，并完整保留 unsafe mixed list', async () => {
+    const root = await createBuildFixture(
+      [
+        '.a, .b { color: red; }',
+        '.a:hover, .b:hover { background: blue; }',
+        '.a[data-ready], [data-ready].b { border-color: green; }',
+        '.safe, .parent .unsafe { margin: 4px; }',
+        '.safe { padding: 8px; }'
+      ].join('\n'),
+      {
+        mainJs: [
+          "import styles from './Button.module.css';",
+          "document.body.setAttribute('data-a', styles.a);",
+          "document.body.setAttribute('data-b', styles.b);",
+          "document.body.setAttribute('data-safe', styles.safe);"
+        ].join('\n')
+      }
+    );
+
+    await runBuild(root, {
+      core: { className: { strategy: 'readable' } },
+      manifest: { enabled: true },
+      report: { enabled: true }
+    }, {
+      generateScopedName: 'list_[local]'
+    });
+
+    const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
+    const js = await readBuiltAssets(join(root, 'dist/assets'), '.js');
+    const manifest = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-manifest.json'), 'utf8'));
+    const report = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-report.json'), 'utf8'));
+    const classes = Object.values(manifest.classes) as Array<{
+      sourceClassName: string;
+      atomicClassNames: string[];
+      unsafeReasons?: string[];
+    }>;
+    const a = classes.find(({ sourceClassName }) => sourceClassName === 'list_a');
+    const b = classes.find(({ sourceClassName }) => sourceClassName === 'list_b');
+    const safe = classes.find(({ sourceClassName }) => sourceClassName === 'list_safe');
+
+    expect(a?.atomicClassNames).toContain('_selector_q0dmug_color_red');
+    expect(b?.atomicClassNames).toContain('_selector_q0dmug_color_red');
+    expect(a?.atomicClassNames).toContain('_selector_qf5xvc_background_blue');
+    expect(b?.atomicClassNames).toContain('_selector_qf5xvc_background_blue');
+    expect(js).toContain('_selector_q0dmug_color_red');
+    expect(css).toContain('._selector_q0dmug_color_red {');
+    expect(css).toContain('._selector_qf5xvc_background_blue:hover {');
+    expect(
+      Object.values(manifest.atomic).every(
+        (entry) => !(entry as { selector: { css: string } }).selector.css.includes(',')
+      )
+    ).toBe(true);
+    expect(safe).toMatchObject({ atomicClassNames: [], unsafeReasons: ['selector-list'] });
+    expect(css).toMatch(/\.[^{,]+,\s*\.[^{]+\s\.[^{]+\s*\{/u);
+    expect(report.analysis.risk.unsafeReasonDistribution).toMatchObject({ 'selector-list': 1 });
   });
 
   it('build 将 url() 关联 class 整体保留，并在聚合 CSS 中解析本地资源', async () => {
     const root = await createBuildFixture(
-      '.hero { color: red; background: url("./mark.svg#phase5") no-repeat; }',
+      '.hero { color: red; background: url("./mark.svg#asset-fragment") no-repeat; }',
       {
         extraFiles: {
-          'mark.svg': '<svg xmlns="http://www.w3.org/2000/svg"><circle id="phase5" r="4" /></svg>'
+          'mark.svg': '<svg xmlns="http://www.w3.org/2000/svg"><circle id="asset-fragment" r="4" /></svg>'
         }
       }
     );
@@ -66,7 +265,7 @@ describe('semanticAtomicCss build plugin', () => {
     const assetNames = (await readdir(join(root, 'dist/assets'))).filter((name) => name.endsWith('.svg'));
 
     expect(assetNames).toHaveLength(1);
-    expect(css).toContain(`url("./${assetNames[0]}#phase5")`);
+    expect(css).toContain(`url("./${assetNames[0]}#asset-fragment")`);
     expect(css).toContain('color: red;');
     expect(css).not.toContain('._color_red');
     expect(css).not.toContain('__VITE_ASSET__');
@@ -105,7 +304,7 @@ describe('semanticAtomicCss build plugin', () => {
       {
         modules: {
           localsConvention: 'camelCaseOnly',
-          generateScopedName: 'p5_[name]__[local]'
+          generateScopedName: 'preprocessor_[name]__[local]'
         },
         core: { className: { strategy: 'readable' } }
       },
@@ -121,13 +320,14 @@ describe('semanticAtomicCss build plugin', () => {
     const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
     const js = await readBuiltAssets(join(root, 'dist/assets'), '.js');
 
-    expect(js).toContain('p5_Button-module__button');
-    expect(js).toContain('p5_Panel-module__panel');
+    expect(js).toContain('preprocessor_Button-module__button');
+    expect(js).toContain('preprocessor_Panel-module__panel');
     expect(js).toContain('_color_0f766e');
-    expect(js).toContain('_background_eff6ff');
+    expect(js).not.toContain('_background_eff6ff');
     expect(css).toContain('padding: 10px;');
+    expect(css).toContain('background: #eff6ff;');
     expect(css).toContain('border-radius: 7px;');
-    expect(css).toContain('.p5_Panel-module__panel .p5_Panel-module__child');
+    expect(css).toContain('.preprocessor_Panel-module__panel .preprocessor_Panel-module__child');
     expect(css).not.toContain('$accent');
     expect(css).not.toContain('@panel-color');
   });
@@ -202,6 +402,30 @@ describe('semanticAtomicCss build plugin', () => {
     expect(css.indexOf('gap: 12px;')).toBeLessThan(css.indexOf('gap: 24px;'));
   });
 
+  it('build 保留 important 与 supports/media wrapper', async () => {
+    const root = await createBuildFixture(
+      [
+        '.button { color: red !important; }',
+        '@supports (display: grid) {',
+        '  .button:focus-visible { display: grid; }',
+        '}',
+        '@media (min-width: 600px) {',
+        '  .button:hover { color: blue; }',
+        '}'
+      ].join('\n')
+    );
+
+    await runBuild(root, { core: { className: { strategy: 'readable' } } });
+
+    const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
+
+    expect(css).toContain('color: red!important;}');
+    expect(css).toContain('@supports (display: grid){');
+    expect(css).toContain(':focus-visible {');
+    expect(css).toContain('@media (min-width: 600px){');
+    expect(css).toContain(':hover {');
+  });
+
   it('build 聚合结果按 source id 稳定排序，不依赖并发 transform 完成顺序', async () => {
     const root = await createBuildFixture(
       '.button {\n  color: blue;\n}\n.button[data-state="open"] {\n  border-color: blue;\n}',
@@ -219,15 +443,17 @@ describe('semanticAtomicCss build plugin', () => {
       }
     );
 
-    await runBuild(root, {
+    const options = {
       core: {
         className: {
-          strategy: 'readable'
+          strategy: 'compact' as const
         }
       },
       manifest: { enabled: true },
       report: { enabled: true }
-    });
+    };
+
+    await runBuild(root, options);
 
     const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
     const manifest = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-manifest.json'), 'utf8')) as {
@@ -252,6 +478,22 @@ describe('semanticAtomicCss build plugin', () => {
     expect(report.diagnostics.map((item) => item.id)).toEqual(
       report.diagnostics.map((item) => item.id).sort()
     );
+    expect(Object.keys(manifest.atomic).every((className) => /^[ab][0-9a-z]{6}$/.test(className))).toBe(true);
+
+    await writeFile(
+      join(root, 'src/main.js'),
+      [
+        "import alpha from './Alpha.module.css';",
+        "import button from './Button.module.css';",
+        "document.body.setAttribute('data-alpha', alpha.alpha);",
+        "document.body.setAttribute('data-button', button.button);"
+      ].join('\n')
+    );
+    await runBuild(root, options);
+
+    expect(await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8')).toBe(css);
+    expect(JSON.parse(await readFile(join(root, 'dist/semantic-atomic-manifest.json'), 'utf8'))).toEqual(manifest);
+    expect(JSON.parse(await readFile(join(root, 'dist/semantic-atomic-report.json'), 'utf8'))).toEqual(report);
   });
 
   it('显式开启 manifest/report 后保留基础 source location', async () => {
@@ -261,8 +503,12 @@ describe('semanticAtomicCss build plugin', () => {
         '  color: red;',
         '}',
         '',
-        '.button[data-state="open"] {',
+        '.button[data-state^="open"] {',
         '  color: blue;',
+        '}',
+        '',
+        '.independent {',
+        '  padding: 8px;',
         '}'
       ].join('\n')
     );
@@ -279,10 +525,15 @@ describe('semanticAtomicCss build plugin', () => {
     const manifest = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-manifest.json'), 'utf8'));
     const report = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-report.json'), 'utf8'));
     const atomicEntry = Object.values(manifest.atomic)[0] as {
+      className: string;
+      selector: { identity: string; css: string };
+      context: Record<string, unknown>;
       declaration: { source?: { id: string; line?: number; column?: number } };
       sources: Array<{ id: string; line?: number; column?: number }>;
     };
-    const classEntry = Object.values(manifest.classes)[0] as { id: string; sourceClassName: string };
+    const classEntry = Object.values(manifest.classes).find((entry) =>
+      String((entry as { sourceClassName?: string }).sourceClassName).includes('button')
+    ) as { id: string; sourceClassName: string };
     const diagnostic = report.diagnostics[0] as {
       code: string;
       reason: string;
@@ -290,14 +541,22 @@ describe('semanticAtomicCss build plugin', () => {
     };
 
     expect(atomicEntry.declaration.source).toMatchObject({
-      line: 2,
+      line: 10,
       column: 3
     });
     expect(atomicEntry.sources[0]).toMatchObject({
-      line: 2,
+      line: 10,
       column: 3
     });
     expect(atomicEntry.sources[0]?.id).toMatch(/Button\.module\.css$/);
+    expect(atomicEntry.selector).toEqual({
+      identity: '.__GSS_ANCHOR__',
+      css: `.${atomicEntry.className}`
+    });
+    expect(atomicEntry.context).not.toHaveProperty('pseudo');
+    expect(await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8')).toContain(
+      `${atomicEntry.selector.css} {`
+    );
     expect(classEntry.sourceClassName).toContain('button');
     expect(classEntry.id).toMatch(/Button\.module\.css$/);
     expect(diagnostic).toMatchObject({
@@ -322,6 +581,157 @@ describe('semanticAtomicCss build plugin', () => {
         beforeRawCssBytes: expect.any(Number),
         afterGzipCssBytes: expect.any(Number),
         afterBrotliCssBytes: expect.any(Number)
+      }
+    });
+    expect(report.analysis.size).toMatchObject({
+      afterRawCssBytes: Buffer.byteLength(await readFile(join(root, 'dist/assets/semantic-atomic.css'))),
+      afterGzipCssBytes: gzipSync(await readFile(join(root, 'dist/assets/semantic-atomic.css'))).byteLength,
+      afterBrotliCssBytes: brotliCompressSync(await readFile(join(root, 'dist/assets/semantic-atomic.css'))).byteLength
+    });
+  });
+
+  it('build metadata 按配置惰性读取，并让 manifest asset 与 report 共用一次 Core snapshot', async () => {
+    const root = await createBuildFixture('.button { color: red; }');
+
+    getManifestSpy.mockClear();
+    await runBuild(root);
+    expect(getManifestSpy).not.toHaveBeenCalled();
+
+    getManifestSpy.mockClear();
+    await runBuild(root, { manifest: { enabled: true } });
+    expect(getManifestSpy).toHaveBeenCalledTimes(1);
+    const manifestOnly = await readFile(join(root, 'dist/semantic-atomic-manifest.json'), 'utf8');
+    expect(await readdir(join(root, 'dist'))).not.toContain('semantic-atomic-report.json');
+
+    getManifestSpy.mockClear();
+    await runBuild(root, { report: { enabled: true } });
+    expect(getManifestSpy).toHaveBeenCalledTimes(1);
+    const reportOnly = await readFile(join(root, 'dist/semantic-atomic-report.json'), 'utf8');
+    expect(await readdir(join(root, 'dist'))).not.toContain('semantic-atomic-manifest.json');
+
+    getManifestSpy.mockClear();
+    await runBuild(root, {
+      manifest: { enabled: true },
+      report: { enabled: true }
+    });
+    expect(getManifestSpy).toHaveBeenCalledTimes(1);
+    expect(await readFile(join(root, 'dist/semantic-atomic-manifest.json'), 'utf8')).toBe(manifestOnly);
+    expect(await readFile(join(root, 'dist/semantic-atomic-report.json'), 'utf8')).toBe(reportOnly);
+  });
+
+  it('build 透传 eligible attribute descriptor，并对顺序风险整类 fallback', async () => {
+    const root = await createBuildFixture(
+      [
+        '.presence[data-ready] { border-color: red; }',
+        '.exact[data-state="open"] { color: green; }',
+        '[data-tone="warm"].before { background: gold; }',
+        '.eligible { opacity: 0.8; }',
+        '.orderRisk[data-state] { color: red; }',
+        '.orderRisk:hover { color: blue; }',
+        '.orderRisk { padding: 4px; }'
+      ].join('\n'),
+      {
+        mainJs: [
+          "import styles from './Button.module.css';",
+          'document.body.setAttribute(\'data-classes\', [',
+          '  styles.presence,',
+          '  styles.exact,',
+          '  styles.before,',
+          '  styles.eligible,',
+          '  styles.orderRisk',
+          "].join(' '));"
+        ].join('\n')
+      }
+    );
+
+    await runBuild(
+      root,
+      {
+        core: { className: { strategy: 'readable' } },
+        manifest: { enabled: true },
+        report: { enabled: true }
+      },
+      { generateScopedName: 'native_[local]' }
+    );
+
+    const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
+    const js = await readBuiltAssets(join(root, 'dist/assets'), '.js');
+    const manifest = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-manifest.json'), 'utf8')) as {
+      atomic: Record<
+        string,
+        {
+          selector: { identity: string; css: string };
+          declaration: { prop: string; value: string };
+        }
+      >;
+      classes: Record<
+        string,
+        {
+          sourceClassName: string;
+          resolvedClassName: string;
+          atomicClassNames: string[];
+          unsafeReasons?: string[];
+        }
+      >;
+    };
+    const report = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-report.json'), 'utf8'));
+    const orderRiskClass = Object.values(manifest.classes).find((entry) =>
+      entry.sourceClassName.includes('orderRisk')
+    );
+
+    expect(js).toContain('native_presence _selector_jyr83m_border-color_red');
+    expect(js).toContain('native_exact _selector_4e0slb_color_green');
+    expect(js).toContain('native_before _selector_1wtkk6_background_gold');
+    expect(js).toContain('native_eligible _selector_q0dmug_opacity_0_8');
+    expect(manifest.atomic['_selector_jyr83m_border-color_red']?.selector).toEqual({
+      identity: '.__GSS_ANCHOR__[data-ready]',
+      css: '._selector_jyr83m_border-color_red[data-ready]'
+    });
+    expect(manifest.atomic._selector_4e0slb_color_green?.selector).toEqual({
+      identity: '.__GSS_ANCHOR__[data-state="open"]',
+      css: '._selector_4e0slb_color_green[data-state="open"]'
+    });
+    expect(manifest.atomic._selector_1wtkk6_background_gold?.selector).toEqual({
+      identity: '[data-tone="warm"].__GSS_ANCHOR__',
+      css: '[data-tone="warm"]._selector_1wtkk6_background_gold'
+    });
+    expect(css).toContain('._selector_jyr83m_border-color_red[data-ready] {');
+    expect(css).toContain('._selector_4e0slb_color_green[data-state="open"] {');
+    expect(css).toContain('[data-tone="warm"]._selector_1wtkk6_background_gold {');
+    expect(css).not.toContain('.native_presence[data-ready]');
+    expect(css).not.toContain('.native_exact[data-state="open"]');
+    expect(css).not.toContain('[data-tone="warm"].native_before');
+    expect(orderRiskClass).toMatchObject({
+      resolvedClassName: 'native_orderRisk',
+      atomicClassNames: [],
+      unsafeReasons: ['attribute-cascade-order']
+    });
+    const atomicDeclarations = Object.values(manifest.atomic).map(
+      ({ declaration }) => `${declaration.prop}:${declaration.value}`
+    );
+    expect(atomicDeclarations).not.toContain('color:red');
+    expect(atomicDeclarations).not.toContain('color:blue');
+    expect(atomicDeclarations).not.toContain('padding:4px');
+    expect(js).toContain('native_orderRisk');
+    expect(js).not.toMatch(/native_orderRisk _selector_/);
+    expect(css).toContain('.native_orderRisk[data-state]');
+    expect(css).toContain('.native_orderRisk:hover');
+    expect(css).toContain('.native_orderRisk {');
+    expect(report.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'unsafe-selector',
+        reason: 'attribute-cascade-order',
+        sourceClassName: expect.stringContaining('orderRisk')
+      })
+    );
+    expect(report.diagnostics).not.toContainEqual(
+      expect.objectContaining({ reason: 'attribute-selector' })
+    );
+    expect(report.analysis).toMatchObject({
+      health: { status: 'risky' },
+      risk: {
+        unsafeReasonDistribution: { 'attribute-cascade-order': 1 },
+        highRiskFiles: [expect.objectContaining({ unsafeRules: 1 })]
       }
     });
   });
@@ -368,10 +778,12 @@ describe('semanticAtomicCss build plugin', () => {
     expect(report.analysis.risk.declarationConflicts).toEqual([
       expect.objectContaining({
         kind: 'same-property',
+        selectorIdentity: '.__GSS_ANCHOR__',
         properties: ['color']
       }),
       expect.objectContaining({
         kind: 'shorthand-longhand',
+        selectorIdentity: '.__GSS_ANCHOR__',
         properties: ['border', 'border-color']
       })
     ]);
@@ -471,7 +883,7 @@ describe('semanticAtomicCss build plugin', () => {
     const css = await readFile(join(root, 'dist/assets/semantic-atomic.css'), 'utf8');
     const report = JSON.parse(await readFile(join(root, 'dist/semantic-atomic-report.json'), 'utf8'));
 
-    expect(css).toContain('._color_red');
+    expect(css).toContain('._selector_q0dmug_color_red');
     expect(css).toContain('.ant-btn');
     expect(css).toContain('color: blue;');
     expect(report.diagnostics).toContainEqual(
@@ -482,7 +894,7 @@ describe('semanticAtomicCss build plugin', () => {
     );
   });
 
-  it('Phase 4 对未实现的 namedExports 和 strict mode 显式失败', async () => {
+  it('对当前未实现的 namedExports、strict mode 和 Lightning CSS 显式失败', async () => {
     const root = await createBuildFixture('.button {\n  color: red;\n}');
 
     await expect(
@@ -502,6 +914,10 @@ describe('semanticAtomicCss build plugin', () => {
         }
       })
     ).rejects.toThrow('diagnostics.strict: true');
+
+    await expect(runBuild(root, {}, undefined, { transformer: 'lightningcss' })).rejects.toThrow(
+      'vite.css.transformer.lightningcss'
+    );
   });
 
   it('Vite css.modules: false 且未显式配置 GSS modules 时失败', async () => {
@@ -533,7 +949,7 @@ describe('semanticAtomicCss build plugin', () => {
 
     expect(js).toContain('gss_button');
     expect(js).toContain('_color_red');
-    expect(css).toContain('._color_red');
+    expect(css).toContain('._selector_q0dmug_color_red');
   });
 
   it('GSS 显式 modules 配置会覆盖 Vite css.modules.namedExports', async () => {
@@ -574,6 +990,7 @@ type TestRunBuildOptions = {
   assetsInlineLimit?: number;
   renderBuiltUrl?: RenderBuiltAssetUrl;
   preprocessorOptions?: CSSOptions['preprocessorOptions'];
+  transformer?: CSSOptions['transformer'];
 };
 
 /**
@@ -679,7 +1096,8 @@ async function runBuild(
     logLevel: 'silent',
     css: {
       modules: cssModules,
-      preprocessorOptions: buildOptions.preprocessorOptions
+      preprocessorOptions: buildOptions.preprocessorOptions,
+      transformer: buildOptions.transformer
     },
     experimental: buildOptions.renderBuiltUrl
       ? { renderBuiltUrl: buildOptions.renderBuiltUrl }

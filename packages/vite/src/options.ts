@@ -4,6 +4,7 @@
  * @module vite/options
  */
 import type { ResolvedSemanticAtomicCssOptions, SemanticAtomicCssOptions } from './types.js';
+import { isValidDevReportEndpoint } from '@semantic-atomic-css/devtools';
 
 /**
  * 把用户配置补齐为 adapter 内部稳定配置。
@@ -12,6 +13,13 @@ import type { ResolvedSemanticAtomicCssOptions, SemanticAtomicCssOptions } from 
  * @returns 所有默认值和“是否显式配置”证据均已补齐的内部配置。
  */
 export function resolveOptions(options: SemanticAtomicCssOptions = {}): ResolvedSemanticAtomicCssOptions {
+  const devtoolsEnabled = options.devtools?.enabled === true || options.devtools?.overlay === true;
+  const devtoolsEndpoint = options.devtools?.endpoint ?? '/__semantic-atomic-css/report';
+
+  if (!isValidDevReportEndpoint(devtoolsEndpoint)) {
+    throw new Error(`[semantic-atomic-css] invalid-dev-report-endpoint endpoint=${devtoolsEndpoint}`);
+  }
+
   return {
     include: toArray(
       options.include ?? ['**/*.module.css', '**/*.module.scss', '**/*.module.less']
@@ -26,7 +34,6 @@ export function resolveOptions(options: SemanticAtomicCssOptions = {}): Resolved
       configured: options.modules !== undefined
     },
     core: {
-      preserveResolvedClass: options.core?.preserveResolvedClass ?? true,
       className: options.core?.className
     },
     manifest: {
@@ -37,11 +44,26 @@ export function resolveOptions(options: SemanticAtomicCssOptions = {}): Resolved
       enabled: options.report?.enabled ?? false,
       filename: options.report?.filename ?? 'semantic-atomic-report.json'
     },
+    devtools: {
+      enabled: devtoolsEnabled,
+      overlay: devtoolsEnabled && (options.devtools?.overlay ?? true),
+      endpoint: devtoolsEndpoint,
+      pollIntervalMs: resolvePollInterval(options.devtools?.pollIntervalMs)
+    },
     diagnostics: {
       warn: options.diagnostics?.warn ?? true,
       strict: options.diagnostics?.strict ?? false
     }
   };
+}
+
+/** 把 overlay 轮询间隔归一化为安全下限，拒绝 NaN/Infinity/非正数造成忙轮询。 */
+function resolvePollInterval(value: number | undefined): number {
+  const interval = value ?? 1_500;
+  if (!Number.isFinite(interval) || interval <= 0) {
+    throw new Error(`[semantic-atomic-css] invalid-overlay-poll-interval value=${String(interval)}`);
+  }
+  return Math.max(250, Math.floor(interval));
 }
 
 /**

@@ -15,6 +15,15 @@ import type {
   UnsafeSelectorReason
 } from '../public/types.js';
 
+/**
+ * pipeline 内部用于 class-wide fallback 的原因。
+ *
+ * @remarks
+ * unsupported block 不属于 public selector taxonomy，因此该 union 不得写入
+ * class mapping 的 `unsafeReasons` 或公开 diagnostic reason 枚举。
+ */
+export type InputPreservationReason = UnsafeSelectorReason | PreservedBlock['reason'];
+
 /** 从 CSS AST 收集出的 rule 记录，是 selector/declaration pass 的输入。 */
 export type CssRuleRecord = {
   id: string;
@@ -45,7 +54,7 @@ export type PreservedRule = {
   scopedSelector: string;
   declarations: DeclarationMeta[];
   context: CssTransformContext;
-  reason: UnsafeSelectorReason | PreservedDeclarationReason | ClassPreservationReason;
+  reason: PreservedDeclarationReason | ClassPreservationReason | InputPreservationReason;
   source?: SourceLocation;
 };
 

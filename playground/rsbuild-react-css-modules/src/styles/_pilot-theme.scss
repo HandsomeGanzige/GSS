@@ -1,0 +1,24 @@
+$shell-background: #eef2f7;
+$surface: #ffffff;
+$ink: #111827;
+$muted: #64748b;
+$brand: #0f766e;
+$brand-soft: #ecfdf5;
+$border: #d8dee9;
+$focus-ring: #99f6e4;
+$radius: 8px;
+$content-width: 1180px;
+$brand-gap: 11px;
+
+// 输出 Pilot 通用表面，调用方仍负责尺寸和布局。
+@mixin surface {
+  background: $surface;
+  border: 1px solid $border;
+  border-radius: $radius;
+}
+
+// 输出一致的键盘焦点轮廓，避免嵌套 pseudo 各自漂移。
+@mixin focus-outline($color: $focus-ring) {
+  outline: 3px solid $color;
+  outline-offset: 2px;
+}
