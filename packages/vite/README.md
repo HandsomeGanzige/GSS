@@ -63,7 +63,8 @@ manifest 或 report 时各读取一次；两项同时开启时，manifest asset 
 已稳定化 snapshot，避免对大型 manifest 重复投影和复制。
 
 class name 在 dev 默认使用可读的 `readable + "_"`，build 默认使用无 prefix 的 32-bit / 7 字符 lower-base36
-`compact`；通过 `core.className` 显式指定 `readable`、`hash`、`compact` 或 `prefix` 时始终覆盖环境默认。
+`compact`；通过 `core.className` 显式指定 `readable`、`readable-keyed`、`hash`、`compact` 或 `prefix` 时
+始终覆盖环境默认。`readable-keyed` 主要供独立 css-loader registry 使用，Vite 默认策略不变。
 既有显式 `hash` 仍输出 `_` 加 8 位 base36。
 
 dev atomic CSS 继续使用可读 rule、空行分隔和缩进 wrapper。build 的独立 atomic asset 不会

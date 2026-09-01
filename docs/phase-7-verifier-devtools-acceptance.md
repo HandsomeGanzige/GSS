@@ -4,8 +4,8 @@
 
 - Status: completed
 - 验收日期：2026-07-19
-- 生产入口：`@semantic-atomic-css/devtools`、Vite/Rsbuild adapter `devtools` 选项
-- 浏览器入口：两套 fixture `test:visual`
+- 生产入口：`@semantic-atomic-css/devtools`、Vite/Rsbuild/Webpack adapter `devtools` 选项
+- 浏览器入口：Vite、Rsbuild、Webpack 三套 fixture `test:visual`
 
 ## 自动验收矩阵
 
@@ -15,8 +15,9 @@
 | style diff report | 当前 labels/summary/runs/differences 结构、属性级 difference、merge、零比较拒绝、失败前 JSON 写盘 |
 | Vite dev API | idle/ready、import removal/current cache、generation race、GET、analysis、no-store、非法 endpoint |
 | Rsbuild dev API | idle/ready、environment snapshot、GET、analysis、no-store、非法 endpoint |
+| Webpack dev API | idle/ready/error、最后成功 snapshot、GET、analysis、no-store、非法 endpoint |
 | dev report consumer contract | nested `attribute-cascade-order` diagnostic/distribution 对象引用与 JSON roundtrip 原样保留；无 schema version |
-| browser overlay | 有效 idle/ready 展示、非法 payload offline、250ms 轮询、请求不重叠/BFCache runtime；semantic dev 存在 Shadow root；native/preview/build 不注入 |
+| browser overlay | 有效 idle/ready/error 展示、非法 payload offline、250ms 轮询、请求不重叠/BFCache runtime；semantic dev 存在 Shadow root；native/preview/build 不注入 |
 | 回归边界 | tokens、rect、资源 HTTP、Sass partial、移除 import 与原 static fixture 继续通过 |
 | source map | 方案和非目标明确；未实现路径不降低 `map: null` / fail-fast 保护 |
 
@@ -26,6 +27,8 @@
 pnpm --filter @semantic-atomic-css/devtools verify
 pnpm --filter @semantic-atomic-css/vite verify
 pnpm --filter @semantic-atomic-css/rsbuild verify
+pnpm --filter @semantic-atomic-css/webpack verify
+pnpm --filter @semantic-atomic-css/webpack-fixture verify
 pnpm verify
 
 GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
@@ -34,10 +37,22 @@ GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Goo
 GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
   pnpm --filter @semantic-atomic-css/rsbuild-fixture test:visual \
   -- --report /private/tmp/gss-rsbuild-cascade-oracle-closeout.json
+GSS_VISUAL_CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  pnpm --filter @semantic-atomic-css/webpack-fixture test:visual
 ```
+
+Webpack error envelope 必须携带稳定错误摘要，并可保留最后成功 environments；idle 强制为空，ready
+强制非空，公共 TypeScript 判别联合与 overlay 运行时防御约束一致。
 
 visual 使用真实 localhost 与 Chrome，不进入根 `pnpm verify`。受限环境如果无法监听端口或启动 Chrome，
 必须记录未运行原因，不能用包级 fake browser 测试替代真实 semantic/native 对照。
+
+## 2026-09-01 Webpack error protocol 收口
+
+- `DevReportEnvelope` 已收紧为严格判别联合：idle environments 为空、ready 至少一个 environment、error
+  必须携带稳定摘要且可保留 last-good；overlay 的外部 JSON 防御校验保持不变。
+- Devtools 2 files/20 tests、Webpack 5 files/37 tests 及 typecheck/build 通过；根 `pnpm verify`、Webpack
+  static fixture、Webpack/Rsbuild visual 均通过。
 
 ## 2026-07-25 attribute selector consumer contract
 

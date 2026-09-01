@@ -1,0 +1,43 @@
+{
+  "name": "@semantic-atomic-css/webpack",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "files": ["dist"],
+  "scripts": { "build": "tsc -p tsconfig.json", "test": "vitest run --config vitest.config.ts", "typecheck": "tsc -p tsconfig.check.json", "verify": "pnpm test && pnpm typecheck && pnpm build" },
+  "dependencies": {
+    "@semantic-atomic-css/core": "workspace:*",
+    "@semantic-atomic-css/css-loader-bridge": "workspace:*",
+    "@semantic-atomic-css/devtools": "workspace:*",
+    "postcss": "^8.4.49",
+    "postcss-value-parser": "^4.2.0"
+  },
+  "peerDependencies": {
+    "webpack": ">=5.32.0 <6",
+    "css-loader": ">=7.1.0 <8",
+    "style-loader": ">=4.0.0 <5",
+    "mini-css-extract-plugin": ">=2.9.0 <3",
+    "html-webpack-plugin": ">=5.6.0 <6",
+    "webpack-dev-server": ">=5.0.0 <6"
+  },
+  "peerDependenciesMeta": {
+    "style-loader": { "optional": true },
+    "mini-css-extract-plugin": { "optional": true },
+    "html-webpack-plugin": { "optional": true },
+    "webpack-dev-server": { "optional": true }
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "css-loader": "7.1.4",
+    "html-webpack-plugin": "5.6.8",
+    "mini-css-extract-plugin": "2.10.2",
+    "style-loader": "4.0.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8",
+    "webpack": "5.109.2",
+    "webpack-dev-server": "5.2.6"
+  }
+}

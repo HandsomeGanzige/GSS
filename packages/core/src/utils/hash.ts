@@ -39,6 +39,29 @@ export function fingerprintString32(input: string): number {
 }
 
 /**
+ * 使用 FNV-1a 生成固定 128-bit fingerprint，并编码为 25 位 lower-base36。
+ *
+ * @remarks
+ * readable-keyed 会在相互隔离的 css-loader registry 中独立选名，不能依赖全局 registry
+ * 的碰撞 suffix。128-bit 摘要显著降低短摘要碰撞概率；最终 registry 与 adapter closure
+ * 校验仍负责在极端碰撞时 fail fast。
+ *
+ * @param input - 要 fingerprint 的完整 canonical atomic key。
+ * @returns 固定 25 字符 lower-base36 fingerprint。
+ */
+export function keyedHashString(input: string): string {
+  const mask = (1n << 128n) - 1n;
+  let hash = 0x6c62272e07bb014262b821756295c58dn;
+
+  for (let index = 0; index < input.length; index++) {
+    hash ^= BigInt(input.charCodeAt(index));
+    hash = (hash * 0x0000000001000000000000000000013bn) & mask;
+  }
+
+  return hash.toString(36).padStart(25, '0');
+}
+
+/**
  * 把无符号 32-bit fingerprint 编码为固定 7 字符 lower-base36 CSS-safe token。
  *
  * @remarks

@@ -184,8 +184,8 @@ async function verifyBaseSemantic(outDir) {
   );
   const earlyReuseToken = findBundleClassToken(mainJs, 'fixture_ACascadeOwner-module__base');
   const lateReuseToken = findBundleClassToken(mainJs, 'fixture_LateReuse-module__lateReuse');
-  const reusedAtomicToken = '_selector_q0dmug_color_334155';
-  assertIncludes(earlyReuseToken, reusedAtomicToken, 'early owner 应使用共享 #334155 atomic token');
+  const reusedAtomicToken = earlyReuseToken.split(/\s+/).find((token) => token.startsWith('_selector_q0dmug_color_334155'));
+  assert(reusedAtomicToken, 'early owner 应使用共享 #334155 atomic token');
   assertIncludes(lateReuseToken, reusedAtomicToken, 'late consumer 应复用共享 #334155 atomic token');
   assert(
     countOccurrences(atomicCss, `.${reusedAtomicToken}{`) === 1,

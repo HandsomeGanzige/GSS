@@ -3,13 +3,13 @@ import { pluginSemanticAtomicCss, resolveCoreOptions } from '../src/plugin.js';
 
 describe('pluginSemanticAtomicCss options', () => {
   it.each([
-    ['dev 默认', {}, true, { strategy: 'readable', prefix: undefined }],
-    ['build 默认', {}, false, { strategy: 'compact', prefix: undefined }],
+    ['dev 默认', {}, true, { strategy: 'readable-keyed', prefix: undefined }],
+    ['build 默认', {}, false, { strategy: 'compact-keyed', prefix: undefined }],
     ['dev 显式 hash', { className: { strategy: 'hash' as const } }, true, { strategy: 'hash', prefix: undefined }],
     ['build 显式 readable', { className: { strategy: 'readable' as const } }, false, { strategy: 'readable', prefix: undefined }],
     ['build 显式 compact', { className: { strategy: 'compact' as const } }, false, { strategy: 'compact', prefix: undefined }],
-    ['build 只显式 prefix', { className: { prefix: 'P' } }, false, { strategy: 'compact', prefix: 'P' }],
-    ['dev 显式空 prefix', { className: { prefix: '' } }, true, { strategy: 'readable', prefix: '' }]
+    ['build 只显式 prefix', { className: { prefix: 'P' } }, false, { strategy: 'compact-keyed', prefix: 'P' }],
+    ['dev 显式空 prefix', { className: { prefix: '' } }, true, { strategy: 'readable-keyed', prefix: '' }]
   ])('%s 的 className 环境默认与显式覆盖保持兼容', (_name, core, isDev, expected) => {
     expect(resolveCoreOptions(core, isDev).className).toEqual(expected);
   });

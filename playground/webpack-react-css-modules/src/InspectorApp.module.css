@@ -1,0 +1,157 @@
+.page {
+  min-height: 100vh;
+  padding: 32px;
+  color: #0f172a;
+  background: #f4f7fb;
+}
+
+.hero {
+  display: flex;
+  gap: 24px;
+  align-items: flex-end;
+  justify-content: space-between;
+  max-width: 1180px;
+  margin: 0 auto 24px;
+  padding: 28px;
+  border: 1px solid #cbd5e1;
+  border-radius: 20px;
+  background: #ffffff;
+  box-shadow: 0 18px 50px rgb(15 23 42 / 8%);
+}
+
+.kicker,
+.cardLabel {
+  margin: 0 0 8px;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(30px, 5vw, 54px);
+  line-height: 1;
+}
+
+.description,
+.copy {
+  max-width: 760px;
+  margin: 16px 0 0;
+  color: #475569;
+  line-height: 1.7;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.link,
+.primaryButton {
+  padding: 10px 14px;
+  border: 1px solid #0f766e;
+  border-radius: 10px;
+  color: #ffffff;
+  background: #0f766e;
+  font: inherit;
+  font-weight: 750;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.link:hover,
+.primaryButton:hover {
+  background: #115e59;
+}
+
+.link:focus-visible,
+.primaryButton:focus-visible {
+  outline: 3px solid #99f6e4;
+  outline-offset: 3px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  max-width: 1180px;
+  margin: 0 auto;
+}
+
+.card {
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid #cbd5e1;
+  border-radius: 18px;
+  background: #ffffff;
+}
+
+.card[data-status='risk'] {
+  border-color: #f59e0b;
+  box-shadow: inset 4px 0 #f59e0b;
+}
+
+.card[data-status='pass'] {
+  box-shadow: inset 4px 0 #10b981;
+}
+
+.cardTitle {
+  margin: 0 0 18px;
+  font-size: 20px;
+}
+
+.orderProbe {
+  padding: 18px;
+  border-width: 2px;
+  border-style: solid;
+  border-radius: 12px;
+  background: #fff7ed;
+  font-weight: 800;
+}
+
+.details {
+  display: grid;
+  gap: 8px;
+  margin: 18px 0 0;
+}
+
+.details div {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.details dt {
+  color: #64748b;
+  font-weight: 700;
+}
+
+.details dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.pending {
+  color: #64748b;
+}
+
+@media (max-width: 760px) {
+  .page {
+    padding: 16px;
+  }
+
+  .hero {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 22px;
+  }
+
+  .grid {
+    grid-template-columns: 1fr;
+  }
+}

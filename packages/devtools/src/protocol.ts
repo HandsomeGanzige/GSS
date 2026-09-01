@@ -14,44 +14,61 @@ export type DevReportEnvironment = {
   report: TransformReport & { analysis: BuildAnalysis };
 };
 
-/** Vite 与 Rsbuild 共用的 dev report API envelope。 */
-export type DevReportEnvelope = {
-  /** 产生当前快照的 adapter。 */
-  adapter: 'vite' | 'rsbuild';
-  /** 尚无已转换模块时为 `idle`，否则为 `ready`。 */
-  status: 'idle' | 'ready';
-  /** 按 name 稳定排序的 environment reports。 */
+/** idle 快照尚无任何已转换 environment。 */
+export type IdleDevReportEnvelope = {
+  adapter: 'vite' | 'rsbuild' | 'webpack';
+  status: 'idle';
+  environments: [];
+  error?: never;
+};
+
+/** ready 快照至少包含一个稳定 environment report。 */
+export type ReadyDevReportEnvelope = {
+  adapter: 'vite' | 'rsbuild' | 'webpack';
+  status: 'ready';
+  environments: [DevReportEnvironment, ...DevReportEnvironment[]];
+  error?: never;
+};
+
+/** error 快照必须携带错误摘要，并可保留最后一次成功 environments。 */
+export type ErrorDevReportEnvelope = {
+  adapter: 'vite' | 'rsbuild' | 'webpack';
+  status: 'error';
+  error: string;
   environments: DevReportEnvironment[];
 };
 
+/** Vite、Rsbuild 与 Webpack 共用的严格判别联合。 */
+export type DevReportEnvelope = IdleDevReportEnvelope | ReadyDevReportEnvelope | ErrorDevReportEnvelope;
+
 /**
- * 创建字段顺序和 environment 顺序稳定的 dev report envelope。
+ * 创建字段顺序和 environment 顺序稳定的 idle/ready dev report envelope。
  *
  * @param adapter - 当前 adapter 名。
  * @param environments - 当前可用的 environment report 快照。
- * @returns 可直接 JSON 序列化的当前协议对象。
+ * @returns 可直接 JSON 序列化且状态与数组基数一致的协议对象。
  */
 export function createDevReportEnvelope(
   adapter: DevReportEnvelope['adapter'],
   environments: DevReportEnvironment[]
-): DevReportEnvelope {
+): IdleDevReportEnvelope | ReadyDevReportEnvelope {
   const stableEnvironments = [...environments]
     .sort((left, right) => compareText(left.name, right.name))
     .map(({ name, report }) => ({ name, report }));
 
+  if (stableEnvironments.length === 0) {
+    return { adapter, status: 'idle', environments: [] };
+  }
   return {
     adapter,
-    status: stableEnvironments.length === 0 ? 'idle' : 'ready',
-    environments: stableEnvironments
+    status: 'ready',
+    environments: stableEnvironments as [DevReportEnvironment, ...DevReportEnvironment[]]
   };
 }
 
 /** 判断 URL pathname 是否精确命中 dev report endpoint。 */
 export function matchesDevReportRequest(requestUrl: string | undefined, endpoint: string): boolean {
-  if (!requestUrl) {
-    return false;
-  }
-
+  if (!requestUrl) return false;
   try {
     return new URL(requestUrl, 'http://semantic-atomic-css.local').pathname === endpoint;
   } catch {
@@ -61,10 +78,7 @@ export function matchesDevReportRequest(requestUrl: string | undefined, endpoint
 
 /** 校验 endpoint 是不含 query/hash/HTML 控制字符的绝对 pathname。 */
 export function isValidDevReportEndpoint(endpoint: string): boolean {
-  if (!/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$/.test(endpoint) || endpoint.includes('//')) {
-    return false;
-  }
-
+  if (!/^\/[A-Za-z0-9._~!$&'()*+,;=:@%/-]+$/.test(endpoint) || endpoint.includes('//')) return false;
   try {
     return new URL(endpoint, 'http://semantic-atomic-css.local').pathname === endpoint;
   } catch {

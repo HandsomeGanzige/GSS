@@ -34,7 +34,9 @@ export function resolveTransformOptions(options: TransformCssOptions = {}): Reso
   return {
     className: {
       strategy,
-      prefix: options.className?.prefix ?? (strategy === 'compact' ? '' : defaultClassNameOptions.prefix)
+      prefix: options.className?.prefix ?? (
+        strategy === 'compact' || strategy === 'compact-keyed' ? '' : defaultClassNameOptions.prefix
+      )
     }
   };
 }

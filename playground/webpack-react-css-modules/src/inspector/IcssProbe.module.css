@@ -1,0 +1,10 @@
+.collision {
+  padding: 14px;
+  border-radius: 10px;
+  color: #1e3a8a;
+  background: #dbeafe;
+}
+
+:export {
+  collisionLabel: pilot_IcssProbe-module__collision;
+}

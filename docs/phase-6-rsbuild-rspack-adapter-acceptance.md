@@ -4,7 +4,7 @@
 
 - Status: completed
 - 验收日期：2026-07-15
-- 最近完整回归：2026-07-28（SEL-03 selector list Rsbuild consumer 静态门禁与 full visual）
+- 最近完整回归：2026-09-01（css-loader shared seam 迁移、Webpack review 修复与跨 adapter 回归）
 - 生产入口：`@semantic-atomic-css/rsbuild`
 - 自动 fixture：`@semantic-atomic-css/rsbuild-fixture`
 - 锁定基线：Node `22.22.3`、pnpm `8.6.2`、Rsbuild `2.1.6`、Rspack `2.1.4`、
@@ -30,6 +30,15 @@ build 使用默认 extraction；dev 只在 `rsbuild dev` action 下启用官方 
 Rsbuild module graph、HMR/live-reload，并避免 Rspack 2.1.4 在 extraction 的 `importModule` 内再次执行
 `importModule` 时出现的增量编译 panic。目标 CSS Modules rows 不逐模块注入；转换快照集中到一个浏览器
 style owner，按稳定 source order 渲染并按 atomic key 去重。preview 使用 build extraction 产物。
+
+## css-loader shared seam 回归（2026-09-01）
+
+- Rsbuild 的 rows/default-locals 纯转换、stable artifact、canonical renderer 和 browser owner 已迁移到
+  `@semantic-atomic-css/css-loader-bridge`；Rsbuild request、Rspack compiler、HTML 与 dev-server 生命周期不变。
+- shared bridge、Rsbuild、Webpack package verify 与根 `pnpm verify` 共同锁定 token/CSS closure、稳定顺序和
+  manifest/report 行为；Webpack static fixture 覆盖真实绝对 include 与 cache replay。
+- Rsbuild 与 Webpack fixture visual 均执行 semantic/native、响应式、资源和更新/移除回归；本迁移不改变
+  Rsbuild public factory、asset schema 或已批准的 keyed class bytes。
 
 ## 当前 build metadata 惰性验收（2026-08-17）
 

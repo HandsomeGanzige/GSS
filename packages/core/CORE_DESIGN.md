@@ -200,14 +200,20 @@ corepack pnpm --filter @semantic-atomic-css/core build
 ### Atomic class name 契约
 
 - Core 直接调用默认使用 `readable` 与 `_` prefix；integration layer 决定 dev/build 环境策略。
-- `readable`、`hash`、`compact` 共用完整 canonical atomic key，不删减 selector、declaration 或条件上下文。
+- `readable`、`readable-keyed`、`hash`、`compact`、`compact-keyed` 共用完整 canonical atomic key，不删减 selector、declaration
+  或条件上下文；`readable-keyed` 在可读基名后追加按 JavaScript UTF-16 code unit 计算、每轮按
+  `2^128` 溢出的 FNV-1a 摘要，并完整编码为固定 25 位 lower-base36，供独立 registry 的 loader adapters 使用。
 - 既有 `hash` 保持 32-bit FNV-1a、8 位 base36 与默认 `_` prefix 的精确输出，不承担默认切换。
 - `compact` 复用 32-bit FNV-1a fingerprint，把 7 位 base36 的首位 `0 | 1` 可逆映射为
-  `a | b`，输出固定 7 字符 `[ab][0-9a-z]{6}`；未显式配置 prefix 时使用空串。
+  `a | b`，输出固定 7 字符 `[ab][0-9a-z]{6}`；`compact-keyed` 输出固定 `c` 与 25 位 128-bit 摘要。
+  两种 compact 策略未显式配置 prefix 时都使用空串。
 - prefix 在 strategy 确定后解析；显式空串、自定义 prefix 与数字/负数字开头的既有修复语义保持不变。
 - `AtomicRegistry` 仍是不同 key 的 collision 正确性边界：基名冲突时追加既有稳定 suffix 并继续探测。
   append-only registry 对相同注册序列可复现，首次注册顺序仍决定 declaration 输出顺序。
-- Vite/Rsbuild 当前在 build 使用 `compact`，dev 使用 `readable`；显式 strategy/prefix 始终优先。
+- Vite 保持既有 build/dev 策略；Rsbuild/Webpack build 默认 `compact-keyed`、dev 默认 `readable-keyed`。
+  integration layer 只补环境默认，显式 `readable`、`readable-keyed`、`hash`、`compact`、`compact-keyed` 与 prefix 必须原样保留。
+  显式 `readable` 在独立 loader 间仍可能发生无法协调的可读基名碰撞，此时 closure 校验 fail fast，调用方应改用
+  `readable-keyed`。128-bit 摘要不宣称数学无碰撞，极端碰撞仍由 registry 与 closure 校验拒绝。
 
 ### 验收契约
 
@@ -217,7 +223,8 @@ Core 收口验收以以下测试为准：
   pseudo-element list fallback、unsafe mixed selector list、missing source class、combinator、compound class、
   tag/id/attribute/pseudo-element near-miss、unsupported pseudo、`:global`。
 - declaration 覆盖 custom property、`var(...)`、vendor prefix、`!important`。
-- atomizer 覆盖 selector-aware readable/hash/compact class name、32-bit lower-base36 编码向量、context key separation、class name collision、
+- atomizer 覆盖 selector-aware readable/readable-keyed/hash/compact/compact-keyed class name、keyed 128-bit / 25 位
+  lower-base36 与既有 32-bit 编码向量、历史 5 字符碰撞复现、context key separation、class name collision、
   renderer 一致性与跨文件复用。
 - selector output contract 覆盖 base、五种 pseudo、exact attribute 与单-arm list descriptor 的
   identity/key/class/descriptor/CSS，media/supports/important、collision 和 descriptor 防御性 clone。
@@ -880,12 +887,12 @@ class name 策略长期不应绑定 dev / prod 概念，而应由 integration la
 
 ```ts
 type AtomicClassNameOptions = {
-  strategy: 'readable' | 'hash' | 'compact'
+  strategy: 'readable' | 'readable-keyed' | 'hash' | 'compact' | 'compact-keyed'
   prefix: string
 }
 ```
 
-Vite/Rsbuild adapter 在 dev 时传 `readable`，在 build 时传 `compact`；显式 `hash` 继续兼容。
+integration layer 决定环境默认；独立 css-loader registry 默认使用 `readable-keyed`，所有显式策略继续兼容。
 
 输出顺序规则：
 
@@ -893,7 +900,7 @@ Vite/Rsbuild adapter 在 dev 时传 `readable`，在 build 时传 `compact`；�
 - class mapping 内的 `atomicClassNames` 按 declaration 原始顺序追加。
 - 不全局按 key 排序，避免破坏 shorthand / longhand cascade。
 
-class name collision 必须处理。无论 readable、hash 还是 compact strategy，如果生成出的 class name 已被不同
+class name collision 必须处理。无论 readable、readable-keyed、hash、compact 还是 compact-keyed strategy，如果生成出的 class name 已被不同
 key 使用，都应追加 hash suffix 或采用等价方式消除冲突。
 
 ### 11. CSS render 与 preserved CSS 输出追求稳定和保守正确性

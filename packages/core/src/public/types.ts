@@ -60,7 +60,7 @@ export type ScopeStrategy = {
 };
 
 /** atomic class name 的生成模式。 */
-export type AtomicClassNameStrategy = 'readable' | 'hash' | 'compact';
+export type AtomicClassNameStrategy = 'readable' | 'readable-keyed' | 'hash' | 'compact' | 'compact-keyed';
 
 /** 控制 atomic class name 生成的稳定选项。 */
 export type AtomicClassNameOptions = {

@@ -1,0 +1,4 @@
+/* 后加载模块复用 cascadeBox 的早期颜色，不得移动该 atomic key 的全局位置。 */
+.lateReuse {
+  color: #334155;
+}

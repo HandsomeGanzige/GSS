@@ -101,9 +101,11 @@ API envelope：
 - 没有已转换模块时返回 `idle` 与空 environments，不返回猜测数据。
 - Vite 每次请求按当前可失效 per-file cache 重放聚合 transformer，已删除模块不会残留。
 - Rsbuild 从当前 environment state 创建 snapshot；environment 名按稳定顺序输出。
+- Webpack 最近 compilation 失败时可返回 `status: "error"` 与稳定 `error` 摘要，并保留最后一次成功 environments；
+  下一轮成功 compilation 会完整替换该状态。
 - response 使用 `application/json` 与 `cache-control: no-store`。
-- 两个 adapter 只处理 GET；同路径的其他 HTTP method 继续交给 dev server middleware chain。
-- dev envelope 仅表达 adapter/status/environments，nested build report 原样透传。
+- 三个 adapter 只处理 GET；同路径的其他 HTTP method 继续交给 dev server middleware chain。
+- dev envelope 表达 adapter/status/environments 与可选 error，nested build report 原样透传。
 - 当前契约不使用人为 schema version，也不读取旧 payload。
 
 ## Browser overlay
@@ -116,7 +118,7 @@ overlay 仅注入 semantic dev HTML，build/preview/native 对照不注入。run
 - 页面隐藏时暂停请求，`pagehide` 时清理 timer。
 - 同一时刻只发出一个 report 请求；BFCache `pageshow` 恢复后重启唯一 timer。
 - report 中的 source id、reason 等动态内容只通过 `textContent` 写入。
-- 仅校验展示依赖的 adapter/status/environments、idle/ready 一致性与 ready report
+- 仅校验展示依赖的 adapter/status/environments/error、idle/ready/error 一致性与 ready report
   的 summary/analysis health/analysis size 字段；非法 payload 进入 offline 并展示
   `invalid-dev-report-payload`。
 

@@ -11,15 +11,25 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import postcss from 'postcss';
-import selectorParser from 'postcss-selector-parser';
 import valueParser from 'postcss-value-parser';
-import {
-  transformCss,
-  type ClassPreservationReason,
-  type TransformClassMapping,
-  type TransformCssOptions,
-  type TransformCssResult
+import type {
+  ClassPreservationReason,
+  TransformClassMapping,
+  TransformCssOptions,
+  TransformCssResult
 } from '@semantic-atomic-css/core';
+import {
+  augmentLocals as augmentSharedLocals,
+  collectAmbiguousExportPreserveClassNames as collectSharedAmbiguousExportPreserveClassNames,
+  collectAssetPreserveClassNames as collectSharedAssetPreserveClassNames,
+  collectAtomicClassByKey as collectSharedAtomicClassByKey,
+  collectExportedClassNames as collectSharedExportedClassNames,
+  createDevStyleSnapshot as createSharedDevStyleSnapshot,
+  mergeClassPreservationEvidence,
+  transformCompiledInput as transformSharedCompiledInput,
+  validateAndCloneRow as validateSharedAndCloneRow,
+  validateLocals as validateSharedLocals
+} from '@semantic-atomic-css/css-loader-bridge';
 import type { DevStyleSnapshot } from './devStyles.js';
 
 /** css-loader 默认 array export 中的单个结构化 CSS row。 */
@@ -47,6 +57,7 @@ export type RuntimeBridgeResult = {
   nativeLocals: Record<string, string>;
   augmentedLocals: Record<string, string>;
   transforms: Array<{ id: string; scopedCss: string; transform: TransformCssResult }>;
+  atomicClassByKey: Record<string, string>;
 };
 
 /** 从 plugin 经 loader options 注入的受支持配置。 */
@@ -105,16 +116,16 @@ export async function pitch(this: RuntimeBridgeLoaderContext, remainingRequest: 
   }
 
   const rows = cssExport.map((row) => {
-    const cloned = validateAndCloneRow(row, this.resourcePath);
+    const cloned = validateSharedAndCloneRow(row, this.resourcePath);
     cloned[1] = normalizeSyntheticAssetUrls(cloned[1]);
     return cloned;
   });
-  const nativeLocals = validateLocals((cssExport as CssRuntimeRow[] & { locals?: unknown }).locals, this.resourcePath);
-  const exportedClassNames = collectExportedClassNames(nativeLocals);
-  const preserveClassNames = {
-    ...collectAssetPreserveClassNames(rows, nativeLocals),
-    ...collectAmbiguousExportPreserveClassNames(nativeLocals, exportedClassNames)
-  };
+  const nativeLocals = validateSharedLocals((cssExport as CssRuntimeRow[] & { locals?: unknown }).locals, this.resourcePath);
+  const exportedClassNames = collectSharedExportedClassNames(nativeLocals);
+  const preserveClassNames = mergeClassPreservationEvidence(
+    collectSharedAssetPreserveClassNames(rows, nativeLocals),
+    collectAmbiguousExportPreserveClassNames(nativeLocals, exportedClassNames)
+  );
   const classMappings: Record<string, TransformClassMapping> = {};
   const inputs: CompiledCssInput[] = [];
   const transforms: RuntimeBridgeResult['transforms'] = [];
@@ -133,7 +144,7 @@ export async function pitch(this: RuntimeBridgeLoaderContext, remainingRequest: 
       exportedClassNames: [...exportedClassNames].sort(compareText),
       preserveClassNames: { ...preserveClassNames }
     };
-    const transform = transformCompiledInput(input, options.core);
+    const transform = transformSharedCompiledInput(input, options.core);
 
     row[1] = options.isDev ? '' : transform.css.preserved;
     row[3] = undefined;
@@ -146,13 +157,14 @@ export async function pitch(this: RuntimeBridgeLoaderContext, remainingRequest: 
     }
   }
 
-  const augmentedLocals = augmentLocals(nativeLocals, classMappings);
+  const augmentedLocals = augmentSharedLocals(nativeLocals, classMappings);
   options.onResult({
     resourcePath: this.resourcePath,
     inputs,
     nativeLocals,
     augmentedLocals,
-    transforms
+    transforms,
+    atomicClassByKey: collectSharedAtomicClassByKey(transforms)
   });
 
   const imports = [
@@ -186,23 +198,7 @@ export async function pitch(this: RuntimeBridgeLoaderContext, remainingRequest: 
 export function createDevStyleSnapshot(
   transforms: RuntimeBridgeResult['transforms']
 ): DevStyleSnapshot {
-  return {
-    sources: transforms.map(({ id, transform }) => ({
-      id,
-      atomic: transform.atomic.map((declaration) => ({
-        key: declaration.key,
-        className: declaration.className,
-        selector: { ...declaration.selector },
-        declaration: {
-          prop: declaration.declaration.prop,
-          value: declaration.declaration.value,
-          important: declaration.declaration.important
-        },
-        context: { ...declaration.context }
-      })),
-      preservedCss: transform.css.preserved
-    }))
-  };
+  return createSharedDevStyleSnapshot(transforms);
 }
 
 /**
@@ -245,19 +241,7 @@ export function normalizeSyntheticAssetUrls(css: string): string {
 
 /** 对单个 compiled scoped CSS input 调用 core identity scope。 */
 export function transformCompiledInput(input: CompiledCssInput, core: TransformCssOptions): TransformCssResult {
-  const exported = new Set(input.exportedClassNames);
-  return transformCss(
-    {
-      id: input.id,
-      css: input.scopedCss,
-      scope: {
-        resolveClassName: (className) => className,
-        shouldExportClassName: (className) => exported.has(className)
-      },
-      preserveClassNames: input.preserveClassNames
-    },
-    core
-  );
+  return transformSharedCompiledInput(input, core);
 }
 
 /** 读取 ESM namespace 或 CommonJS 直接值的 default export。 */
@@ -274,52 +258,6 @@ function readDefaultExport(moduleExports: { __esModule?: boolean; default?: unkn
   return moduleExports;
 }
 
-/** 校验 css-loader row，未知结构直接失败，避免 silent miscompile。 */
-function validateAndCloneRow(row: unknown, resourcePath: string): CssRuntimeRow {
-  if (!Array.isArray(row) || typeof row[1] !== 'string') {
-    throw createBridgeError('css-loader.array-row', resourcePath, '原生 css-loader array row 结构不受支持。');
-  }
-
-  return [...row] as CssRuntimeRow;
-}
-
-/** 校验 default-export locals；named exports 或缺失 locals 时不猜测 token。 */
-function validateLocals(value: unknown, resourcePath: string): Record<string, string> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw createBridgeError(
-      'css-loader.default-locals',
-      resourcePath,
-      '未取得原生 CSS Modules default-export locals；namedExport 当前不受支持。'
-    );
-  }
-
-  const locals: Record<string, string> = {};
-
-  for (const [key, token] of Object.entries(value)) {
-    if (typeof token !== 'string') {
-      throw createBridgeError('css-loader.locals-value', resourcePath, `token ${key} 不是字符串。`);
-    }
-    locals[key] = token;
-  }
-
-  return locals;
-}
-
-/** 从 native locals 收集可能进入 DOM 的 class evidence。 */
-function collectExportedClassNames(locals: Record<string, string>): Set<string> {
-  const classNames = new Set<string>();
-
-  for (const value of Object.values(locals)) {
-    for (const segment of splitClassString(value)) {
-      if (/^-?[_a-zA-Z][-_a-zA-Z0-9]*$/.test(segment)) {
-        classNames.add(segment);
-      }
-    }
-  }
-
-  return classNames;
-}
-
 /**
  * 标记无法从 css-loader default locals 区分的同值 exports。
  *
@@ -331,110 +269,7 @@ export function collectAmbiguousExportPreserveClassNames(
   locals: Record<string, string>,
   exportedClassNames: ReadonlySet<string>
 ): Record<string, ClassPreservationReason> {
-  const exportNamesByValue = new Map<string, string[]>();
-
-  for (const [exportName, value] of Object.entries(locals)) {
-    const exportNames = exportNamesByValue.get(value) ?? [];
-    exportNames.push(exportName);
-    exportNamesByValue.set(value, exportNames);
-  }
-
-  const ambiguousClassNames = new Set<string>();
-  for (const [value, exportNames] of exportNamesByValue) {
-    if (exportNames.length < 2) {
-      continue;
-    }
-    for (const className of splitClassString(value)) {
-      if (exportedClassNames.has(className)) {
-        ambiguousClassNames.add(className);
-      }
-    }
-  }
-
-  return Object.fromEntries(
-    [...ambiguousClassNames]
-      .sort(compareText)
-      .map((className) => [className, 'ambiguous-export-value' as const])
-  );
-}
-
-/**
- * 结构化识别含 `url()` 的 class，并沿 native composed token 共现关系扩展保守闭包。
- *
- * 最终 URL 已由 css-loader/Rspack 解析，但 dev/build inline 与 prefix 仍可能不同，因此资源 class 不进入
- * atomic key；宁可保留更多 scoped CSS，也不让环境差异破坏复现性。
- */
-function collectAssetPreserveClassNames(
-  rows: CssRuntimeRow[],
-  locals: Record<string, string>
-): Record<string, ClassPreservationReason> {
-  const assetClasses = new Set<string>();
-  const exported = collectExportedClassNames(locals);
-
-  for (const row of rows) {
-    try {
-      const root = postcss.parse(row[1]);
-      root.walkRules((rule) => {
-        const hasUrl = rule.nodes.some(
-          (node) => node.type === 'decl' && declarationContainsUrl(node.value)
-        );
-
-        if (hasUrl) {
-          collectSelectorClassNames(rule.selector, assetClasses);
-        }
-      });
-    } catch {
-      continue;
-    }
-  }
-
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const value of Object.values(locals)) {
-      const classes = splitClassString(value).filter((className) => exported.has(className));
-      if (!classes.some((className) => assetClasses.has(className))) {
-        continue;
-      }
-      for (const className of classes) {
-        if (!assetClasses.has(className)) {
-          assetClasses.add(className);
-          changed = true;
-        }
-      }
-    }
-  }
-
-  return Object.fromEntries(
-    [...assetClasses]
-      .filter((className) => exported.has(className))
-      .sort(compareText)
-      .map((className) => [className, 'asset-reference' as const])
-  );
-}
-
-/** 使用 value AST 判断 declaration 是否包含 `url()`。 */
-function declarationContainsUrl(value: string): boolean {
-  let found = false;
-  valueParser(value).walk((node) => {
-    if (node.type === 'function' && node.value.toLowerCase() === 'url') {
-      found = true;
-      return false;
-    }
-    return undefined;
-  });
-  return found;
-}
-
-/** 使用 selector AST 收集 class nodes。 */
-function collectSelectorClassNames(selector: string, target: Set<string>): void {
-  try {
-    selectorParser().astSync(selector).walkClasses((node) => {
-      target.add(node.value);
-    });
-  } catch {
-    return;
-  }
+  return collectSharedAmbiguousExportPreserveClassNames(locals, exportedClassNames);
 }
 
 /** 在 native token 后按原顺序追加去重 atomic classes。 */
@@ -442,18 +277,7 @@ export function augmentLocals(
   locals: Record<string, string>,
   classMappings: Record<string, TransformClassMapping>
 ): Record<string, string> {
-  return Object.fromEntries(
-    Object.entries(locals).map(([exportName, value]) => {
-      const segments = splitClassString(value);
-      const classes = new Set(segments);
-      for (const segment of segments) {
-        for (const atomicClassName of classMappings[segment]?.atomicClassNames ?? []) {
-          classes.add(atomicClassName);
-        }
-      }
-      return [exportName, [...classes].join(' ')];
-    })
-  );
+  return augmentSharedLocals(locals, classMappings);
 }
 
 /** 从结构化 row id 的 loader request 尾部读取真实资源路径。 */
@@ -512,11 +336,6 @@ function emitDiagnostics(context: RuntimeBridgeLoaderContext, transform: Transfo
 /** 创建统一 fail-fast 错误文本。 */
 function createBridgeError(feature: string, id: string, reason: string): Error {
   return new Error(`[semantic-atomic-css] unsupported-feature feature=${feature} id=${id} reason=${reason}`);
-}
-
-/** 空白拆分 class string。 */
-function splitClassString(value: string): string[] {
-  return value.trim().split(/\s+/).filter(Boolean);
 }
 
 /** 平台无关路径规范化。 */

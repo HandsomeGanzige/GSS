@@ -2,5 +2,8 @@ node_modules/
 dist/
 packages/*/dist/
 playground/*/dist/
+.webpack-cache/
 .DS_Store
 .agent-work
+.agents/
+skills-lock.json

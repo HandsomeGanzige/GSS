@@ -151,7 +151,8 @@ describe('Rsbuild build artifacts', () => {
       ],
       nativeLocals: {},
       augmentedLocals: {},
-      transforms: []
+      transforms: [],
+      atomicClassByKey: {}
     });
 
     recordRuntimeBridgeResult(state, createResult(['Shared_a__hash']));
@@ -164,7 +165,6 @@ describe('Rsbuild build artifacts', () => {
 
     resetEnvironmentBuildState(state);
     expect(state.inputs.size).toBe(0);
-    expect(state.bridgeResults.size).toBe(0);
   });
 
   it('使用 descriptor CSS 渲染 base/pseudo、条件与 important，并持久化当前 manifest', () => {
