@@ -1,0 +1,62 @@
+.attributeState {
+  padding: 14px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+.attributeState[data-state='open'] {
+  color: #166534;
+  background: #dcfce7;
+}
+
+.attributeState[data-state='closed'] {
+  color: #991b1b;
+  background: #fee2e2;
+}
+
+.presenceGuard {
+  padding: 14px;
+  color: #1e3a8a;
+}
+
+.presenceGuard[data-present] {
+  background: #dbeafe;
+}
+
+.nodeOrder {
+  padding: 14px;
+  color: #581c87;
+}
+
+[data-placement='before'].nodeOrder {
+  background: #f3e8ff;
+}
+
+.orderRisk {
+  padding: 14px;
+  background: #fffbeb;
+  border: 1px solid #fcd34d;
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+.orderRisk[data-state] {
+  color: #b45309;
+}
+
+.orderRisk:hover {
+  color: #7c3aed;
+}
+
+.nearMiss {
+  padding: 14px;
+  color: #334155;
+  border-radius: 8px;
+}
+
+.nearMiss[data-kind^='danger'] {
+  box-shadow: 0 0 0 3px rgb(248 113 113 / 45%);
+}

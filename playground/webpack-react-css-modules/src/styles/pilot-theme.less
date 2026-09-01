@@ -1,0 +1,18 @@
+@pilot-surface: #ffffff;
+@pilot-ink: #111827;
+@pilot-muted: #64748b;
+@pilot-border: #d8dee9;
+@pilot-brand: #0f766e;
+@pilot-focus: #99f6e4;
+
+// 输出 Build 面板共用表面，布局和 runtime radius 由消费模块决定。
+.pilot-surface() {
+  background: @pilot-surface;
+  border: 1px solid @pilot-border;
+}
+
+// 输出键盘焦点轮廓，供嵌套 pseudo 复用。
+.pilot-focus-outline(@color: @pilot-focus) {
+  outline: 3px solid @color;
+  outline-offset: 2px;
+}

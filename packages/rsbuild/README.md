@@ -2,7 +2,9 @@
 
 `@semantic-atomic-css/rsbuild` 把 GSS 接入 Rsbuild 2.1 的原生 css-loader CSS Modules 管线。adapter
 通过 Rspack 公开 `importModule` API 消费预处理、scoping、ICSS/composes 和资源处理后的结构化 CSS rows
-及 default-export locals，再调用 core 做 safe atomization。
+及 default-export locals，再调用 core 做 safe atomization。rows/locals 纯转换、稳定 artifact renderer 与 browser
+owner、readable-keyed 命名与 token/CSS 闭合校验现由内部 `@semantic-atomic-css/css-loader-bridge` 和 Webpack adapter 共享；Rsbuild 的 Rspack
+request、environment、asset/HTML 生命周期及公共接口保持独立。
 
 ## 使用
 
@@ -56,11 +58,12 @@ build 继续使用 Rsbuild 默认 extraction 管线：
 dev 只把当前 environment 切换到 Rsbuild 官方 `output.injectStyles` 管线，并保留项目已有的 HMR 和
 live-reload 配置。目标 CSS Modules 的原生 style rows 会被清空，runtime bridge 把转换快照注册到单一
 `style[data-semantic-atomic-css-rsbuild-dev]` owner；owner 按稳定 source order 渲染，并按 atomic key
-全局去重，避免后加载模块再次注入同名原子类并改变 cascade。这样 bridge 仍只执行一层 `importModule`，
+全局去重，建立不依赖业务 import 顺序的 canonical atomic cascade。这样 bridge 仍只执行一层 `importModule`，
 也避免 Rsbuild 2.1.6 / Rspack 2.1.4 在 extraction 嵌套 `importModule` 的增量编译路径上发生 panic。
 runtime bridge 只调用 `registerDevStyles(ownerId, { sources })` 注册当前快照，每条 atomic declaration
-携带 selector descriptor；不读取旧数组或版本字段。HMR dispose 会撤销旧快照；不同 atomic key
-若碰撞到同一 readable class 则 fail fast。CSS-only HMR
+携带 selector descriptor；不读取旧数组或版本字段。HMR dispose 会撤销旧快照；不同 owner 的重复 source
+只有快照完全一致时才按 canonical owner id 去重，冲突快照以 `unstable-dev-source-snapshot` fail fast。
+`readable-keyed` 让独立 registry 只依赖 canonical key，最终 snapshot 仍强制验证 key/class 闭合。CSS-only HMR
 不是当前公共承诺；direct module、Sass partial 和移除 import 的最终状态必须正确且无 stale CSS/tokens。
 
 显式配置 `devtools: { enabled: true }` 后，dev server 提供
@@ -73,9 +76,11 @@ dev report 使用当前唯一的 `adapter/status/environments` envelope，不包
 ## 配置与保护边界
 
 - `include` / `exclude` 当前承诺普通文本、`*` 和 `**` glob。
-- `core` 传递 safe transform 与 class name 配置；build 默认无 prefix 的 32-bit / 7 字符 lower-base36 `compact`，
-  dev 默认 `readable + "_"`。显式 `readable` / `hash` / `compact` / `prefix` 始终覆盖环境默认，
-  既有显式 `hash` 仍输出 `_` 加 8 位 base36。
+- `core` 传递 safe transform 与 class name 配置；build 默认无 prefix 的 `compact-keyed`，dev 默认
+  `readable-keyed + "_"`。两种 keyed 策略使用基于完整 canonical key 的 128-bit FNV-1a、固定 25 位
+  lower-base36 摘要；所有显式 strategy 与 `prefix` 原样覆盖环境默认，显式 `readable`/`compact` 不再被改写。
+  既有显式 `hash` 仍输出 `_` 加 8 位 base36。显式旧策略若在独立 loader 间碰撞会由 closure fail fast，
+  需要稳定独立命名时应显式改用 keyed 策略。
 - `cssFilename`、manifest/report 文件名必须位于 dist 内。
 - 资源 class 及其 composed token 闭包整体保留；inline/external、query/hash、asset prefix 和 publicDir
   仍由 css-loader/Rspack 负责。

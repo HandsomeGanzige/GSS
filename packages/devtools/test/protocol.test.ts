@@ -4,8 +4,21 @@ import {
   createDevReportEnvelope,
   isValidDevReportEndpoint,
   matchesDevReportRequest,
+  type DevReportEnvelope,
   type DevReportEnvironment
 } from '../src/index.js';
+
+const typeEnvironment = null as unknown as DevReportEnvironment;
+const legalIdle = { adapter: 'vite', status: 'idle', environments: [] } satisfies DevReportEnvelope;
+const legalReady = { adapter: 'rsbuild', status: 'ready', environments: [typeEnvironment] } satisfies DevReportEnvelope;
+const legalError = { adapter: 'webpack', status: 'error', error: 'failed', environments: [typeEnvironment] } satisfies DevReportEnvelope;
+// @ts-expect-error error 状态必须携带稳定错误摘要。
+const missingError = { adapter: 'webpack', status: 'error', environments: [] } satisfies DevReportEnvelope;
+// @ts-expect-error idle 不得携带 environment。
+const invalidIdle = { adapter: 'vite', status: 'idle', environments: [typeEnvironment] } satisfies DevReportEnvelope;
+// @ts-expect-error ready 必须至少携带一个 environment。
+const invalidReady = { adapter: 'rsbuild', status: 'ready', environments: [] } satisfies DevReportEnvelope;
+void [legalIdle, legalReady, legalError, missingError, invalidIdle, invalidReady];
 
 describe('dev report protocol', () => {
   it('创建当前 envelope、稳定排序 environment 并原样保留 nested analysis', () => {
@@ -141,8 +154,33 @@ describe('dev report protocol', () => {
     expect(ready.rows().flat()).not.toContain('attribute-cascade-order');
   });
 
+  it('Webpack compilation error 保留 last-good environment 与稳定 error 展示', async () => {
+    const overlay = await executeOverlay({
+      adapter: 'webpack',
+      status: 'error',
+      error: 'webpack-compilation-failed',
+      environments: [{ name: 'web', report: createReport() }]
+    });
+
+    expect(overlay.button.dataset.health).toBe('blocked');
+    expect(overlay.button.textContent).toBe('GSS · error');
+    expect(overlay.rows()).toEqual([
+      ['Adapter', 'webpack'],
+      ['Last good environments', '1']
+    ]);
+    expect(overlay.note.textContent).toBe('webpack-compilation-failed');
+
+    const empty = await executeOverlay({
+      adapter: 'webpack',
+      status: 'error',
+      error: 'webpack-compiler-failed',
+      environments: []
+    });
+    expect(empty.rows()).toContainEqual(['Last good environments', '0']);
+  });
+
   it.each([
-    ['adapter enum', { adapter: 'webpack', status: 'idle', environments: [] }],
+    ['adapter enum', { adapter: 'parcel', status: 'idle', environments: [] }],
     ['status enum', { adapter: 'vite', status: 'pending', environments: [] }],
     ['environments array', { adapter: 'vite', status: 'idle', environments: {} }],
     ['idle consistency', { adapter: 'vite', status: 'idle', environments: [{}] }],

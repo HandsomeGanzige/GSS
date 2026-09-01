@@ -4,7 +4,7 @@ Semantic CSS Modules to Atomic CSS 原型项目。
 
 Vite 6 负责 CSS/SCSS/Less Modules 预处理、scoping、tokens、资源和 dependency graph；
 GSS 消费编译后的 scoped CSS，生成 atomic/fallback CSS、manifest 和 report。当前提供 Vite 6 与
-Rsbuild 2.1 两条原生 CSS Modules adapter。
+Rsbuild 2.1 与 Webpack 5 三条原生 CSS Modules adapter。
 
 ## 仓库结构
 
@@ -12,9 +12,11 @@ Rsbuild 2.1 两条原生 CSS Modules adapter。
 packages/
   core/                         标准 CSS AST 转换与 manifest/report 数据
   analyzer/                     风险、收益、体积与 declaration 冲突分析
-  devtools/                     computed style verifier、dev report 协议与 overlay runtime
+  devtools/                     computed style verifier、dev report 协议和 overlay runtime
+  css-loader-bridge/            Rsbuild/Webpack 内部 rows/locals 与聚合共享 seam
   vite/                         Vite 6 原生 CSS 管线 adapter
   rsbuild/                      Rsbuild 2.1 / Rspack 原生 CSS 管线 adapter
+  webpack/                      Webpack 5 原生 css-loader adapter
 
 fixtures/
   vite-css-modules/             自动化真实 Vite 消费方验收
@@ -23,10 +25,12 @@ fixtures/
   rsbuild-css-modules/          自动化真实 Rsbuild semantic/native 验收
     suites/base/                CSS Modules、ICSS、lazy 与资源
     suites/preprocessor/        SCSS/Less、partial 与资源
+  webpack-css-modules/          自动化真实 Webpack semantic/native、cache 与浏览器验收
 
 playground/
   vite-react-css-modules/       Phase 5 Vite React 中型人工 Pilot
   rsbuild-react-css-modules/    Phase 6 Rsbuild React 双入口中型人工 Pilot
+  webpack-react-css-modules/   Phase 9 Webpack React 双入口中型人工 Pilot
 ```
 
 `packages/*/test` 保持快速的包内行为验证；`fixtures/` 使用真实构建工具进行黑盒验收；
@@ -44,10 +48,10 @@ pnpm build
 pnpm verify
 ```
 
-- `test`：运行 core、analyzer、devtools、Vite 和 Rsbuild adapter 的包内测试。
-- `typecheck`：检查五个产品包、fixtures 和 Pilot。
+- `test`：运行 core、analyzer、devtools、css-loader bridge、Vite、Rsbuild 和 Webpack adapter 的包内测试。
+- `typecheck`：检查全部产品/内部包、fixtures 和 Pilot。
 - `build`：按 workspace 依赖顺序构建产品包、fixture semantic suites 和 Pilot。
-- `verify`：运行五个产品包的 test/typecheck/build，再运行 fixture 静态黑盒验收；
+- `verify`：运行各包 test/typecheck/build，再运行 fixture 静态黑盒验收；
   不含需要 Chrome/localhost 的 visual 测试，也不构建 Pilot 作为门禁。
 
 定向验证单个包时使用 workspace filter：
@@ -58,6 +62,9 @@ pnpm --filter @semantic-atomic-css/analyzer verify
 pnpm --filter @semantic-atomic-css/devtools verify
 pnpm --filter @semantic-atomic-css/vite verify
 pnpm --filter @semantic-atomic-css/rsbuild verify
+pnpm --filter @semantic-atomic-css/css-loader-bridge verify
+pnpm --filter @semantic-atomic-css/webpack verify
+pnpm --filter @semantic-atomic-css/webpack-fixture verify
 ```
 
 ## Vite fixture
@@ -130,6 +137,31 @@ pnpm --filter playground-rsbuild-react-css-modules preview:native
 ICSS 保守边界、preview/partial reload 验收结果见
 [Phase 6 Rsbuild Pilot tracking](docs/phase-6-rsbuild-real-project-pilot-tracking.md)。
 
+## Webpack 5 adapter
+
+Raw Webpack 项目使用标准 css-loader 7，并在 build 配置 MiniCssExtractPlugin 2 / HtmlWebpackPlugin 5，
+dev 配置 style-loader 4 / webpack-dev-server 5：
+
+```js
+import { SemanticAtomicCssWebpackPlugin } from '@semantic-atomic-css/webpack';
+
+export default {
+  plugins: [new SemanticAtomicCssWebpackPlugin()]
+};
+```
+
+css-loader 必须使用 array/default locals（`modules.namedExport: false`）；普通 `modules: false` rule 完整旁路。
+Webpack/Rsbuild 的 readable token 使用 canonical-key hash 并验证最终 CSS 闭合。全局 atomic cascade 按
+canonical source-id/key 顺序去重，不继承跨模块同权重 declaration 的业务 import 顺序。验证入口：
+
+```bash
+pnpm --filter @semantic-atomic-css/webpack-fixture verify
+pnpm --filter @semantic-atomic-css/webpack-fixture test:visual
+pnpm --filter playground-webpack-react-css-modules acceptance
+```
+
+设计、研究和验收见 `docs/phase-9-webpack-adapter-*.md`。
+
 ## Rsbuild fixture
 
 `@semantic-atomic-css/rsbuild-fixture` 同样分为 `base` 与 `preprocessor`，使用锁定的 Rsbuild 2.1.6 /
@@ -151,7 +183,7 @@ visual 对比 dev/preview、桌面/窄屏、交互、lazy chunk，并修改 Sass
 ## Vite adapter 当前边界
 
 - class name 在 dev 默认 `readable + "_"`，build 默认无 prefix 的 32-bit / 7 字符 lower-base36 `compact`；
-  显式 `readable` / `hash` / `compact` / `prefix` 始终优先，既有显式 `hash` 精确输出不变。
+  显式 `readable` / `readable-keyed` / `hash` / `compact` / `compact-keyed` / `prefix` 始终优先，既有显式 `hash` 精确输出不变。
 - 默认处理 `.module.css`、`.module.scss` 和 `.module.less`，不处理普通 CSS/SCSS/Less。
 - safe selector 支持单 local anchor 的基础 class、五种 pseudo class、独立 before/after pseudo element，
   以及一个 attribute presence / exact equality；全分支安全且不含 pseudo element arm 的 selector list
@@ -169,8 +201,9 @@ visual 对比 dev/preview、桌面/窄屏、交互、lazy chunk，并修改 Sass
 
 ## Rsbuild adapter 当前边界
 
-- class name 在 dev 默认 `readable + "_"`，build 默认无 prefix 的 32-bit / 7 字符 lower-base36 `compact`；
-  显式 `readable` / `hash` / `compact` / `prefix` 与 Vite 保持同一兼容矩阵。
+- class name 在 dev 默认 `readable-keyed + "_"`，build 默认无 prefix 的 32-bit / 7 字符 lower-base36
+  `compact`；所有显式 strategy 与 prefix 原样保留。`readable-keyed` 使用完整 canonical key 的 128-bit
+  FNV-1a / 固定 25 位 lower-base36 suffix；显式 `readable` 的独立 loader 碰撞会 fail fast。
 - 默认处理 `.module.css`、`.module.scss` 和 `.module.less`，复用 Rsbuild 原生 css-loader 结果。
 - SEL-02 attribute selector 直接复用 Core descriptor 与 class-wide cascade guard；adapter 不解析 selector
   identity，也不自行重建 attribute selector。
@@ -178,7 +211,8 @@ visual 对比 dev/preview、桌面/窄屏、交互、lazy chunk，并修改 Sass
   minifier 收紧，adapter 不引入第二套 production serializer。
 - build 保持 extraction；dev 使用 Rsbuild 官方 style injection 维持模块图与 HMR，并把目标 CSS Modules
   快照聚合到单一共享 style owner，按稳定 source order 输出且按 atomic key 去重；这同时避免 Rspack 2.1
-  增量编译的嵌套 `importModule` panic 和后加载模块重复同名原子类造成的 cascade 覆盖。
+  增量编译的嵌套 `importModule` panic，并建立跨模块 canonical atomic cascade。该顺序不继承业务 CSS 的
+  import-order winner；同权重冲突不属于 semantic/native parity 契约。
 - tokens 在原生 scoped/composed class 后追加 atomic classes；资源 class 与 composed 闭包保守保留。
 - 支持可选 manifest/report 与 analyzer；输出顺序和条件分区可复现。
 - `devtools.enabled` 默认关闭；开启后按 environment 提供 dev report API 和 Shadow DOM overlay。
@@ -197,6 +231,9 @@ visual 对比 dev/preview、桌面/窄屏、交互、lazy chunk，并修改 Sass
   [docs/phase-6-rsbuild-real-project-pilot-tracking.md](docs/phase-6-rsbuild-real-project-pilot-tracking.md)
 - Rsbuild adapter：[packages/rsbuild/README.md](packages/rsbuild/README.md)、
   [docs/phase-6-rsbuild-rspack-adapter-acceptance.md](docs/phase-6-rsbuild-rspack-adapter-acceptance.md)
+- Webpack adapter：[packages/webpack/README.md](packages/webpack/README.md)、
+  [docs/phase-9-webpack-adapter-plan.md](docs/phase-9-webpack-adapter-plan.md)、
+  [docs/phase-9-webpack-adapter-acceptance.md](docs/phase-9-webpack-adapter-acceptance.md)
 - Phase 7 verifier 与调试体验：[packages/devtools/README.md](packages/devtools/README.md)、
   [docs/phase-7-verifier-devtools-plan.md](docs/phase-7-verifier-devtools-plan.md)、
   [docs/phase-7-verifier-devtools-acceptance.md](docs/phase-7-verifier-devtools-acceptance.md)

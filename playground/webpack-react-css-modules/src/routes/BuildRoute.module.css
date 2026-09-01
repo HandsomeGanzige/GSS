@@ -1,0 +1,170 @@
+.route {
+  display: contents;
+}
+
+.environmentBar {
+  composes: sharedSurface from "../styles/SharedSurface.module.css";
+  display: flex;
+  grid-column: span 12;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+}
+
+.environmentLabel {
+  margin: 0 0 8px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.environmentSwitch {
+  display: flex;
+  gap: 6px;
+}
+
+.environmentIdle {
+  padding: 8px 12px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.environmentActive {
+  padding: 8px 12px;
+  color: #ffffff;
+  background: #1d4ed8;
+  border: 1px solid #1d4ed8;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.environmentIdle:hover {
+  background: #e2e8f0;
+}
+
+.environmentActive:active {
+  background: #1e40af;
+}
+
+.environmentIdle:focus-visible {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 2px;
+}
+
+.environmentActive:focus-visible {
+  outline: 3px solid #93c5fd;
+  outline-offset: 2px;
+}
+
+.icssProbe {
+  display: grid;
+  gap: 6px;
+  min-width: 240px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.artifactDetail {
+  display: grid;
+  grid-column: span 12;
+  grid-template-columns: minmax(160px, 1fr) minmax(220px, 2fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding: 14px 16px;
+  color: #334155;
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+}
+
+.preprocessorMatrix {
+  display: grid;
+  grid-column: span 12;
+  gap: 14px;
+  padding: 18px;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+}
+
+.matrixHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.matrixTitle {
+  margin: 0;
+  color: #0f172a;
+  font-size: 20px;
+  line-height: 1.2;
+}
+
+.modeBadge {
+  padding: 6px 9px;
+  color: #0f766e;
+  background: #ccfbf1;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.sourceGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.sourceCard {
+  display: grid;
+  gap: 5px;
+  padding: 12px;
+  color: #475569;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.sourceTitle {
+  color: #0f172a;
+  font-size: 14px;
+}
+
+@media (max-width: 720px) {
+  .environmentBar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .environmentSwitch {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .icssProbe {
+    min-width: 0;
+  }
+
+  .artifactDetail {
+    grid-template-columns: 1fr;
+  }
+
+  .matrixHeader {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .sourceGrid {
+    grid-template-columns: 1fr;
+  }
+}

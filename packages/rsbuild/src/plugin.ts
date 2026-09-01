@@ -12,6 +12,7 @@ import type {
   Rspack
 } from '@rsbuild/core';
 import type { TransformCssOptions } from '@semantic-atomic-css/core';
+import { resolveCssLoaderCoreOptions } from '@semantic-atomic-css/css-loader-bridge';
 import {
   createBrowserOverlayRuntime,
   createDevReportEnvelope,
@@ -324,15 +325,9 @@ function getEnvironmentState(
   return state;
 }
 
-/** build 默认 compact、dev 默认 readable，显式 core 配置优先。 */
+/** 复用 shared seam 的环境默认，同时尊重用户显式 class name 策略。 */
 export function resolveCoreOptions(core: TransformCssOptions, isDev: boolean): TransformCssOptions {
-  return {
-    ...core,
-    className: {
-      strategy: core.className?.strategy ?? (isDev ? 'readable' : 'compact'),
-      prefix: core.className?.prefix
-    }
-  };
+  return resolveCssLoaderCoreOptions(core, isDev);
 }
 
 /** 配置保护：只允许已验证的 web/default-export/css-loader array 路线。 */

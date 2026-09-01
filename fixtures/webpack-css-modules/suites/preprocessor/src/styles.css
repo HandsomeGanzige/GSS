@@ -1,0 +1,14 @@
+:root {
+  color-scheme: light;
+  font-family: sans-serif;
+}
+
+body {
+  margin: 0;
+}
+
+pre {
+  min-width: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

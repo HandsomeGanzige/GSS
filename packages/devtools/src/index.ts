@@ -20,7 +20,10 @@ export {
 } from './verifier.js';
 export type {
   DevReportEnvelope,
-  DevReportEnvironment
+  DevReportEnvironment,
+  ErrorDevReportEnvelope,
+  IdleDevReportEnvelope,
+  ReadyDevReportEnvelope
 } from './protocol.js';
 export type { BrowserOverlayRuntimeOptions } from './overlay.js';
 export type {

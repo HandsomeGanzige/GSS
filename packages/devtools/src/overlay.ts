@@ -85,12 +85,13 @@ export function createBrowserOverlayRuntime(options: BrowserOverlayRuntimeOption
   const isFiniteNumber = (value) => typeof value === 'number' && Number.isFinite(value);
   const validatePayload = (payload) => {
     if (!isRecord(payload)) invalidPayload();
-    if (payload.adapter !== 'vite' && payload.adapter !== 'rsbuild') invalidPayload();
-    if (payload.status !== 'idle' && payload.status !== 'ready') invalidPayload();
+    if (payload.adapter !== 'vite' && payload.adapter !== 'rsbuild' && payload.adapter !== 'webpack') invalidPayload();
+    if (payload.status !== 'idle' && payload.status !== 'ready' && payload.status !== 'error') invalidPayload();
     if (!Array.isArray(payload.environments)) invalidPayload();
     if (payload.status === 'idle' && payload.environments.length !== 0) invalidPayload();
     if (payload.status === 'ready' && payload.environments.length === 0) invalidPayload();
-    if (payload.status === 'idle') return payload;
+    if (payload.status === 'error' && typeof payload.error !== 'string') invalidPayload();
+    if (payload.status === 'idle' || payload.status === 'error') return payload;
     for (const environment of payload.environments) {
       if (!isRecord(environment) || !isRecord(environment.report)) invalidPayload();
       const report = environment.report;
@@ -118,6 +119,13 @@ export function createBrowserOverlayRuntime(options: BrowserOverlayRuntimeOption
         button.textContent = 'GSS · idle';
         setRows([['Adapter', payload.adapter], ['Modules', 0]]);
         note.textContent = '等待 CSS Modules 完成首次转换。';
+        return;
+      }
+      if (payload.status === 'error') {
+        button.dataset.health = 'blocked';
+        button.textContent = 'GSS · error';
+        setRows([['Adapter', payload.adapter], ['Last good environments', payload.environments.length]]);
+        note.textContent = payload.error;
         return;
       }
       const reports = payload.environments.map((environment) => environment.report);

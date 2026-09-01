@@ -17,6 +17,7 @@
 | 修改验收流程 | `fixtures/vite-css-modules`、对应 acceptance 文档 |
 | 修改 Phase 4 行为或 analyzer 风险模型 | 对应的 `docs/phase-4-*.md`、相关测试 |
 | 修改 Rsbuild adapter | `docs/phase-6-rsbuild-rspack-adapter-*.md`、相关测试 |
+| 修改 Webpack adapter 或 css-loader shared seam | `docs/phase-9-webpack-adapter-*.md`、Phase 6 文档、相关测试 |
 | 修改 verifier、dev report 或 overlay | `docs/phase-7-verifier-devtools-*.md`、相关测试 |
 
 不要把上述文档整段复制回本文件。若代码、测试和文档互相矛盾，先确认当前实际行为和差异影响；
@@ -61,10 +62,14 @@
 | `packages/devtools` | computed style verifier、style diff、dev report 协议和隔离 overlay runtime | 不转换 CSS，不读取项目文件，不依赖具体 adapter 或把 Playwright 变成生产依赖 |
 | `packages/vite` | 复用 Vite 原生 CSS Modules 结果，增强 tokens，聚合 CSS 并输出 assets | 不自行实现 scoped class 或 CSS Modules 编译语义，不静默忽略不支持的配置 |
 | `packages/rsbuild` | 复用 Rsbuild 原生 CSS Modules rows/locals，增强 tokens，聚合 CSS 并输出 assets | 不自行实现 scoping/ICSS/预处理器，不依赖 Vite 或 raw Rspack 私有状态 |
+| `packages/css-loader-bridge` | 共享 css-loader rows/locals 转换、稳定聚合和 browser owner | 不拥有 Webpack/Rspack loader request、compiler、HTML 或 dev-server 生命周期，不作为用户入口 |
+| `packages/webpack` | 复用 Webpack 5 原生 css-loader rows/locals、缓存、HTML 与 dev-server 生命周期 | 不实现第二套 CSS Modules/预处理器/资源，不读取 Webpack 私有 module state |
 | `fixtures/vite-css-modules` | 小型、稳定、自动化真实 Vite 回归 fixture | 不扩展成展示型业务项目 |
 | `fixtures/rsbuild-css-modules` | 小型、稳定、自动化真实 Rsbuild 回归 fixture | 不扩展成展示型业务项目 |
+| `fixtures/webpack-css-modules` | 小型、稳定、自动化真实 Webpack/cache 回归 fixture | 不扩展成展示型业务项目 |
 | `playground/vite-react-css-modules` | 中型真实场景 Pilot 和人工浏览器验收 | 未经明确决策不加入自动门禁 |
 | `playground/rsbuild-react-css-modules` | 中型 Rsbuild 多入口 Pilot 和人工浏览器验收 | 未经明确决策不加入自动门禁 |
+| `playground/webpack-react-css-modules` | 中型 Webpack 多入口 Pilot 和人工浏览器验收 | 未经明确决策不加入自动门禁 |
 
 跨包改动前先确认职责归属。可以在单个包内完成的逻辑，不应通过反向依赖或复制实现扩散到其他包。
 
@@ -88,7 +93,9 @@
   selector grammar 或 guard，Analyzer 也不以缺少 usage evidence 的共现猜测替代 Core 判断。
 - 当前可处理的条件上下文限于已验证的 `@media` 和 `@supports` 路径。扩展 selector 或 at-rule 前，
   必须先给出语义等价依据并补充测试。
-- atomic class 顺序必须稳定；同一个 local class 内保持 declaration 原始顺序。
+- atomic class 顺序必须稳定；同一个 local class 内保持 declaration 原始顺序。跨模块同权重 declaration
+  不继承业务 CSS 的 import 顺序：全局 adapter 按 canonical source id / atomic key 聚合并去重。业务代码不得把
+  多个 CSS Modules token 的最终 winner 交给偶然的文件加载顺序；这类组合不属于 semantic/native parity 契约。
 - `!important` 必须进入 atomic key，不能与非 important declaration 复用。
 - CSS custom property declaration 默认保留；使用 `var(...)` 的普通 declaration 可以 atomize。
 - 不通过提高 atomization rate 改变 cascade 语义。shorthand/longhand、重复属性和 contextual rule
@@ -109,8 +116,10 @@
 | devtools、dev report API 或 overlay | 运行 `pnpm --filter @semantic-atomic-css/devtools verify`、对应 adapter verify 和 `pnpm verify` |
 | Vite adapter、CSS Modules 继承、生成 CSS、manifest/report | 更新对应测试；运行 `pnpm --filter @semantic-atomic-css/vite verify` 和 `pnpm verify` |
 | Rsbuild adapter、CSS Modules 继承、生成 CSS、manifest/report | 更新对应测试；运行 `pnpm --filter @semantic-atomic-css/rsbuild verify` 和 `pnpm verify` |
+| css-loader shared seam | 运行 bridge、Rsbuild、Webpack verify；影响 runtime/cascade 时再跑两套 visual |
+| Webpack adapter、cache、HTML、生成 CSS、manifest/report | 运行 `pnpm --filter @semantic-atomic-css/webpack verify`、Webpack fixture verify 和 `pnpm verify` |
 | 配置保护、预处理器、资源或 analyzer 集成 | 运行 `pnpm verify` |
-| 浏览器渲染、cascade、响应式或 computed style | 运行两个受影响 adapter 对应 fixture 的 `test:visual` |
+| 浏览器渲染、cascade、响应式或 computed style | 运行受影响 adapter 对应 fixture 的 `test:visual` |
 
 新增行为必须同时覆盖成功路径和保守失败/保留路径。涉及 compiler 时重点检查 safe atomization、pseudo、
 `@media`/`@supports`、unsafe preservation、custom property、`!important`、稳定输出以及

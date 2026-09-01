@@ -11,7 +11,8 @@ import {
   compactHashString,
   encodeCompactFingerprint,
   fingerprintString32,
-  hashString
+  hashString,
+  keyedHashString
 } from '../src/utils/hash.js';
 import { byteLength } from '../src/utils/bytes.js';
 import { createManifest } from '../src/output/createManifest.js';
@@ -69,11 +70,20 @@ describe('atomizer and registry', () => {
     expect(createAtomicClassName(input, { strategy: 'readable', prefix: '_' })).toBe(
       '_selector_qf5xvc_background-color_rgb_0_0_0_important'
     );
+    expect(createAtomicClassName(input, { strategy: 'readable-keyed', prefix: '_' })).toBe(
+      '_selector_qf5xvc_background-color_rgb_0_0_0_important_1935xh73h2oipzebxdk5ts3u9'
+    );
     expect(createAtomicClassName(input, { strategy: 'hash', prefix: '_' })).toBe('_011ty7h5');
     expect(createAtomicClassName(input, { strategy: 'compact', prefix: '' })).toBe('b1ty7h5');
+    expect(createAtomicClassName(input, { strategy: 'compact-keyed', prefix: '' })).toBe(
+      'c1935xh73h2oipzebxdk5ts3u9'
+    );
   });
 
-  it('固定 compact fingerprint/encoder 向量、Unicode 遍历与 lower-base36 边界', () => {
+  it('固定 readable-keyed 128-bit 与 compact 32-bit 向量及 Unicode 遍历语义', () => {
+    expect(keyedHashString('')).toBe('6ezv16m7wweombnkd3ldlii6l');
+    expect(keyedHashString('hello')).toBe('dholeermirnvocip7hfyr0cdv');
+    expect(keyedHashString('原子😀')).toBe('0d6oeqnf8pii3dfwfv5p5rx87');
     expect(fingerprintString32('')).toBe(0x811c9dc5);
     expect(compactHashString('')).toBe('aztntfp');
     expect(compactHashString('hello')).toBe('am3bicr');
@@ -93,11 +103,42 @@ describe('atomizer and registry', () => {
     }
   });
 
+  it('compact-keyed 消除独立 registry 无法协调的 32-bit compact 碰撞', () => {
+    const input = (value: string) => ({
+      declaration: { prop: 'width', value, important: false },
+      selectorIdentity: baseSelectorIdentity,
+      context: {}
+    });
+    const first = input('calc(204705096px + 29%)');
+    const second = input('calc(3791420266px + 35%)');
+
+    expect(createAtomicClassName(first, { strategy: 'compact', prefix: '' }))
+      .toBe(createAtomicClassName(second, { strategy: 'compact', prefix: '' }));
+    expect(createAtomicClassName(first, { strategy: 'compact-keyed', prefix: '' }))
+      .not.toBe(createAtomicClassName(second, { strategy: 'compact-keyed', prefix: '' }));
+  });
+
+  it('readable-keyed 消除既有 5 字符 calc 摘要碰撞复现', () => {
+    const input = (value: string) => ({
+      declaration: { prop: 'width', value, important: false },
+      selectorIdentity: baseSelectorIdentity,
+      context: {}
+    });
+    const first = input('calc(1559px + 1%)');
+    const second = input('calc(4151px + 1%)');
+
+    expect(hashString(createAtomicKey(first), 5)).toBe(hashString(createAtomicKey(second), 5));
+    expect(createAtomicClassName(first, { strategy: 'readable-keyed', prefix: '_' }))
+      .not.toBe(createAtomicClassName(second, { strategy: 'readable-keyed', prefix: '_' }));
+  });
+
   it.each([
     [{}, { strategy: 'readable', prefix: '_' }],
     [{ className: { strategy: 'readable' as const } }, { strategy: 'readable', prefix: '_' }],
+    [{ className: { strategy: 'readable-keyed' as const } }, { strategy: 'readable-keyed', prefix: '_' }],
     [{ className: { strategy: 'hash' as const } }, { strategy: 'hash', prefix: '_' }],
     [{ className: { strategy: 'compact' as const } }, { strategy: 'compact', prefix: '' }],
+    [{ className: { strategy: 'compact-keyed' as const } }, { strategy: 'compact-keyed', prefix: '' }],
     [{ className: { prefix: 'P' } }, { strategy: 'readable', prefix: 'P' }],
     [{ className: { strategy: 'compact' as const, prefix: 'P' } }, { strategy: 'compact', prefix: 'P' }],
     [{ className: { strategy: 'compact' as const, prefix: '' } }, { strategy: 'compact', prefix: '' }],
@@ -106,7 +147,7 @@ describe('atomizer and registry', () => {
     expect(resolveTransformOptions(options).className).toEqual(expected);
   });
 
-  it('三种策略都保留自定义与数字开头 prefix 的既有修复语义', () => {
+  it('所有策略都保留自定义与数字开头 prefix 的既有修复语义', () => {
     const input = {
       declaration: { prop: 'color', value: 'red', important: false },
       selectorIdentity: baseSelectorIdentity,
@@ -119,6 +160,7 @@ describe('atomizer and registry', () => {
     expect(createAtomicClassName(input, { strategy: 'hash', prefix: '' })).toBe('_0190kqgs');
     expect(createAtomicClassName(input, { strategy: 'compact', prefix: 'P' })).toBe('Pb90kqgs');
     expect(createAtomicClassName(input, { strategy: 'compact', prefix: '1' })).toBe('_1b90kqgs');
+    expect(createAtomicClassName(input, { strategy: 'compact-keyed', prefix: 'P' })).toMatch(/^Pc[0-9a-z]{25}$/);
   });
 
   it('在 readable class name 碰撞时追加稳定 suffix', () => {

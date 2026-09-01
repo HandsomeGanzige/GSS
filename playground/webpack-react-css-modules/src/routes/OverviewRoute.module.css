@@ -1,0 +1,125 @@
+.route {
+  --route-accent: #0f766e;
+  display: contents;
+}
+
+.controlBar {
+  composes: sharedSurface from "../styles/SharedSurface.module.css";
+  display: flex;
+  grid-column: span 12;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 16px;
+}
+
+.controlLabel {
+  margin: 0 0 8px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.segmented {
+  display: flex;
+  gap: 6px;
+}
+
+.periodIdle {
+  min-width: 58px;
+  padding: 8px 12px;
+  color: #475569;
+  background: #f8fafc;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.periodActive {
+  min-width: 58px;
+  padding: 8px 12px;
+  color: #ffffff;
+  background: var(--route-accent);
+  border: 1px solid #0f766e;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.periodIdle:hover {
+  color: #0f172a;
+  background: #e2e8f0;
+}
+
+.periodActive:active {
+  background: #115e59;
+}
+
+.periodIdle:focus-visible {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 2px;
+}
+
+.periodActive:focus-visible {
+  outline: 3px solid #99f6e4;
+  outline-offset: 2px;
+}
+
+.filterField {
+  display: grid;
+  gap: 8px;
+  min-width: 180px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.selectControl {
+  min-height: 38px;
+  padding: 7px 10px;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+  text-transform: none;
+}
+
+.selectControl:focus-visible {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 2px;
+}
+
+@supports (display: grid) {
+  .controlBar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 220px;
+  }
+}
+
+@media (max-width: 640px) {
+  .controlBar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .segmented {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .periodIdle {
+    min-width: 0;
+  }
+
+  .periodActive {
+    min-width: 0;
+  }
+
+  .filterField {
+    min-width: 0;
+  }
+}

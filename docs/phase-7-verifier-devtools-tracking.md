@@ -1,5 +1,13 @@
 # Phase 7 验证器与调试体验推进记录
 
+## Phase 9 Webpack protocol 增量（2026-08-24）
+
+- dev report adapter enum 新增 `webpack`；最近 compilation 失败时允许 `status: "error"`、稳定 error 摘要
+  和最后一次成功 environments，下一次成功快照会恢复 ready。
+- overlay 对 error 使用 blocked 展示，不把失败轮次与成功 nested report 混合；既有 Vite/Rsbuild
+  idle/ready payload 与无 `schemaVersion` 契约不变。
+- Webpack fixture 真实 GET endpoint 与 overlay runtime 已纳入 visual 验收。
+
 ## 当前状态
 
 - Status: completed

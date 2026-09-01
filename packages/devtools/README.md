@@ -48,14 +48,16 @@ report 不写入时间戳或动态端口，只记录 label、run、viewport、ca
 
 ## Dev report 与 overlay
 
-Vite/Rsbuild adapter 显式启用 `devtools` 后，默认提供：
+Vite/Rsbuild/Webpack adapter 显式启用 `devtools` 后，默认提供：
 
-- `GET /__semantic-atomic-css/report`：包含 adapter、status 和 environments 的当前 JSON envelope。
+- `GET /__semantic-atomic-css/report`：包含 adapter、status 和 environments 的当前 JSON envelope；
+  `idle` 强制空 environments，`ready` 强制非空；Webpack 最近 compilation 失败时使用带稳定摘要的
+  `error` status，并可保留最后一次成功 environments。
 - browser overlay：同源轮询 report API，在 Shadow DOM 中展示 health、files、atomic、unsafe、preserved
   和 estimated diff。
 
 dev envelope 把既有 `TransformReport + analysis` 原样放在 `environments[].report` 中。
-endpoint 拒绝 dot-segment，两个 adapter 只处理 GET；其他 method 继续交给 dev server。overlay 的
+endpoint 拒绝 dot-segment，三个 adapter 只处理 GET；其他 method 继续交给 dev server。overlay 的
 动态文本只通过 `textContent` 写入，请求不重叠，BFCache 恢复后重启轮询。
 它仅校验展示必需的当前字段；非法 payload 会显示 `GSS · offline`
 和 `invalid-dev-report-payload`，不会把缺失值默认为零或 unknown。

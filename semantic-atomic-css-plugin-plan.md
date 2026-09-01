@@ -494,10 +494,12 @@ core 可以保持为通用 CSS transform engine，但这只是架构边界，不
 其中第 2 到第 9 步属于 core 可复用的 CSS transform 能力；第 1、10、11、12、13 步由具体
 CSS Modules adapter / integration layer 负责组织。
 
-atomic class name 提供 `readable`、`hash`、`compact` 三种策略。Core 直接默认保持
-`readable + "_"`；Vite/Rsbuild 在 dev 使用该可读默认，在 build 使用无 prefix、基于完整
-canonical atomic key 的 32-bit / 固定 7 字符 lower-base36 `compact`。显式 `hash` 和 prefix 行为保持兼容，
-不同 key 的命名碰撞仍由 registry 追加稳定 suffix 消解。
+atomic class name 提供 `readable`、`readable-keyed`、`hash`、`compact`、`compact-keyed` 五种策略。Core 与 Vite dev
+直接默认保持 `readable + "_"`，Vite build 默认使用无 prefix、基于完整 canonical atomic key 的
+32-bit / 固定 7 字符 lower-base36 `compact`。Rsbuild/Webpack 等独立 css-loader adapter 的 dev 默认
+`readable-keyed`、build 默认 `compact-keyed`，但所有显式 strategy 与 prefix 原样优先，不再静默改写。
+两种 keyed 策略使用完整 128-bit FNV-1a / 固定 25 位 lower-base36 摘要；registry 与 adapter closure
+继续检测极端碰撞，显式 `hash`、`compact` 和 Vite 默认字节保持兼容。
 
 ---
 
@@ -1420,7 +1422,7 @@ export type CompileCssModuleResult = {
 
 ### 16.1 早期配置草图（非当前 API）
 
-当前 Vite/Rsbuild adapter 配置以各 package README 和导出类型为准；以下内容仅保留产品选项的早期讨论。
+当前 Vite/Rsbuild/Webpack adapter 配置以各 package README 和导出类型为准；以下内容仅保留产品选项的早期讨论。
 
 ```ts
 semanticAtomicCss({
@@ -1863,6 +1865,29 @@ deferred。未来扩 operator、flag、namespace、
 
 ---
 
+### 21.9 阶段九：Webpack 5 CSS Modules 支持
+
+状态更新（2026-08-24）：Phase 9 已完成。`@semantic-atomic-css/webpack` 通过 Webpack 5 public
+`importModule`、css-loader array/default locals、processAssets、HtmlWebpackPlugin 与 webpack-dev-server
+接入 CSS/SCSS/Less Modules；不实现第二套 scoping、ICSS、预处理器或资源 graph。
+
+Rsbuild/Webpack 共同消费内部 `@semantic-atomic-css/css-loader-bridge` 的 rows/locals 纯转换、稳定聚合和
+browser owner，但各自保留 loader request、compiler 与 HTML/dev 生命周期。Webpack filesystem cache 使用
+loader-emitted content-addressed metadata，第二独立进程 cache hit 后仍可聚合，内部 asset 在 emit 前删除。
+build 使用 MiniCssExtractPlugin，dev 使用 style-loader 单一 owner；default token 始终保留 native scoped
+class 并只追加 atomic classes。css-loader adapters 的 readable token 使用 canonical-key hash 保证独立 registry
+与最终 CSS 闭合；跨模块同权重冲突遵循 canonical 全局 atomic 顺序，不继承业务 import 顺序。
+
+- `docs/phase-9-webpack-adapter-research.md`
+- `docs/phase-9-webpack-adapter-plan.md`
+- `docs/phase-9-webpack-adapter-tracking.md`
+- `docs/phase-9-webpack-adapter-acceptance.md`
+
+非目标继续包括 named exports、builtin CSS、完整 source map、SSR/worker/library/Module Federation 与
+CSS-only HMR；unsupported pipeline 必须 fail fast，不能读取 Webpack 私有 module state。
+
+---
+
 ## 22. 主要风险
 
 ### 22.1 技术风险
@@ -1916,8 +1941,9 @@ deferred。未来扩 operator、flag、namespace、
 当前产品改动至少需要满足以下条件：
 
 ```txt
-1. 根 pnpm verify 通过，并包含五个产品包与双 fixture 静态门禁
-2. 涉及渲染、cascade 或响应式行为时，Vite/Rsbuild 双 fixture visual 与 native 一致
+1. 根 pnpm verify 通过，并包含产品/内部包与三套 fixture 静态门禁
+2. 涉及渲染、cascade 或响应式行为时，受影响 adapter fixture visual 与 native 一致；跨模块同权重
+   declaration 不以业务 import 顺序决定 winner，不属于 parity 契约
 3. eligible selector 生成稳定 atomic CSS，semantic scoped class 始终保留
 4. 无法证明安全的 selector/declaration 完整 fallback，并输出可追踪 diagnostic/report
 5. manifest 能从 class mapping 追踪 atomic selector、declaration 与 source

@@ -1,0 +1,142 @@
+.route {
+  display: contents;
+}
+
+.filterBar {
+  composes: sharedSurface from "../styles/SharedSurface.module.css";
+  display: grid;
+  grid-column: span 12;
+  grid-template-columns: minmax(220px, 1fr) 180px auto;
+  gap: 16px;
+  align-items: end;
+  padding: 16px;
+}
+
+.searchField,
+.selectField {
+  display: grid;
+  gap: 8px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.textControl,
+.selectControl {
+  min-height: 40px;
+  padding: 8px 11px;
+  color: #0f172a;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font: inherit;
+  text-transform: none;
+}
+
+.textControl:focus-visible,
+.selectControl:focus-visible {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 2px;
+}
+
+.resultCount {
+  padding: 10px 12px;
+  color: #075985;
+  background: #e0f2fe;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.emptyState {
+  grid-column: span 12;
+  padding: 32px;
+  color: #64748b;
+  background: #ffffff;
+  border: 1px dashed #94a3b8;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.detailDrawer {
+  composes: sharedSurface from "../styles/SharedSurface.module.css";
+  display: grid;
+  grid-column: span 12;
+  gap: 14px;
+  padding: 18px;
+  border-left-color: #0f766e;
+  border-left-width: 4px;
+}
+
+.drawerHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.drawerKicker {
+  margin: 0 0 4px;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.drawerTitle {
+  margin: 0;
+  color: #111827;
+  font-size: 20px;
+}
+
+.drawerCopy {
+  margin: 0;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.closeButton {
+  padding: 8px 12px;
+  color: #334155;
+  background: #ffffff;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.closeButton:hover {
+  background: #f8fafc;
+}
+
+.closeButton:focus-visible {
+  outline: 3px solid #bfdbfe;
+  outline-offset: 2px;
+}
+
+.fileChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fileChip {
+  padding: 6px 8px;
+  color: #334155;
+  background: #f1f5f9;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+@media (max-width: 720px) {
+  .filterBar {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .resultCount {
+    width: fit-content;
+  }
+}
